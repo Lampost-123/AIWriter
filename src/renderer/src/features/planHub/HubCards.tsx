@@ -2,25 +2,24 @@
 // - NextCard, mid-story: YOU ARE HERE · CH 4, SC 2, "What happens next?", the last scene written in a line (the story
 //   index's gist, else its summary: nothing is sent to the AI to show it), a box for Adam's own words, what to plan (only
 //   the parts that make sense here), the plot threads waiting (each one ticked goes with the request), and Plan it.
-// - StartCard, a new story (or one planned but not written): "What is your story?", the one idea box (the Story builder's
-//   plot: the same field, never a third place to say it), how the cast and world stand with the way to them, what to
-//   plan and how much (In stages or All at once, acts, chapters and scenes; "Let the AI choose" goes by the idea's length).
+// - StartCard, a new story: "Plan your story", from the idea (written in Your idea, above it in Build with AI: never a
+//   second place to say it, so here it is quoted with the way back to it), how the cast and world stand with the way to
+//   them, what to plan and how much (In stages or All at once, acts, chapters and scenes; "Let the AI choose" goes by the
+//   idea's length).
 // - DriftCard: the story has moved on from the plan, in plain words, with Update the plan (the cards written again, shown
 //   first, kept or discarded) and Show me.
 
-import { useId, useRef } from 'react'
+import { useId } from 'react'
 import type { HubDrift, HubThread } from '@shared/contracts/planHub'
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { StoryBrief } from '@shared/contracts/storyBuilder'
 import type { ID } from '@shared/types'
-import { ArrowRight, Check, RotateCcw, Sparkles, Square, Users } from '@/components/ui/icons'
+import { ArrowRight, Check, Feather, RotateCcw, Sparkles, Square, Users } from '@/components/ui/icons'
 import { Button, Notice } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { HubStatus } from './HubStatus'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
-import { SaveNote } from '@/features/world/parts/SaveNote'
-import type { SaveStatus } from '@/features/world/parts/saver'
 import { PlanSize } from '@/features/outline/PlanSize'
 import type { PlanMode } from '@/features/outline/stages'
 import { gistLine, threadChip, type HubMode, type HubScope, type HubScopeId, type Where } from './hubLogic'
@@ -162,9 +161,10 @@ export function NextCard(p: NextCardProps): React.JSX.Element {
 
 export interface StartCardProps {
   mode: HubMode
+  /** The idea, as written in Your idea. */
   idea: string
-  onIdea: (v: string) => void
-  ideaSave: { status: SaveStatus; error: string | null }
+  /** Goes to Your idea (to write or change it). */
+  onIdea: () => void
   brief: StoryBrief | null
   onCastAndWorld: () => void
   scopes: HubScope[]
@@ -185,6 +185,14 @@ export interface StartCardProps {
   problem: string | null
 }
 
+/** The idea quoted on the card: its first sentences, up to about 220 characters. */
+export const ideaQuote = (idea: string): string => {
+  const t = idea.replace(/\s+/g, ' ').trim()
+  if (t.length <= 220) return t
+  const cut = t.slice(0, 220)
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 180)).replace(/[\s,;:]+$/, '')}…`
+}
+
 /** How the cast and world stand, from the Story builder's brief: "Built", "12 planned, not built yet", "Not planned yet". */
 function castWords(brief: StoryBrief | null): { words: string; done: boolean } {
   if (brief?.built) return { words: 'Built, in your codex.', done: true }
@@ -195,39 +203,28 @@ function castWords(brief: StoryBrief | null): { words: string; done: boolean } {
 
 export function StartCard(p: StartCardProps): React.JSX.Element {
   const box = useId()
-  const ref = useRef<HTMLTextAreaElement>(null)
   const cast = castWords(p.brief)
   const whole = p.scope === 'whole-story'
+  const idea = p.idea.trim()
   return (
     <section aria-labelledby={`${box}-h`} className="hub-card hub-next is-start" data-start-card>
       <div className="hub-next-head">
         <p className="hub-kicker">{p.mode === 'start' ? 'A NEW STORY' : 'PLANNED, NOTHING WRITTEN YET'}</p>
         <h2 id={`${box}-h`} className="hub-h1">
-          What is your story?
+          Plan your story
         </h2>
       </div>
-      <div className="flex items-end justify-between gap-2">
-        <label htmlFor={box} className="hub-label">
-          Your idea, in your own words: a line or two, or the whole story
-        </label>
-        <SaveNote status={p.ideaSave.status} error={p.ideaSave.error} />
+      <div className="hub-cast" data-idea-status>
+        <Feather size={14} aria-hidden className={idea ? 'text-success' : 'text-muted'} />
+        <span className="min-w-0 flex-1">
+          <span className="font-medium text-fg">From your idea: </span>
+          {idea ? <span className="hub-idea-q">“{ideaQuote(idea)}”</span> : 'not written yet. A line or two on what the story is about is enough.'}
+        </span>
+        <button type="button" className="hub-link" onClick={p.onIdea}>
+          {idea ? 'Change it' : 'Write your idea'}
+          <ArrowRight size={12} aria-hidden />
+        </button>
       </div>
-      <AutoTextarea
-        ref={ref}
-        id={box}
-        value={p.idea}
-        minRows={4}
-        maxRows={16}
-        placeholder="For example: a ferryman who owes the Duke money is paid to smuggle the heir out of Varn."
-        className="hub-box is-idea"
-        onChange={(e) => p.onIdea(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault()
-            if (!p.running) p.onPlan()
-          }
-        }}
-      />
       <div className="hub-cast" data-cast-status>
         <Users size={14} aria-hidden className={cast.done ? 'text-success' : 'text-muted'} />
         <span className="min-w-0 flex-1">
@@ -253,7 +250,7 @@ export function StartCard(p: StartCardProps): React.JSX.Element {
         />
       ) : null}
       {p.problem ? <Notice>{p.problem}</Notice> : null}
-      <PlanButton running={p.running} status={p.status} onPlan={() => (p.idea.trim() ? p.onPlan() : (ref.current?.focus(), p.onPlan()))} onStop={p.onStop} />
+      <PlanButton running={p.running} status={p.status} onPlan={p.onPlan} onStop={p.onStop} />
     </section>
   )
 }

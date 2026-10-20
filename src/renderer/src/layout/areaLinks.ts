@@ -25,7 +25,8 @@ import {
 } from '@/components/ui/icons'
 import { useApp, type InspectorTab, type View } from '@/lib/store'
 import { openConsistency } from '@/features/consistency/checkStore'
-import { openPlanHub } from '@/features/outline/open'
+import { openChapterPlan, openPlanHub, openSceneTool } from '@/features/outline/open'
+import { useOutlineStore } from '@/features/binder/outlineStore'
 import { openRecipes } from '@/features/recipes/recipeStore'
 import { openStorySettings } from '@/features/stories/storyActions'
 import { CODEX_KINDS } from '@/features/codex/codexLogic'
@@ -95,58 +96,48 @@ export function writeLinks(c: LinkContext): AreaLink[] {
   ]
 }
 
+/** Whether the open scene has words (the outline in the binder says). */
+const sceneWritten = (sceneId: ID | null): boolean => (useOutlineStore.getState().outline?.scenes.find((s) => s.id === sceneId)?.wordCount ?? 0) > 0
+
 /**
- * Plan: the Plan hub first (2026-10-20: the one place to plan with AI), the scene card's ideas and interview (with no
- * scene open, the hub at "the next scene"), the plot threads, story recipes, and the Story builder's first steps.
+ * Plan: Build with AI first (2026-10-20: every AI building tool for the story in one area; the Plan hub, the Story
+ * builder and a chapter's plan before), next scene ideas and Interview me (the open scene, while it is planned, in Build
+ * with AI's story line with its ideas or interview open; else the story line at "the next scene"), the plot threads and
+ * story recipes.
  */
 export function planLinks(c: LinkContext): AreaLink[] {
-  const planning = c.view.kind === 'outline' ? c.view : null
   const storyId = c.storyId
-  // With no scene open there is no card to show: the hub, planning what comes next, is the useful thing.
-  const orHub = (run: () => void) => (): void => {
-    if (c.sceneId) run()
-    else if (storyId) openPlanHub(storyId, { at: 'next-scene' })
-  }
+  const building = c.view.kind === 'planHub' || c.view.kind === 'outline' || c.view.kind === 'storyBuilder' || c.view.kind === 'recipePlan'
   return [
     {
       id: 'planHub',
-      label: 'Plan with AI',
-      hint: 'The one place to plan with AI: what happens next, or the whole story from your idea',
+      label: 'Build with AI',
+      hint: 'Every part of your story built with AI, in one place: your idea, the cast and world, the story line, the threads',
       icon: ListTree,
       disabled: !storyId,
-      active: c.view.kind === 'planHub' || (!!planning && !planning.chapterId) || (c.view.kind === 'storyBuilder' && c.view.step === 'outline'),
+      active: building,
       run: () => storyId && openPlanHub(storyId)
     },
     {
       id: 'ideas',
       label: 'Next scene ideas',
-      hint: c.sceneId ? 'On an empty scene’s card: three directions for what happens next' : 'Plan what happens next with AI',
+      hint: 'Three directions for a planned scene, in Build with AI’s story line',
       icon: Lightbulb,
       disabled: !storyId,
       active: false,
-      run: orHub(openSceneCard)
+      run: () => storyId && openSceneTool(storyId, c.sceneId, 'ideas', sceneWritten(c.sceneId))
     },
     {
       id: 'interview',
       label: 'Interview me',
-      hint: c.sceneId ? 'On the scene’s card: a few questions, and the card filled in from your answers' : 'Plan what happens next with AI',
+      hint: 'A few questions about a planned scene, and its card filled in from your answers, in Build with AI’s story line',
       icon: MessageCircleQuestion,
       disabled: !storyId,
       active: false,
-      run: orHub(openSceneCard)
+      run: () => storyId && openSceneTool(storyId, c.sceneId, 'interview', sceneWritten(c.sceneId))
     },
     { id: 'threads', label: 'Plot threads board', icon: Spool, active: is(c.view, 'threads'), run: () => go({ kind: 'threads' }) },
-    { id: 'recipes', label: 'Story recipes', icon: CookingPot, active: is(c.view, 'recipes') || is(c.view, 'recipePlan'), run: openRecipes },
-    // Last, so the places that pick links by position keep theirs (layout/desk/RoomFrame.tsx).
-    {
-      id: 'storyBuilder',
-      label: 'The idea, cast and world',
-      hint: 'The Story builder: your idea, then the whole cast and world, built with the AI',
-      icon: WandSparkles,
-      disabled: !c.storyId,
-      active: c.view.kind === 'storyBuilder' && c.view.step !== 'outline',
-      run: () => c.storyId && go({ kind: 'storyBuilder', storyId: c.storyId, step: 'idea' })
-    }
+    { id: 'recipes', label: 'Story recipes', icon: CookingPot, active: is(c.view, 'recipes'), run: openRecipes }
   ]
 }
 
@@ -164,17 +155,16 @@ export function boardLink(c: LinkContext): AreaLink {
   }
 }
 
-/** Plan a chapter: one link for each of the open story's chapters (its plan from its interview). */
+/** Plan a chapter: one link for each of the open story's chapters (Plan this chapter, open in its row of Build with AI). */
 export function chapterLinks(c: LinkContext): AreaLink[] {
-  const planning = c.view.kind === 'outline' ? c.view : null
   const storyId = c.storyId
   if (!storyId) return []
   return c.chapters.map((ch, i) => ({
     id: ch.id,
     label: ch.title.trim() || `Chapter ${i + 1}`,
     icon: NotebookText,
-    active: planning?.chapterId === ch.id,
-    run: () => go({ kind: 'outline', storyId, chapterId: ch.id })
+    active: false,
+    run: () => openChapterPlan(storyId, ch.id)
   }))
 }
 

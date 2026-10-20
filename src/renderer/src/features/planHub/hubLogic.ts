@@ -403,6 +403,29 @@ export function chaptersHolding(rows: readonly LineRow[], sceneIds: readonly ID[
 }
 
 /**
+ * What to open so a chapter (or a scene) of the story shows in the story line (Build with AI, a way in that names it):
+ * the row holding it (a run of written chapters, a written act, the planned stretch) and, in the planned stretch, the
+ * chapter itself, with its scenes showing. The chapter being written shows already.
+ */
+export function rowsToOpen(rows: readonly LineRow[], at: { chapterId?: ID | null; sceneId?: ID | null }): { rowKeys: string[]; chapterIds: ID[]; chapterId: ID | null } {
+  const rowKeys: string[] = []
+  const chapterIds: ID[] = []
+  let chapterId: ID | null = at.chapterId ?? null
+  for (const r of rows) {
+    if (r.kind === 'written-act' || r.kind === 'written-chapters' || r.kind === 'planned') {
+      const c = r.chapters.find((x) => x.id === at.chapterId || (!!at.sceneId && x.scenes.some((s) => s.id === at.sceneId)))
+      if (!c) continue
+      chapterId ??= c.id
+      rowKeys.push(r.key)
+      if (r.kind === 'planned') chapterIds.push(c.id)
+    }
+    if ((r.kind === 'current' || r.kind === 'planned-scenes') && (r.chapter.id === at.chapterId || (!!at.sceneId && r.chapter.scenes.some((s) => s.id === at.sceneId))))
+      chapterId ??= r.chapter.id
+  }
+  return { rowKeys, chapterIds, chapterId }
+}
+
+/**
  * What each suggestion is called in the story line, by key ("Ch 4 · Sc 3", "Ch 5", "Act 2"), counting from where it
  * goes: after `base.acts` acts and `base.chapters` chapters; scenes for a chapter the story has (`lead`) after its
  * `lead.scenes` scenes. Discarded ones aren't counted, so the numbers are those Keep gives.

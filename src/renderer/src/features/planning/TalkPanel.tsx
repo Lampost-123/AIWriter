@@ -35,6 +35,7 @@ function Lamp(): React.JSX.Element {
 export function TalkPanel({
   scope,
   title = 'Talk it over',
+  about,
   intro,
   placeholder,
   quick = [],
@@ -49,6 +50,8 @@ export function TalkPanel({
 }: {
   scope: string
   title?: string
+  /** What it is about now, after its title ("Cast and world": Build with AI's section in view). */
+  about?: string
   /** What talking it over does here, in a line, before anything is said. */
   intro: ReactNode
   placeholder: string
@@ -78,8 +81,11 @@ export function TalkPanel({
   const waiting = !!(talk.preview && preview)
   const applyNow = canApplyStraightAway && auto
 
+  // The newest words come into view as the talk goes on (never before anything is said: the intro stays at the top).
+  const said = talk.turns.length > 0 || running
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    if (said) end.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [talk.turns.length, running, talk.running?.text, waiting, !!talk.error])
 
   // Changes applied as they come, when Adam has asked for that.
@@ -115,7 +121,15 @@ export function TalkPanel({
     <section aria-label={title} className={cn('flex flex-col overflow-hidden rounded-xl border border-line bg-surface', className)} data-talk={scope}>
       <header className="flex items-center gap-2 border-b border-line px-3.5 py-2.5">
         <MessagesSquare size={14} className="text-ai" aria-hidden />
-        <h2 className="flex-1 text-[12.5px] font-semibold text-fg">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg">
+          {title}
+          {about ? (
+            <span className="font-normal text-faint" data-talk-about>
+              {' '}
+              · {about}
+            </span>
+          ) : null}
+        </h2>
         {talking && !running ? (
           <button
             type="button"

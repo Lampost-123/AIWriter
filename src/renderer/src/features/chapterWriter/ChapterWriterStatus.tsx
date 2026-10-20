@@ -12,7 +12,7 @@ import { costWords, progressLine } from './chapterWriterLogic'
 import { openChapterPlan, showReport, stopChapterWriter, useChapterWriter } from './chapterWriterStore'
 
 const slotButton =
-  'flex h-7 max-w-[260px] items-center gap-2 rounded-md px-2 text-[12px] outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 animate-fade-in'
+  'flex h-7 min-w-0 max-w-[260px] items-center gap-2 overflow-hidden rounded-md px-2 text-[12px] outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 animate-fade-in'
 
 export function ChapterWriterStatus(): React.JSX.Element | null {
   const progress = useChapterWriter((s) => s.progress)

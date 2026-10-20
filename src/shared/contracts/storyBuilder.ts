@@ -164,6 +164,11 @@ export interface PlanChatRequest {
   current: string
   history: ChatTurn[]
   message: string
+  /**
+   * What Adam is looking at in Build with AI while he talks (2026-10-20): "his idea", "the cast and world", "the story's
+   * open plot threads". Left out for the story line (the plan itself, the talk's own subject).
+   */
+  looking?: string
 }
 
 /**

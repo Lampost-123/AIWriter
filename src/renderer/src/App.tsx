@@ -33,9 +33,8 @@ import { CommandPalette } from '@/features/palette/CommandPalette'
 import { ShortcutsList } from '@/features/palette/ShortcutsList'
 import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
-import { ChapterPlanner } from '@/features/outline/ChapterPlanner'
-import { RecipeStoryPlan, StoryBuilderView } from '@/features/storyBuilder/StoryBuilderView'
 import { PlanHub } from '@/features/planHub/PlanHub'
+import { buildRoute, type BuildView } from '@/features/planHub/buildLogic'
 import { WorldBuilderView } from '@/features/worldBuilder/WorldBuilderView'
 import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
@@ -44,8 +43,7 @@ import { closeAsk } from '@/features/ask/open'
 import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { RereadDialog } from '@/features/memory/RereadDialog'
 import { StoryFillDialog } from '@/features/memory/StoryFillDialog'
-import { ChapterWriterDialog } from '@/features/chapterWriter/ChapterWriterDialog'
-import { ChapterPlanReview } from '@/features/chapterWriter/ChapterPlanReview'
+import { listenChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { ScenePlanReview } from '@/features/planReview/ScenePlanReview'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
@@ -247,20 +245,16 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
       {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
-      {/* The Plan hub (2026-10-20): the one place to plan with AI. The outline helper is the hub now; a chapter's own plan stays. */}
-      {view.kind === 'planHub' && <PlanHub key={view.storyId} storyId={view.storyId} at={view.at} back={view.back} />}
-      {view.kind === 'outline' &&
-        (view.chapterId ? (
-          <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
-        ) : (
-          <PlanHub key={view.storyId} storyId={view.storyId} />
-        ))}
-      {view.kind === 'storyBuilder' && <StoryBuilderView key={view.storyId} storyId={view.storyId} step={view.step} />}
+      {/* Build with AI (2026-10-20): every AI building tool for a story in one area. The Story builder, the outline helper, a
+          chapter's plan and a recipe story's plan are its sections now; a view still naming them lands there. */}
+      {(view.kind === 'planHub' || view.kind === 'outline' || view.kind === 'storyBuilder' || view.kind === 'recipePlan') && (
+        <PlanHub key={view.storyId} view={buildRoute(view, view.storyId) as BuildView} />
+      )}
       {view.kind === 'worldBuilder' && <WorldBuilderView />}
       {view.kind === 'consistency' && <ConsistencyView key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'import' && <ImportView />}
       {view.kind === 'recipes' && <RecipesView page={view.page} recipeId={view.recipeId} />}
-      {view.kind === 'recipePlan' && <RecipeStoryPlan key={view.storyId} storyId={view.storyId} recipeId={view.recipeId} />}
+
       {/* The desk's story board (the Plan room's front page; only ever opened on the desk). */}
       {view.kind === 'board' && <StoryBoard key={view.storyId} storyId={view.storyId} chapterId={view.chapterId} ideasFor={view.ideasFor} />}
     </>
@@ -277,6 +271,8 @@ const BINDER_BUTTON = 'Show or hide the binder'
 function Workspace(): React.JSX.Element {
   const settings = useApp((s) => s.settings)!
   const update = useApp((s) => s.updateSettings)
+  // Write the whole chapter's runs: the top bar and Build with AI follow them, wherever Adam is.
+  useEffect(() => listenChapterWriter(), [])
   const view = useApp((s) => s.view)
   const sceneId = useApp((s) => s.sceneId)
   const askOpen = useApp((s) => s.askOpen)
@@ -438,8 +434,7 @@ function Workspace(): React.JSX.Element {
       <ExportDialogs />
       <RereadDialog />
       <StoryFillDialog />
-      <ChapterWriterDialog />
-      <ChapterPlanReview />
+
       {/* Show me the plan first: a scene's plan waiting for Adam before its draft is written. */}
       <ScenePlanReview />
       <FocusLayer />

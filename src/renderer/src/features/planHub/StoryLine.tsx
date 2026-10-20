@@ -1,25 +1,32 @@
-// The Plan hub's story line (2026-10-20): the story from start to end in a few rows, the AI's suggestions in their place.
-// What is written is folded away ("✓ Act 1 · Ch 1 to Ch 3 · written", Open), the chapter being written lists its scenes
-// so far, then YOU ARE HERE and the newest suggestions for what comes next; then what is planned but not written ("Ch 5 to
-// Ch 9 · planned, not written", Pick up from here opens it chapter by chapter) and acts that have no chapters yet (Plan its
-// chapters). Every chapter can carry its outline on (Adam, 2026-10-20: "carrying on the outline of a story that already
-// has chapters"): Add scenes to Ch N after its last scene, Plan its scenes when it has none, Fill in its empty cards; each
-// with the words in the box and the threads ticked, and the suggestions arrive under that chapter. A planned scene the
-// story has moved on from says so under it; Show me lights it up. Rows come from hubLogic.ts storyLine; suggestions are
-// drawn by LineSuggestions.tsx.
+// The story line (Build with AI's third section, 2026-10-20; the Plan hub's before): the story from start to end in a few
+// rows, the AI's suggestions in their place. What is written is folded away ("✓ Act 1 · Ch 1 to Ch 3 · written", Open),
+// the chapter being written lists its scenes so far, then YOU ARE HERE and the newest suggestions for what comes next;
+// then what is planned but not written ("Ch 5 to Ch 9 · planned, not written", Pick up from here opens it chapter by
+// chapter) and acts that have no chapters yet (Plan its chapters). Every chapter can carry its outline on: Add scenes to
+// Ch N after its last scene, Plan its scenes when it has none, Fill in its empty cards; each with the words in the box
+// and the threads ticked, and the suggestions arrive under that chapter. Each chapter planned or being written has, in
+// its own row, Plan this chapter (the chapter planner: its interview, its goal and scene cards, ChapterPlanPanel.tsx)
+// and Write this chapter (its plan to read, then how it goes, WritePanel.tsx); each planned scene has Ideas, Interview
+// me, Fill the card and Write it (SceneRow.tsx). A planned scene the story has moved on from says so under it; Show me
+// lights it up. Rows come from hubLogic.ts storyLine; suggestions are drawn by LineSuggestions.tsx.
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { HubDrift } from '@shared/contracts/planHub'
 import type { Chapter, ID, Outline } from '@shared/types'
-import { Check, ChevronRight, NotebookText, Plus, Sparkles, SquarePen } from '@/components/ui/icons'
+import { Check, ChevronRight, NotebookText, PenLine, Plus, Sparkles, SquarePen } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { reducedMotion } from '@/features/look/motion'
+import { useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { runBusy, treeOf, type HelperRun, type HelperSession } from '@/features/outline/helperStore'
 import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
 import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type LineChapter, type LineRow, type LineScene } from './hubLogic'
-import { addScenesTo, fillCardsIn, planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
+import { writeStep } from './buildLogic'
+import { addScenesTo, fillCardsIn, openPanel, planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
 import { BatchHead, LineSuggestions, shownNodes, WaitingRows } from './LineSuggestions'
+import { ChapterPlanPanel } from './ChapterPlanPanel'
+import { WritePanel } from './WritePanel'
+import { SceneRow } from './SceneRow'
 
 /** How long scenes stay lit after Show me. */
 export const LIT_MS = 6000
@@ -111,6 +118,53 @@ function ChapterActions({
   )
 }
 
+/** Plan this chapter and Write this chapter, in a chapter's row; while the AI writes it, how it is going. */
+function ChapterTools({ storyId, chapter, hub }: { storyId: ID; chapter: LineChapter; hub: HubState }): React.JSX.Element {
+  const progress = useChapterWriter((s) => (s.progress?.chapterId === chapter.id ? s.progress : null))
+  const open = hub.panel?.chapterId === chapter.id ? hub.panel.kind : null
+  const toggle = (kind: 'plan' | 'write'): void => openPanel(storyId, chapter.id, open === kind ? null : kind)
+  return (
+    <>
+      <button
+        type="button"
+        className={cn('hub-row-btn is-quiet', open === 'plan' && 'is-on')}
+        aria-expanded={open === 'plan'}
+        onClick={() => toggle('plan')}
+        data-plan-chapter={chapter.id}
+        title="This chapter’s own plan: interview me, its goal and its scene cards"
+      >
+        <NotebookText size={12} aria-hidden />
+        Plan this chapter
+      </button>
+      {chapter.scenes.length ? (
+        <button
+          type="button"
+          className={cn('hub-row-btn', open === 'write' && 'is-on', progress && 'is-busy')}
+          aria-expanded={open === 'write'}
+          onClick={() => toggle('write')}
+          data-write-chapter-btn={chapter.id}
+          title={progress ? 'The AI is writing this chapter: see how it is going' : 'Write the whole chapter with AI: its plan first, then every scene'}
+        >
+          <PenLine size={12} aria-hidden />
+          {progress ? `Writing · ${writeStep(progress.stage).words.replace(/^step /, '')}` : 'Write this chapter'}
+        </button>
+      ) : null}
+    </>
+  )
+}
+
+/** The panel open in a chapter's row, if any, brought into view (as far as needed) when it opens or changes. */
+function ChapterPanelFor({ storyId, chapter, hub }: { storyId: ID; chapter: LineChapter; hub: HubState }): React.JSX.Element | null {
+  const kind = hub.panel?.chapterId === chapter.id ? hub.panel.kind : null
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!kind) return
+    requestAnimationFrame(() => box.current?.scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }))
+  }, [kind])
+  if (!kind) return null
+  return <div ref={box} className="build-panel-wrap">{kind === 'plan' ? <ChapterPlanPanel storyId={storyId} chapter={chapter} /> : <WritePanel storyId={storyId} chapter={chapter} />}</div>
+}
+
 export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const { storyId, rows, run, tree, hub, mode, emptyCards } = p
   const busy = runBusy(run)
@@ -122,6 +176,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const driftBy = useMemo(() => new Map(p.drift.map((d) => [d.sceneId, d])), [p.drift])
   const lit = hub.lit && Date.now() - hub.lit.at < LIT_MS ? new Set(hub.lit.ids) : null
   const emptyIn = (chapterId: ID): ID[] => emptyCards[chapterId] ?? []
+  const toolFor = (sceneId: ID): 'ideas' | 'interview' | null => (hub.tool?.sceneId === sceneId ? hub.tool.kind : null)
 
   // Show me: the first lit scene comes into view once its row has opened.
   const litAt = hub.lit?.at ?? 0
@@ -200,6 +255,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
                   chapter={c}
                   actions={placed?.chapterId === c.id ? null : <ChapterActions storyId={storyId} chapter={c} empty={emptyIn(c.id)} busy={busy} quiet />}
                 />
+                <ChapterPanelFor storyId={storyId} chapter={c} hub={hub} />
                 {placed?.chapterId === c.id && batch ? <div className="hub-chap-batch">{batch}</div> : null}
               </div>
             ))}
@@ -210,7 +266,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
     if (row.kind === 'current') {
       const empty = emptyIn(row.chapter.id)
       items.push(
-        <li key={row.key} className="hub-row is-current" data-row="current">
+        <li key={row.key} className="hub-row is-current" data-row="current" data-chapter={row.chapter.id}>
           <span className="hub-row-mark is-done" aria-hidden>
             <Check size={13} />
           </span>
@@ -219,10 +275,18 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
             <span className="hub-dot"> · </span>
             {scenesLine(row.scenes, true)}
           </span>
-          {empty.length ? <ChapterActions storyId={storyId} chapter={row.chapter} empty={empty} busy={busy} withAdd={false} quiet /> : null}
-          <span className="hub-row-state">written</span>
+          <span className="hub-kid-actions">
+            {empty.length ? <ChapterActions storyId={storyId} chapter={row.chapter} empty={empty} busy={busy} withAdd={false} quiet /> : null}
+            <ChapterTools storyId={storyId} chapter={row.chapter} hub={hub} />
+          </span>
         </li>
       )
+      if (hub.panel?.chapterId === row.chapter.id)
+        items.push(
+          <li key={`${row.key}:panel`} className="hub-row-kids is-panel">
+            <ChapterPanelFor storyId={storyId} chapter={row.chapter} hub={hub} />
+          </li>
+        )
       // A batch for this chapter with nothing planned past the marker (its empty cards filled in) goes under it.
       if (placed?.rowKey === row.key && batch) items.push(batch)
       continue
@@ -242,25 +306,31 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
       const scenes = row.scenes.filter((s) => !kept.has(s.id))
       if (scenes.length) {
         items.push(
-          <li key={row.key} className="hub-row is-planned" data-row="planned-scenes">
-            <span className="hub-row-mark is-planned" aria-hidden />
-            <span className="hub-row-words">
-              <span className="hub-row-ch">Ch {row.chapter.no}</span>
-              <span className="hub-dot"> · </span>
-              {scenesLine(scenes, false)}
-            </span>
-            <span className="hub-row-state">planned</span>
+          <li key={row.key} className="hub-row is-planned is-stack" data-row="planned-scenes">
+            <div className="hub-row-line">
+              <span className="hub-row-mark is-planned" aria-hidden />
+              <span className="hub-row-words">
+                <span className="hub-row-ch">Ch {row.chapter.no}</span>
+                <span className="hub-dot"> · </span>
+                {scenes.length === 1 ? 'the next scene, planned' : `the next ${scenes.length} scenes, planned`}
+              </span>
+              <span className="hub-row-state">planned</span>
+            </div>
+            <div className="hub-kid-scenes is-flush">
+              {scenes.map((s) => (
+                <SceneRow
+                  key={s.id}
+                  storyId={storyId}
+                  scene={s}
+                  chapterNo={row.chapter.no}
+                  tool={toolFor(s.id)}
+                  lit={!!lit?.has(s.id)}
+                  note={driftBy.has(s.id) ? <DriftNote drift={driftBy.get(s.id)!} lit={!!lit?.has(s.id)} inline /> : null}
+                />
+              ))}
+            </div>
           </li>
         )
-        const notes = scenes.flatMap((s) => (driftBy.has(s.id) ? [driftBy.get(s.id)!] : []))
-        if (notes.length)
-          items.push(
-            <li key={`${row.key}:drift`} className="hub-row-kids">
-              {notes.map((d) => (
-                <DriftNote key={d.sceneId} drift={d} lit={!!lit?.has(d.sceneId)} />
-              ))}
-            </li>
-          )
       }
       // The rest of the chapter, planned past what is written, comes after its planned scenes.
       if (placed?.rowKey === row.key && batch) items.push(batch)
@@ -295,7 +365,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
                 {...p}
                 chapter={c}
                 actHead={c.actId && c.actId !== chapters[i - 1]?.actId ? c : null}
-                open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId))}
+                open={hub.openChapters.includes(c.id) || p.drift.some((d) => d.chapterId === c.id && lit?.has(d.sceneId)) || c.scenes.some((s) => hub.tool?.sceneId === s.id)}
                 batch={placed?.chapterId === c.id ? batch : null}
                 driftBy={driftBy}
                 lit={lit}
@@ -334,12 +404,11 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
   if (run && !placed && batch) items.push(batch)
 
   return (
-    <section aria-labelledby="hub-line-h" className="hub-line" data-story-line>
-      <h2 id="hub-line-h" className="hub-h2">
-        The story line
-      </h2>
+    <div className="hub-line" data-story-line>
       {items.length ? (
-        <ol className="hub-rows">{items}</ol>
+        <ol className="hub-rows" aria-label="The story line">
+          {items}
+        </ol>
       ) : (
         <div className="hub-line-empty" data-line-empty>
           <div className="hub-line-empty-rows" aria-hidden>
@@ -354,7 +423,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
           </p>
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -383,7 +452,10 @@ function WrittenChapter({ storyId, chapter, actions }: { storyId: ID; chapter: L
   )
 }
 
-/** A planned chapter inside the opened planned stretch: its goal, its scenes (a click away), and its ways to carry on. */
+/**
+ * A planned chapter inside the opened planned stretch: its goal, its scenes (each with what the AI can do for it), its
+ * ways to carry on, Plan this chapter and Write this chapter, and whichever of those is open.
+ */
 function PlannedChapter({
   storyId,
   chapter,
@@ -395,7 +467,8 @@ function PlannedChapter({
   busy,
   kept,
   empty,
-  outline
+  outline,
+  hub
 }: StoryLineProps & {
   chapter: LineChapter
   actHead: LineChapter | null
@@ -439,27 +512,23 @@ function PlannedChapter({
         </span>
         <span className="hub-kid-actions">
           {!batch ? <ChapterActions storyId={storyId} chapter={chapter} empty={empty} busy={busy} /> : null}
-          <button
-            type="button"
-            className="hub-row-btn is-quiet"
-            onClick={() => useApp.getState().navigate({ kind: 'outline', storyId, chapterId: chapter.id })}
-            title="This chapter's own plan: interview me, its scene cards, write the whole chapter"
-          >
-            <NotebookText size={12} aria-hidden />
-            Its plan
-          </button>
+          <ChapterTools storyId={storyId} chapter={chapter} hub={hub} />
         </span>
       </div>
       {chapter.goal.trim() ? <p className="hub-kid-goal">{chapter.goal.trim()}</p> : null}
+      <ChapterPanelFor storyId={storyId} chapter={chapter} hub={hub} />
       {open && scenes.length ? (
         <div className="hub-kid-scenes">
           {scenes.map((s) => (
-            <div key={s.id} className={cn('hub-scene', lit?.has(s.id) && 'is-lit')} data-scene-row={s.id}>
-              <button type="button" className="hub-scene-link" onClick={() => useApp.getState().selectScene(s.id, storyId)} title="Open this scene to write it">
-                {sceneName(s)}
-              </button>
-              {driftBy.has(s.id) ? <DriftNote drift={driftBy.get(s.id)!} lit={!!lit?.has(s.id)} inline /> : null}
-            </div>
+            <SceneRow
+              key={s.id}
+              storyId={storyId}
+              scene={s}
+              chapterNo={chapter.no}
+              tool={hub.tool?.sceneId === s.id ? hub.tool.kind : null}
+              lit={!!lit?.has(s.id)}
+              note={driftBy.has(s.id) ? <DriftNote drift={driftBy.get(s.id)!} lit={!!lit?.has(s.id)} inline /> : null}
+            />
           ))}
         </div>
       ) : null}

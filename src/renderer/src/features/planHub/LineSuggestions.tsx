@@ -22,6 +22,7 @@ import {
   discardSuggestion,
   dismissProblem,
   earlierShown,
+  keepSuggestions,
   putAwayEarlier,
   runBusy,
   stopOutline,
@@ -46,16 +47,19 @@ export function LineSuggestions({
   run,
   tree,
   labels,
-  earlier = false
+  earlier = false,
+  chapterId = null
 }: {
   storyId: ID
   run: HelperRun
   tree: TreeNode[]
   labels: Map<string, string>
   earlier?: boolean
+  /** A chapter's own session (Plan this chapter): its scene cards keep into that chapter. */
+  chapterId?: ID | null
 }): React.JSX.Element {
   const [editing, setEditing] = useState<string | null>(null)
-  const props: TreeProps & { labels: Map<string, string> } = { storyId, chapterId: null, run, current: currentOf(run, tree), editing, setEditing, earlier, labels }
+  const props: TreeProps & { labels: Map<string, string> } = { storyId, chapterId, run, current: currentOf(run, tree), editing, setEditing, earlier, labels }
   const nodes = shownNodes(run, tree).filter((n) => run.decisions[n.key]?.status !== 'discarded')
   return (
     <div className="hub-sugs" data-suggestions>
@@ -85,7 +89,7 @@ function SugNode({ node, ...props }: RowProps & { node: TreeNode }): React.JSX.E
       className="hub-sug-group"
     >
       {props.editing === node.key ? <EditForm node={node} {...props} className="hub-edit" /> : <SugRow node={node} open={open} setOpen={setOpen} {...props} />}
-      {!props.earlier ? <RedoPanel storyId={props.storyId} node={node} /> : null}
+      {!props.earlier && !props.chapterId ? <RedoPanel storyId={props.storyId} node={node} /> : null}
       {!props.earlier && !run.lead ? <StageRow storyId={props.storyId} node={node} run={run} /> : null}
       {children.length ? (
         <div className="hub-sugs-in">
@@ -101,6 +105,7 @@ function SugNode({ node, ...props }: RowProps & { node: TreeNode }): React.JSX.E
 function SugRow({
   node,
   storyId,
+  chapterId,
   run,
   current,
   setEditing,
@@ -151,13 +156,13 @@ function SugRow({
   const keep = (): void => {
     const from = focused() ? box.current : null
     flying.current = box.current?.getBoundingClientRect() ?? null
-    void keepInLine(storyId, [node.key], { runId }).then(() => focusNext(from))
+    void (chapterId ? keepSuggestions(storyId, [node.key], chapterId, { runId }) : keepInLine(storyId, [node.key], { runId })).then(() => focusNext(from))
   }
   const discard = (): void => {
     if (focused()) focusNext(box.current, true)
-    if (reducedMotion() || keyboardDriven()) return discardSuggestion(storyId, node.key, null, runId)
+    if (reducedMotion() || keyboardDriven()) return discardSuggestion(storyId, node.key, chapterId ?? null, runId)
     setLeaving(true)
-    setTimeout(() => discardSuggestion(storyId, node.key, null, runId), 140)
+    setTimeout(() => discardSuggestion(storyId, node.key, chapterId ?? null, runId), 140)
   }
   const named = title ? `“${title}”` : `this ${node.kind}`
 
@@ -242,7 +247,7 @@ function SugRow({
           <button type="button" className="hub-change" data-edit onClick={() => setEditing(node.key)} aria-label={`Change ${named}`}>
             Change
           </button>
-          {!earlier ? <RedoButton storyId={storyId} node={node} className="hub-txt" /> : null}
+          {!earlier && !chapterId ? <RedoButton storyId={storyId} node={node} className="hub-txt" /> : null}
           <button type="button" className="hub-txt" onClick={discard} title="Leave this out. Undo brings it back." aria-label={`Discard ${named}`}>
             Discard
           </button>

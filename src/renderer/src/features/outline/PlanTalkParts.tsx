@@ -250,7 +250,9 @@ export function PlanTalk({
   className,
   intro,
   quick,
-  applyLabel
+  applyLabel,
+  about,
+  looking
 }: {
   storyId: ID
   running: boolean
@@ -258,6 +260,10 @@ export function PlanTalk({
   intro?: string
   quick?: string[]
   applyLabel?: string
+  /** What it is about now, after its title (Build with AI's section in view). */
+  about?: string
+  /** What Adam is looking at, for the AI (Build with AI's section in view, when it isn't the story line). */
+  looking?: string
 }): React.JSX.Element {
   const scope = planScope(storyId)
   const preview = useTalks((s) => s.talks[scope]?.preview)
@@ -272,7 +278,8 @@ export function PlanTalk({
       placeholder="What would you like changed?"
       quick={quick ?? ['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
       disabled={running ? 'Wait for the plan to finish arriving.' : null}
-      onSay={(m) => void talkPlan(storyId, m)}
+      about={about}
+      onSay={(m) => void talkPlan(storyId, m, looking)}
       preview={isPlanRevision(preview) ? <PlanPreview storyId={storyId} revision={preview} /> : null}
       onApply={() => applyPlanTalk(storyId)}
       onDecline={() => declinePlanTalk(storyId)}

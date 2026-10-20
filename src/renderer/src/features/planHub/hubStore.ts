@@ -6,7 +6,8 @@
 // page as they always have; "Plan it" asks through it with where they belong (RunPlace) and Adam's words as direction.
 
 import { create } from 'zustand'
-import type { HubDrift, PlanHubFacts, PlanUpdateScene } from '@shared/contracts/planHub'
+import type { HubDrift, HubThread, PlanHubFacts, PlanUpdateScene } from '@shared/contracts/planHub'
+import type { BoardThread, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { Entry, ID, Outline, SceneCard } from '@shared/types'
 import { toast } from '@/components/ui'
@@ -36,6 +37,7 @@ import { renameScene } from '@/features/binder/actions'
 import type { PlanMode } from '@/features/outline/stages'
 import { flushBrief } from '@/features/storyBuilder/store'
 import { askFor, chapterLead, directionText, type HubScopeId, type LineChapter } from './hubLogic'
+import { payoffWords, type ChapterPanel, type SceneTool } from './buildLogic'
 
 /** "Update the plan": the drifting scene cards written again, arriving, then waiting for Keep or Discard. */
 export interface PlanUpdate {
@@ -65,9 +67,36 @@ export interface HubState {
   facts: PlanHubFacts | null
   factsRev: string | null
   update: PlanUpdate | null
+  /** Threads "Plan its payoff" put among the threads waiting, when the facts didn't list them (open, but not the quietest). */
+  seeded: HubThread[]
+  /** The chapter of the story line with Plan this chapter or Write this chapter open in its row (Build with AI). */
+  panel: { chapterId: ID; kind: ChapterPanel } | null
+  /** The planned scene with its ideas or its interview open in its row. */
+  tool: { sceneId: ID; kind: SceneTool } | null
+  /** Cast and world shows "From a summary" (the World builder's build) in place of the plan from the idea. */
+  summary: boolean
+  /** The plot threads as the board has them, for the Threads section; null until read. */
+  board: ThreadsBoard | null
+  boardRev: string | null
 }
 
-const fresh = (): HubState => ({ words: '', threads: [], scope: null, open: [], openChapters: [], lit: null, facts: null, factsRev: null, update: null })
+const fresh = (): HubState => ({
+  words: '',
+  threads: [],
+  scope: null,
+  open: [],
+  openChapters: [],
+  lit: null,
+  facts: null,
+  factsRev: null,
+  update: null,
+  seeded: [],
+  panel: null,
+  tool: null,
+  summary: false,
+  board: null,
+  boardRev: null
+})
 
 export const usePlanHubs = create<{ hubs: Record<string, HubState> }>(() => ({ hubs: {} }))
 
@@ -132,11 +161,65 @@ export async function loadFacts(storyId: ID, rev: string): Promise<void> {
   try {
     const facts = await api.planHubFacts(storyId)
     if (asking.get(k) !== turn) return
-    put(storyId, (h) => ({ facts, factsRev: rev, threads: h.threads.filter((id) => facts.threads.some((t) => t.id === id)) }))
+    put(storyId, (h) => ({
+      facts,
+      factsRev: rev,
+      threads: h.threads.filter((id) => facts.threads.some((t) => t.id === id) || h.seeded.some((t) => t.id === id)),
+      seeded: h.seeded.filter((t) => !facts.threads.some((x) => x.id === t.id))
+    }))
   } catch {
     // The story may have gone (the page says so); the hub works on without the facts.
     if (asking.get(k) === turn) put(storyId, { factsRev: rev })
   }
+}
+
+/** The threads waiting: the facts' (the quietest open ones), then any "Plan its payoff" put there. */
+export const waitingThreads = (h: Pick<HubState, 'facts' | 'seeded'>): HubThread[] => [...(h.facts?.threads ?? []), ...h.seeded]
+
+// ---------- Build with AI: what is open in the area ----------
+
+/** Opens Plan this chapter or Write this chapter in a chapter's row (null closes it); one chapter at a time. */
+export function openPanel(storyId: ID, chapterId: ID, kind: ChapterPanel | null): void {
+  put(storyId, { panel: kind ? { chapterId, kind } : null })
+}
+
+/** Opens a planned scene's ideas or interview in its row (null closes it); one scene at a time. */
+export function openTool(storyId: ID, sceneId: ID, kind: SceneTool | null): void {
+  put(storyId, { tool: kind ? { sceneId, kind } : null })
+}
+
+/** Cast and world: "From a summary" (true) or the plan from the idea. */
+export const showSummary = (storyId: ID, on: boolean): void => put(storyId, { summary: on })
+
+const reading = new Map<string, number>()
+
+/** Reads the plot threads board again (after the story or its memory changed: `rev` names the change). */
+export async function loadBoard(storyId: ID, rev: string): Promise<void> {
+  const k = keyOf(storyId)
+  if (hubOf(storyId).boardRev === rev) return
+  const turn = (reading.get(k) ?? 0) + 1
+  reading.set(k, turn)
+  try {
+    const board = await api.getThreadsBoard(storyId)
+    if (reading.get(k) === turn) put(storyId, { board, boardRev: rev })
+  } catch {
+    if (reading.get(k) === turn) put(storyId, { boardRev: rev })
+  }
+}
+
+/**
+ * "Plan its payoff" on a thread (the Threads section): the story line's box says to move toward paying it off, and the
+ * thread is ticked among the threads waiting (put there when it wasn't), so the next request plans its payoff.
+ */
+export function seedPayoff(storyId: ID, t: Pick<BoardThread, 'id' | 'name' | 'promise' | 'quietScenes'>): void {
+  put(storyId, (h) => {
+    const listed = waitingThreads(h).some((x) => x.id === t.id)
+    return {
+      words: payoffWords(t),
+      threads: h.threads.includes(t.id) ? h.threads : [...h.threads, t.id],
+      seeded: listed ? h.seeded : [...h.seeded, { id: t.id, name: t.name, since: '', quiet: t.quietScenes ?? 0 }]
+    }
+  })
 }
 
 // ---------- Plan it ----------
@@ -160,7 +243,7 @@ export interface PlanItInput {
 export async function planIt(storyId: ID, input: PlanItInput): Promise<void> {
   openHelper(storyId)
   const h = hubOf(storyId)
-  const ticked = (h.facts?.threads ?? []).filter((t) => h.threads.includes(t.id))
+  const ticked = waitingThreads(h).filter((t) => h.threads.includes(t.id))
   const ask = askFor(input.outline, input.scope, input.size)
   if (!ask) {
     toast('The story has changed since that was chosen. Pick what to plan again.')
@@ -237,7 +320,7 @@ export async function planChaptersIn(storyId: ID, actId: ID, chapters = 3): Prom
 /** What goes with a request made from the story line: Adam's words in the box and the threads he ticked. */
 export function hubDirection(storyId: ID): string {
   const h = hubOf(storyId)
-  const ticked = (h.facts?.threads ?? []).filter((t) => h.threads.includes(t.id))
+  const ticked = waitingThreads(h).filter((t) => h.threads.includes(t.id))
   return directionText(h.words, ticked)
 }
 

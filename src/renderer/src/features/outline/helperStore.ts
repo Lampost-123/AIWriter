@@ -274,16 +274,17 @@ function listen(): void {
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
+    // Build with AI shows the story's own session and its chapters' (Plan this chapter, in their rows).
     const view =
       now.view.kind === 'outline'
-        ? now.view
-        : now.view.kind === 'storyBuilder' || now.view.kind === 'planHub'
-          ? { storyId: now.view.storyId, chapterId: undefined as ID | undefined }
+        ? { storyId: now.view.storyId, chapterId: now.view.chapterId, all: false }
+        : now.view.kind === 'storyBuilder' || now.view.kind === 'planHub' || now.view.kind === 'recipePlan'
+          ? { storyId: now.view.storyId, chapterId: undefined as ID | undefined, all: now.view.kind === 'planHub' }
           : null
     for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
       if (!key.startsWith(prefix)) continue
       const { storyId, chapterId } = partsOf(key.slice(prefix.length))
-      const showing = !!view && view.storyId === storyId && (view.chapterId ?? null) === chapterId
+      const showing = !!view && view.storyId === storyId && (view.all || (view.chapterId ?? null) === chapterId)
       const toastShows = keepBatch?.key === key && liveToast(keepBatch.toastId)
       if ((showing || toastShows) && (s.gone.length || allRuns(s).some(hasKept))) void checkKept(storyId, chapterId)
       // A chapter's plan doesn't ask whether the story is blank.

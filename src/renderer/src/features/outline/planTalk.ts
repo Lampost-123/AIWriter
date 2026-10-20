@@ -102,7 +102,7 @@ const labelOf = (c: PlanChange): string => `${c.mark === 'new' ? 'New ' : c.mark
  * that (twice at most), so one request makes the whole change. A revision still waiting is built on, so "it still
  * says his bedroom" fixes the preview rather than starting over.
  */
-export function talkPlan(storyId: ID, message: string): Promise<void> {
+export function talkPlan(storyId: ID, message: string, looking?: string): Promise<void> {
   const scope = planScope(storyId)
   const pending = talkOf(scope).preview
   return say(
@@ -118,7 +118,7 @@ export function talkPlan(storyId: ID, message: string): Promise<void> {
       const ask = async (id: ID, turns: ChatTurn[], words: string, shown: string): Promise<{ status: string; text: string }> => {
         const done = await followTask(
           id,
-          () => api.startPlanChat({ taskId: id, storyId, current: sent, history: turns, message: words }),
+          () => api.startPlanChat({ taskId: id, storyId, current: sent, history: turns, message: words, ...(looking ? { looking } : {}) }),
           (text) => arriving(scope, taskId, shown || splitPlanReply(text).answer)
         )
         if (done.status === 'error') throw new Error(done.error ?? 'That didn’t work. Please try again.')

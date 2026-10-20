@@ -360,10 +360,13 @@ export function startPlanChat(deps: StoryDeps, input: PlanChatRequest, brief: St
   if (!message) throw new UserError('Say what you would like changed first.')
   const reply = planRoom(current)
   const system = planChatSystem()
+  const looking = typeof input.looking === 'string' ? clip(input.looking.replace(/\s+/g, ' ').trim(), 200) : ''
   const drafts: BlockDraft[] = [
     ...ideaBlocks(deps, f),
     ...storyBlocks(deps, facts, input.storyId),
-    { id: 'suggestions', title: 'The suggestions still waiting for a decision', priority: 0, forms: [current || '(none)'] }
+    { id: 'suggestions', title: 'The suggestions still waiting for a decision', priority: 0, forms: [current || '(none)'] },
+    // Build with AI (2026-10-20): what the author is looking at while talking, so the answer is about that.
+    ...(looking ? [{ id: 'looking-at', title: 'What the author is looking at now', priority: 0, forms: [`${looking}. Answer about that first.`] }] : [])
   ]
   const fitted = fit(deps, drafts, system, reply)
   return startTask({

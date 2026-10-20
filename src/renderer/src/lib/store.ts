@@ -7,6 +7,7 @@ import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/d
 import { pageTransition, type Flip } from '@/features/look/viewTransition'
 import { areaOf } from '@/layout/areas'
 import type { HubScopeId } from '@/features/planHub/hubLogic'
+import { buildRoute, type BuildSection, type ChapterPanel, type SceneTool } from '@/features/planHub/buildLogic'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
@@ -68,11 +69,28 @@ export type View =
    */
   | { kind: 'storyBuilder'; storyId: ID; step?: 'idea' | 'codex' | 'outline' | 'done' }
   /**
-   * The Plan hub (2026-10-20): the one place to plan a story with the AI, from its first idea or from wherever the
-   * writing has got to (features/planHub/). `at`: the part to plan, chosen when it opens ("the next scene"); `back`: the
-   * page it was opened from, when that isn't one of the Plan room's own (the Story builder's steps), for its Back link.
+   * Build with AI (2026-10-20; the Plan hub before): the one area for building every part of a story with the AI, its
+   * sections down one page (features/planHub/): Your idea, Cast and world, The story line, Threads. `section`: the one to
+   * show first (left out: a new story's idea, else the story line); `chapterId` with `open`: a chapter of the story line
+   * with Plan this chapter or Write this chapter open in its row; `sceneId` with `tool`: a planned scene with its ideas
+   * or its interview open; `summary`: Cast and world's "From a summary"; `recipeId`: a story planned from that recipe
+   * (it follows it); `at`: the part to plan ("the next scene"); `back`: the page it was opened from, for its Back link.
+   * The Story builder, the outline helper, a chapter's plan and a recipe story's plan are views that land here
+   * (features/planHub/buildLogic.ts buildRoute).
    */
-  | { kind: 'planHub'; storyId: ID; at?: HubScopeId; back?: { view: View; label: string } }
+  | {
+      kind: 'planHub'
+      storyId: ID
+      section?: BuildSection
+      chapterId?: ID
+      open?: ChapterPanel
+      sceneId?: ID
+      tool?: SceneTool
+      summary?: boolean
+      recipeId?: ID
+      at?: HubScopeId
+      back?: { view: View; label: string }
+    }
   // The desk (UI overhaul, phase 5)
   /** A story's home: its book, where Adam left off, its chapters on a shelf, its threads, cast and this week's writing. */
   | { kind: 'storyHome'; storyId: ID }
@@ -273,11 +291,9 @@ const pageKey = (v: View): string =>
     ? 'desk:world'
     : v.kind === 'entries' || v.kind === 'builder'
       ? `${v.kind}:${v.entryKind}`
-      : v.kind === 'outline'
-        ? // The outline helper is the Plan hub now (2026-10-20): the same page.
-          v.chapterId
-          ? 'outline:chapter'
-          : 'planHub'
+      : // The Story builder, the outline helper, a chapter's plan and a recipe story's plan are Build with AI now (2026-10-20).
+        v.kind === 'outline' || v.kind === 'storyBuilder' || v.kind === 'recipePlan'
+        ? 'planHub'
         : v.kind
 
 /**
@@ -404,7 +420,10 @@ export const useApp = create<AppState>((set, get) => ({
     void api.updateSettings({ lastSceneId: id, ...(storyId ? { lastStoryId: storyId } : {}), ...placeIn(get().world, get().storyId, id) })
   },
 
-  navigate(view, opts) {
+  navigate(asked, opts) {
+    // The Story builder, the outline helper, a chapter's plan and a recipe story's plan are sections of Build with AI now
+    // (2026-10-20): any way in that still names them lands there.
+    const view = buildRoute(asked, get().storyId)
     const before = get().view
     const turn = ++navTurn
     // The desk's World room: a card flips into its dossier, or the dossier back into its card.

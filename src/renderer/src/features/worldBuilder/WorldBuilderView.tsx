@@ -48,8 +48,9 @@ import {
 import { InterviewButton, WorldInterview } from './WorldInterview'
 
 /**
- * Building a story rather than a world: the Story builder plans the cast and world from the plot, builds them, then the
- * outline, in one place (2026-10-17). Shown while a story is open.
+ * Building a story rather than a world: Build with AI plans the cast and world from the idea, builds them, then the story
+ * line, in one place (2026-10-20). Shown while a story is open (the page itself shows only with none: with a story open,
+ * Build from a summary is Build with AI's Cast and world, "From a summary").
  */
 function StoryBuilderPointer(): React.JSX.Element | null {
   const storyId = useApp((s) => s.storyId)
@@ -58,9 +59,9 @@ function StoryBuilderPointer(): React.JSX.Element | null {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-ai/30 bg-ai-soft px-3 py-2 text-[12.5px] text-fg" data-story-builder-pointer>
       <Sparkles size={14} className="shrink-0 text-ai" aria-hidden />
-      <span className="min-w-0 flex-1">Building a story? The Story builder plans its whole cast and world from your plot, builds them, then lays out the chapters and scenes.</span>
-      <Button size="sm" onClick={() => useApp.getState().navigate({ kind: 'storyBuilder', storyId })}>
-        Open the Story builder
+      <span className="min-w-0 flex-1">Building a story? Build with AI plans its whole cast and world from your idea, builds them, then lays out the chapters and scenes.</span>
+      <Button size="sm" onClick={() => useApp.getState().navigate({ kind: 'planHub', storyId, section: 'cast' })}>
+        Open Build with AI
       </Button>
     </div>
   )
@@ -111,11 +112,14 @@ function Page(): React.JSX.Element {
   // A build that ends, or can't start, while the page is open: how it went comes into view, even in a
   // small window where it would be below the foot of the page. Never on opening the page.
   const seen = useRef({ running, problem: s.problem })
+  const deskNow = useDesk()
   useEffect(() => {
     const before = seen.current
     seen.current = { running, problem: s.problem }
+    // In the panels the form (SummaryBuilder) brings its own outcome into view.
+    if (!deskNow) return
     if ((before.running && !running) || (s.problem && s.problem !== before.problem)) showOutcome(pageRef.current)
-  }, [running, s.problem])
+  }, [running, s.problem, deskNow])
 
   const estimate = s.estimate
   const estimateProblem = estimate?.problem ? { message: estimate.problem, code: estimate.code ?? undefined } : null
@@ -316,116 +320,174 @@ function Page(): React.JSX.Element {
           <StoryBuilderPointer />
         </div>
 
-        <div className="mt-5 flex items-end justify-between gap-2">
-          <label htmlFor="world-summary" className="block text-[12px] font-medium text-muted">
-            Your summary
-          </label>
-          <div className="flex h-7 items-center gap-1">
-            <InterviewButton disabled={running} />
-            <MicButton disabled={running} onText={(t) => box.current && insertIntoBox(box.current, t, setWorldSummary)} />
-          </div>
+        <SummaryBuilder />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Build the world from a summary, the form and what it made, with nothing round it: the World builder page's (with no
+ * story open) and Build with AI's Cast and world, "From a summary" (2026-10-20). The same summary, kept in the world.
+ */
+export function SummaryBuilder({ className }: { className?: string }): React.JSX.Element | null {
+  const worldId = useApp((st) => st.world?.id ?? null)
+  const loaded = useWorldBuilder((st) => st.loaded && st.worldId === worldId)
+  useEffect(() => {
+    if (!loaded) void loadWorldBuilder()
+  }, [worldId, loaded])
+  if (!loaded) return null
+  return <SummaryForm className={className} />
+}
+
+function SummaryForm({ className }: { className?: string }): React.JSX.Element {
+  const s = useWorldBuilder()
+  const stories = useApp((st) => st.stories)
+  const entriesRev = useApp((st) => st.entriesRev)
+  const memoryRev = useApp((st) => st.memoryRev)
+  const box = useRef<HTMLTextAreaElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const whenId = useId()
+  const running = !!s.running
+
+  // What the last build made, as it is now: lines undone in What changed, entries deleted since.
+  useEffect(() => {
+    if (!running) void refreshWorldBuilder()
+  }, [entriesRev, memoryRev, running])
+
+  // A build that ends, or can't start, while the form shows: how it went comes into view (only as far as needed).
+  const seen = useRef({ running, problem: s.problem })
+  useEffect(() => {
+    const before = seen.current
+    seen.current = { running, problem: s.problem }
+    if ((before.running && !running) || (s.problem && s.problem !== before.problem)) {
+      let still = false
+      try {
+        still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      } catch {
+        // Smooth, then.
+      }
+      rootRef.current?.querySelector<HTMLElement>('[data-outcome]')?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' })
+    }
+  }, [running, s.problem])
+
+  const estimate = s.estimate
+  const estimateProblem = estimate?.problem ? { message: estimate.problem, code: estimate.code ?? undefined } : null
+  const settings = estimateProblem ? settingsAction(estimateProblem.message, estimateProblem.code) : undefined
+  const last = s.last
+  const canUndo = !running && !!last?.runId && last.made.some((m) => !m.undone)
+
+  return (
+    <div ref={rootRef} className={className} data-summary-builder>
+      <div className="mt-5 flex items-end justify-between gap-2">
+        <label htmlFor="world-summary" className="block text-[12px] font-medium text-muted">
+          Your summary
+        </label>
+        <div className="flex h-7 items-center gap-1">
+          <InterviewButton disabled={running} />
+          <MicButton disabled={running} onText={(t) => box.current && insertIntoBox(box.current, t, setWorldSummary)} />
         </div>
-        <AutoTextarea
-          ref={box}
-          id="world-summary"
-          autoFocus={!s.summary && !running}
-          value={s.summary}
-          readOnly={running}
-          minRows={5}
-          maxRows={18}
-          placeholder="The Grey Coast is a cold land of fog and reefs. Mara Venn captains a smuggling ship out of Saltmarsh and owes the Salt Guild a fortune. Magic always costs blood…"
-          className={cn('mt-1 font-serif text-[15px] leading-[1.6]', running && 'bg-surface-2!')}
-          onChange={(e) => setWorldSummary(e.target.value)}
-          onKeyDown={(e) => {
-            if (isShortcut(e, 'buildWorld')) {
-              e.preventDefault()
-              if (!running) void buildWorld()
-            }
-          }}
+      </div>
+      <AutoTextarea
+        ref={box}
+        id="world-summary"
+        autoFocus={!s.summary && !running}
+        value={s.summary}
+        readOnly={running}
+        minRows={5}
+        maxRows={18}
+        placeholder="The Grey Coast is a cold land of fog and reefs. Mara Venn captains a smuggling ship out of Saltmarsh and owes the Salt Guild a fortune. Magic always costs blood…"
+        className={cn('mt-1 font-serif text-[15px] leading-[1.6]', running && 'bg-surface-2!')}
+        onChange={(e) => setWorldSummary(e.target.value)}
+        onKeyDown={(e) => {
+          if (isShortcut(e, 'buildWorld')) {
+            e.preventDefault()
+            if (!running) void buildWorld()
+          }
+        }}
+      />
+      <WorldInterview running={running} />
+
+      <div className="mt-4 flex max-w-[360px] flex-col gap-1">
+        <label htmlFor={whenId} className="text-[12px] font-medium text-muted">
+          When is this true?
+        </label>
+        <Select
+          id={whenId}
+          value={s.storyId && stories.some((st) => st.id === s.storyId) ? s.storyId : WORLD_START}
+          options={whenOptions(stories)}
+          onChange={(v) => setWorldBuildStory(v && v !== WORLD_START ? v : null)}
         />
-        <WorldInterview running={running} />
+      </div>
+      <p className="mt-1 text-[12px] leading-relaxed text-faint">
+        Anything your summary says happens later becomes an event or a plot thread.
+      </p>
 
-        <div className="mt-4 flex max-w-[360px] flex-col gap-1">
-          <label htmlFor={whenId} className="text-[12px] font-medium text-muted">
-            When is this true?
-          </label>
-          <Select
-            id={whenId}
-            value={s.storyId && stories.some((st) => st.id === s.storyId) ? s.storyId : WORLD_START}
-            options={whenOptions(stories)}
-            onChange={(v) => setWorldBuildStory(v && v !== WORLD_START ? v : null)}
-          />
-        </div>
-        <p className="mt-1 text-[12px] leading-relaxed text-faint">
-          Anything your summary says happens later becomes an event or a plot thread.
-        </p>
-
-        <div className="mt-5 flex h-10 items-center gap-2">
-          {running ? (
-            <>
+      <div className="mt-5 flex h-10 items-center gap-2">
+        {running ? (
+          <>
+            <Button
+              size="lg"
+              icon={<Square size={11} fill="currentColor" />}
+              loading={s.cancelling}
+              onClick={() => void cancelWorldBuild()}
+              title="Cancel. Everything made so far is kept."
+            >
+              Cancel
+            </Button>
+            <WritingStatus
+              text={s.cancelling ? 'Cancelling…' : (s.running?.retrying ?? s.running?.step ?? 'Reading your summary')}
+              title={s.running?.retrying ?? undefined}
+            />
+          </>
+        ) : (
+          <>
+            <Button variant="primary" size="lg" icon={<Sparkles size={15} />} onClick={() => void buildWorld()}>
+              {last?.status === 'error' && s.problem ? 'Try again' : 'Build the world'}
+            </Button>
+            {canUndo ? (
               <Button
                 size="lg"
-                icon={<Square size={11} fill="currentColor" />}
-                loading={s.cancelling}
-                onClick={() => void cancelWorldBuild()}
-                title="Cancel. Everything made so far is kept."
+                icon={<Undo2 size={15} />}
+                onClick={() => void undoWholeBuild()}
+                title="Takes out everything this build made"
               >
-                Cancel
+                Undo the whole build
               </Button>
-              <WritingStatus
-                text={s.cancelling ? 'Cancelling…' : (s.running?.retrying ?? s.running?.step ?? 'Reading your summary')}
-                title={s.running?.retrying ?? undefined}
-              />
-            </>
-          ) : (
-            <>
-              <Button variant="primary" size="lg" icon={<Sparkles size={15} />} onClick={() => void buildWorld()}>
-                {last?.status === 'error' && s.problem ? 'Try again' : 'Build the world'}
-              </Button>
-              {canUndo ? (
-                <Button
-                  size="lg"
-                  icon={<Undo2 size={15} />}
-                  onClick={() => void undoWholeBuild()}
-                  title="Takes out everything this build made"
-                >
-                  Undo the whole build
-                </Button>
-              ) : null}
-              <div className="flex-1" />
-              <span className="flex items-center gap-1 text-[12px] text-faint" title="Press these in your summary to build">
-                {shortcutKeys('buildWorld').map((k) => (
-                  <Kbd key={k}>{k}</Kbd>
-                ))}
-              </span>
-            </>
-          )}
-        </div>
-
-        {/* What building would cost, or why it can't be built yet. Always a line high, so nothing below moves. */}
-        <div className="mt-1 min-h-5">
-          {!running && estimateProblem ? (
-            <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted animate-fade-in">
-              {estimateProblem.message}
-              {settings ? (
-                <button type="button" onClick={settings.run} className="font-medium text-accent hover:underline">
-                  {settings.label}
-                </button>
-              ) : null}
-            </p>
-          ) : !running && s.summary.trim() && estimateWords(estimate) ? (
-            <p className="text-[12.5px] text-muted animate-fade-in">{estimateWords(estimate)}</p>
-          ) : null}
-        </div>
-
-        {s.problem ? (
-          <div className="mt-2" data-outcome>
-            <ProblemNotice message={s.problem.message} code={s.problem.code} />
-          </div>
-        ) : null}
-
-        {s.running ? <Progress made={s.running.made} /> : last ? <Results last={last} /> : null}
+            ) : null}
+            <div className="flex-1" />
+            <span className="flex items-center gap-1 text-[12px] text-faint" title="Press these in your summary to build">
+              {shortcutKeys('buildWorld').map((k) => (
+                <Kbd key={k}>{k}</Kbd>
+              ))}
+            </span>
+          </>
+        )}
       </div>
+
+      {/* What building would cost, or why it can't be built yet. Always a line high, so nothing below moves. */}
+      <div className="mt-1 min-h-5">
+        {!running && estimateProblem ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted animate-fade-in">
+            {estimateProblem.message}
+            {settings ? (
+              <button type="button" onClick={settings.run} className="font-medium text-accent hover:underline">
+                {settings.label}
+              </button>
+            ) : null}
+          </p>
+        ) : !running && s.summary.trim() && estimateWords(estimate) ? (
+          <p className="text-[12.5px] text-muted animate-fade-in">{estimateWords(estimate)}</p>
+        ) : null}
+      </div>
+
+      {s.problem ? (
+        <div className="mt-2" data-outcome>
+          <ProblemNotice message={s.problem.message} code={s.problem.code} />
+        </div>
+      ) : null}
+
+      {s.running ? <Progress made={s.running.made} /> : last ? <Results last={last} /> : null}
     </div>
   )
 }
