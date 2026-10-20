@@ -14,6 +14,11 @@ const main = vi.hoisted(() => ({
   scenes: new Map<string, { doc: unknown; text: string }>(),
   /** The scenes' cards (beats, TEXTTOOLS). */
   cards: new Map<string, { goal: string; beats: string[] }>(),
+  /** The scenes' and chapters' titles (a rename). */
+  titles: new Map<string, string>(),
+  /** The chapter cards, by chapter. */
+  chapterCards: new Map<string, Record<string, unknown>>(),
+  chapterSaves: [] as string[],
   saves: [] as string[],
   statuses: [] as string[],
   created: [] as unknown[],
@@ -25,7 +30,8 @@ const main = vi.hoisted(() => ({
     selectScene: (_id: string) => undefined,
     bumpOutline: () => undefined,
     bumpEntries: () => undefined,
-    bumpBriefing: () => undefined
+    bumpBriefing: () => undefined,
+    bumpChapterCards: () => undefined
   }
 }))
 
@@ -36,7 +42,25 @@ vi.mock('@/lib/api', () => ({
     getScene: async (id: string) => {
       // A scene deleted since is gone, as the main process says it.
       if (!main.scenes.has(id) && !main.cards.has(id)) throw new Error('That scene no longer exists.')
-      return { id, ...main.scenes.get(id)!, card: main.cards.get(id) }
+      return { id, title: main.titles.get(id) ?? '', ...main.scenes.get(id)!, card: main.cards.get(id) }
+    },
+    updateScene: async (id: string, patch: { title: string }) => {
+      main.titles.set(id, patch.title)
+      return { id }
+    },
+    updateChapter: async (id: string, patch: { title: string }) => {
+      main.titles.set(id, patch.title)
+      return { id }
+    },
+    getOutline: async () => ({
+      chapters: [...main.titles].filter(([id]) => id.startsWith('ch')).map(([id, title]) => ({ id, title })),
+      scenes: []
+    }),
+    getChapterCard: async (id: string) => main.chapterCards.get(id) ?? {},
+    updateChapterCard: async (id: string, card: Record<string, unknown>) => {
+      main.chapterCards.set(id, card)
+      main.chapterSaves.push(id)
+      return { card, updated: [] }
     },
     updateSceneCard: async (id: string, card: { goal: string; beats: string[] }) => {
       main.cards.set(id, card)
@@ -72,19 +96,27 @@ vi.mock('@/components/ui', () => ({
 vi.mock('@/features/history/snapshot', () => ({ snapshotBefore: async () => null }))
 vi.mock('@/features/history/open', () => ({ openHistory: async () => undefined }))
 // A proposed draft starts the writer's own job (applyDraft.ts, with the page's flows): stood in for here.
-const drafts = vi.hoisted(() => ({ started: [] as string[], reply: { ok: true } as { ok: true } | { ok: false; why: string } }))
+type Landed = { ok: true } | { ok: false; why: string }
+const drafts = vi.hoisted(() => ({
+  started: [] as string[],
+  reply: { ok: true } as { ok: true } | { ok: false; why: string },
+  /** Says how the started draft ended (it lands, or fails, when the test says). */
+  land: (_l: { ok: true } | { ok: false; why: string }): void => undefined
+}))
 vi.mock('./applyDraft', () => ({
   startProposedDraft: async (p: { id: string }) => {
     drafts.started.push(p.id)
-    return drafts.reply
+    if (!drafts.reply.ok) return drafts.reply
+    return { ok: true, landed: new Promise<Landed>((resolve) => (drafts.land = resolve)) }
   }
 }))
 
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
-import { applyAndKeep, applyChanges, PAGE_REFUSED, undoChanges } from './applyProposal'
+import { applyAndKeep, applyChanges, COULDNT, HELD_CHAPTER, PAGE_REFUSED, undoChanges } from './applyProposal'
 import { HELD_APPLY, notOpened } from './sceneInPage'
 import { setHeld } from '@/features/chapterWriter/hold'
 import { useAsk } from './askStore'
+import { useOutlineStore } from '@/features/binder/outlineStore'
 
 const schema = getSchema(sceneExtensions())
 const para = (pid: string, text: string): PMNode => schema.nodes.paragraph.create({ pid }, text ? schema.text(text) : null)
@@ -145,6 +177,9 @@ beforeEach(() => {
   main.statuses.length = 0
   main.created.length = 0
   main.toasts.length = 0
+  main.titles.clear()
+  main.chapterCards.clear()
+  main.chapterSaves.length = 0
   main.app.storyId = 's1'
   setEditorBridge(null)
   useAsk.setState({ turns: [] })
@@ -249,14 +284,32 @@ describe('an anchored edit (the same words twice)', () => {
 describe('a proposed draft', () => {
   const draft = { id: 'd', kind: 'draft', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', mode: 'continue', direction: 'On to the stair.', why: '', status: 'pending' } as unknown as Proposal
 
-  it('starts the writer’s job, is marked started (applied), and has no Undo of its own', async () => {
+  it('starts the writer’s job, is marked started (not applied), and has no Undo of its own', async () => {
     drafts.started.length = 0
     drafts.reply = { ok: true }
     useAsk.setState({ turns: [{ generationId: 'g1', chatId: 's1:c1' } as never] })
     await applyChanges('g1', [draft])
     expect(drafts.started).toEqual(['d'])
-    expect(main.statuses).toEqual(['d:applied'])
+    expect(main.statuses).toEqual(['d:started'])
     expect(main.toasts.at(-1)).toMatchObject({ message: 'The draft has started in Ch 1, Sc 1.', action: { label: 'Show' } })
+  })
+
+  it('turns to applied only when the draft lands', async () => {
+    drafts.reply = { ok: true }
+    const { landedOf } = await applyChanges('g1', [draft])
+    expect(main.statuses).toEqual(['d:started'])
+    drafts.land({ ok: true })
+    expect(await landedOf.d).toEqual({ ok: true })
+    expect(main.statuses).toEqual(['d:started', 'd:applied'])
+  })
+
+  it('goes back to waiting, with the reason, when the draft fails or is stopped', async () => {
+    drafts.reply = { ok: true }
+    const { landedOf } = await applyChanges('g1', [draft])
+    drafts.land({ ok: false, why: 'The draft in Ch 1, Sc 1 was stopped before it finished.' })
+    expect(await landedOf.d).toEqual({ ok: false, why: 'The draft in Ch 1, Sc 1 was stopped before it finished.' })
+    expect(main.statuses).toEqual(['d:started', 'd:pending'])
+    expect(main.toasts.at(-1)).toMatchObject({ message: 'The draft in Ch 1, Sc 1 was stopped before it finished.' })
   })
 
   it('says why when it can’t start, and stays waiting', async () => {
@@ -265,6 +318,65 @@ describe('a proposed draft', () => {
     await applyChanges('g1', [draft])
     expect(main.statuses).toEqual([])
     expect(main.toasts.at(-1)).toMatchObject({ tone: 'danger', message: 'Something is being written into this scene already.' })
+  })
+
+  it('never drops a start that comes back with no reason: it says so and stays waiting', async () => {
+    drafts.reply = { ok: false, why: '' }
+    const { failedOf } = await applyChanges('g1', [draft])
+    expect(failedOf.d).toBe(COULDNT)
+    expect(main.statuses).toEqual([])
+    expect(main.toasts.at(-1)).toMatchObject({ tone: 'danger', message: COULDNT })
+  })
+})
+
+describe('a card, title or chapter card changed since the chat proposed it', () => {
+  it('a title: turned down with what it says now; a second Apply goes through', async () => {
+    main.scenes.set('sc1', { doc: null, text: '' })
+    main.titles.set('sc1', 'The Harbour at Dusk')
+    const rename = { id: 'r', kind: 'rename', target: 'scene', targetId: 'sc1', from: 'The Harbour', to: 'Low Tide', why: '', status: 'pending' } as unknown as Proposal
+    const first = await applyAndKeep('g1', [rename], {})
+    expect(first.done).toBe(0)
+    expect(first.failedOf.r).toBe('This title has changed since. Here’s what it says now: “The Harbour at Dusk”. Apply again to use the chat’s change.')
+    expect(main.titles.get('sc1')).toBe('The Harbour at Dusk')
+    const second = await applyAndKeep('g1', [rename], {})
+    expect(second.done).toBe(1)
+    expect(main.titles.get('sc1')).toBe('Low Tide')
+  })
+
+  it('a title as the chat saw it: applied at once', async () => {
+    main.titles.set('ch1', 'The Harbour')
+    const rename = { id: 'r', kind: 'rename', target: 'chapter', targetId: 'ch1', from: 'The Harbour', to: 'Low Tide', why: '', status: 'pending' } as unknown as Proposal
+    expect((await applyAndKeep('g1', [rename], {})).done).toBe(1)
+    expect(main.titles.get('ch1')).toBe('Low Tide')
+  })
+
+  it('a scene card: turned down with what the changed part says now, then applied on a second Apply', async () => {
+    main.scenes.set('sc1', { doc: null, text: '' })
+    main.cards.set('sc1', { goal: 'Find the keeper first.', beats: [] })
+    const card = { id: 'c', kind: 'card', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', patch: { goal: 'Cross before dark.' }, before: { goal: 'Reach the lamp.' }, why: '', status: 'pending' } as unknown as Proposal
+    const first = await applyAndKeep('g1', [card], {})
+    expect(first.failedOf.c).toBe('This card has changed since. Here’s what it says now: Goal: “Find the keeper first.” Apply again to use the chat’s change.')
+    expect(main.cards.get('sc1')?.goal).toBe('Find the keeper first.')
+    expect((await applyAndKeep('g1', [card], {})).done).toBe(1)
+    expect(main.cards.get('sc1')?.goal).toBe('Cross before dark.')
+  })
+
+  it('a scene card as the chat saw it (other parts changed meanwhile don’t count): applied at once', async () => {
+    main.scenes.set('sc1', { doc: null, text: '' })
+    main.cards.set('sc1', { goal: ' Reach the lamp. ', beats: ['Adam’s new beat'] })
+    const card = { id: 'c', kind: 'card', sceneId: 'sc1', sceneLabel: 'Ch 1, Sc 1', patch: { goal: 'Cross before dark.' }, before: { goal: 'Reach the lamp.' }, why: '', status: 'pending' } as unknown as Proposal
+    expect((await applyAndKeep('g1', [card], {})).done).toBe(1)
+    expect(main.cards.get('sc1')).toEqual({ goal: 'Cross before dark.', beats: ['Adam’s new beat'] })
+  })
+
+  it('a chapter card: turned down with what it says now, then applied on a second Apply', async () => {
+    main.chapterCards.set('ch1', { mood: 'Bright and loud.', notes: '' })
+    const cc = { id: 'k', kind: 'chapterCard', chapterId: 'ch1', chapterLabel: 'Ch 1', patch: { mood: 'Grey and hushed.' }, before: { mood: 'Bright.' }, lines: [], scenes: 0, why: '', status: 'pending' } as unknown as Proposal
+    const first = await applyAndKeep('g1', [cc], {})
+    expect(first.failedOf.k).toBe('This card has changed since. Here’s what it says now: Mood or tone: “Bright and loud.” Apply again to use the chat’s change.')
+    expect(main.chapterSaves).toEqual([])
+    expect((await applyAndKeep('g1', [cc], {})).done).toBe(1)
+    expect(main.chapterCards.get('ch1')?.mood).toBe('Grey and hushed.')
   })
 })
 
@@ -378,6 +490,22 @@ describe('when a change can’t go in, it says why and changes nothing (Adam: "i
       expect(main.cards.get('sc1')?.goal).toBe('')
     } finally {
       setHeld([])
+    }
+  })
+
+  it('a chapter card for a chapter Write the chapter is writing: turned down in plain words, nothing saved', async () => {
+    useOutlineStore.setState({ outline: { chapters: [{ id: 'ch1' }], scenes: [{ id: 'sc7', chapterId: 'ch1' }, { id: 'sc8', chapterId: 'ch1' }] } as never })
+    main.chapterCards.set('ch1', { mood: '' })
+    const cc = { id: 'k', kind: 'chapterCard', chapterId: 'ch1', chapterLabel: 'Ch 1', patch: { mood: 'Grey.' }, lines: [], scenes: 0, why: '', status: 'pending' } as unknown as Proposal
+    setHeld(['sc8'])
+    try {
+      const { done, failedOf } = await applyAndKeep('g1', [cc], {})
+      expect(done).toBe(0)
+      expect(failedOf.k).toBe(HELD_CHAPTER)
+      expect(main.chapterSaves).toEqual([])
+    } finally {
+      setHeld([])
+      useOutlineStore.setState({ outline: null })
     }
   })
 

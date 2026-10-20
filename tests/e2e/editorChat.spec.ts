@@ -445,11 +445,13 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     await expect(prose(win)).toHaveText('')
 
     await card.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(card).toHaveAttribute('data-status', 'applied')
+    // Started is not applied: the card says Started until the draft lands, then Applied.
+    await expect(card).toHaveAttribute('data-status', 'started')
     await expect(card).toContainText('Started')
     await expect(card.getByRole('button', { name: 'Show Ch 1, Sc 1' })).toBeVisible()
     // The draft is written into the page by Generate's own run.
     await expect(prose(win)).not.toHaveText('', { timeout: 15_000 })
+    await expect(card).toHaveAttribute('data-status', 'applied', { timeout: 15_000 })
 
     // Carrying on from the end is Continue's tracked change, to accept or reject as usual.
     await expect(win.getByRole('button', { name: 'Stop' })).toHaveCount(0, { timeout: 15_000 })
@@ -457,7 +459,8 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     const next = changes(win).last().locator('[data-proposal]').first()
     await expect(next.locator('[data-draft-mode]')).toContainText('Continue from the end')
     await next.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(next).toHaveAttribute('data-status', 'applied')
+    // Waiting for Accept in the page: started, not applied.
+    await expect(next).toHaveAttribute('data-status', 'started')
     await expect(prose(win).locator('.aw-sugg-new').first()).toBeVisible({ timeout: 15_000 })
   } finally {
     await fake.close()

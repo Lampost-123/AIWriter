@@ -19,6 +19,7 @@ import {
   CircleSlash,
   Feather,
   FilePlus2 as FilePlus,
+  Hourglass,
   ListOrdered,
   Pencil,
   Pilcrow,
@@ -287,7 +288,7 @@ function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: '
             type="checkbox"
             data-replace-rename
             checked={picked}
-            disabled={locked || p.status === 'applied'}
+            disabled={locked || p.status === 'applied' || p.status === 'started'}
             onChange={(e) => useRenamePick.setState({ [pickKey]: e.target.checked })}
             className="h-3.5 w-3.5 shrink-0 accent-accent"
           />
@@ -559,8 +560,10 @@ async function apply(generationId: ID, list: Proposal[]): Promise<void> {
   const picks = useRenamePick.getState()
   const withPicks = list.map((p) => (p.kind === 'replaceAll' ? { ...p, renameEntry: !!picks[localKey(generationId, p.id)] } : p))
   try {
-    const { undoOf, failedOf } = await applyChanges(generationId, withPicks)
+    const { undoOf, failedOf, landedOf } = await applyChanges(generationId, withPicks)
     for (const p of list) setLocal(localKey(generationId, p.id), { applying: false, undo: undoOf[p.id], stale: failedOf[p.id] })
+    // A started draft or fix that doesn't land waits again, saying why.
+    for (const [id, landed] of Object.entries(landedOf)) void landed.then((l) => (l.ok ? undefined : setLocal(localKey(generationId, id), { stale: l.why })))
   } catch {
     for (const p of list) setLocal(localKey(generationId, p.id), { applying: false })
   }
@@ -627,8 +630,12 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
         <span className={cn('min-w-0 flex-1 truncate text-[11.5px] font-semibold uppercase tracking-wide', entryInk ? entryInk.text : 'text-faint')}>{headOf(p)}</span>
         {p.status === 'applied' ? (
           <span className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-success">
-            {/* A draft is started, not applied: its words are written (and kept or undone) in the scene. */}
-            <CheckCircle2 size={13} aria-hidden /> {p.kind === 'draft' ? 'Started' : startedInPage(p) ? 'In the page' : 'Applied'}
+            <CheckCircle2 size={13} aria-hidden /> Applied
+          </span>
+        ) : p.status === 'started' ? (
+          // A draft or an in-page fix being written (or waiting for Accept in the page): not applied until it lands.
+          <span data-started className="flex shrink-0 animate-fade-in items-center gap-1 text-[12px] font-medium text-ai">
+            <Hourglass size={12} aria-hidden /> Started
           </span>
         ) : p.status === 'declined' ? (
           <span className="flex shrink-0 items-center gap-1 text-[12px] text-faint">
@@ -646,7 +653,7 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
       {p.why ? <div className="mt-1.5 break-words text-[12px] italic leading-relaxed text-muted">{p.why}</div> : null}
       {stale ? <div className="mt-1.5 break-words text-[12px] leading-relaxed text-danger">{local.stale}</div> : null}
       <div className="mt-2 flex min-h-7 flex-wrap items-center gap-1.5">
-        {p.status === 'applied' ? (
+        {p.status === 'applied' || p.status === 'started' ? (
           (p.kind === 'draft' || startedInPage(p)) && 'sceneId' in p && p.sceneId ? (
             <Button size="sm" variant="ghost" onClick={() => showScene(p.sceneId!)}>
               Show {p.sceneLabel}
@@ -686,10 +693,13 @@ function ChangesBar({ generationId, proposals, locked }: { generationId: ID; pro
   const waiting = pending.filter((p) => !startedInPage(p))
   const inPage = pending.filter(isWords)
   const applied = proposals.filter((p) => p.status === 'applied').length
+  const started = proposals.filter((p) => p.status === 'started').length
   const busy = proposals.some((p) => local[localKey(generationId, p.id)]?.applying)
   const words = pending.length
     ? `${pending.length} ${pending.length === 1 ? 'change' : 'changes'} ready`
-    : applied
+    : started
+      ? `${started} started`
+      : applied
       ? `${applied === proposals.length && applied > 1 ? 'All' : applied} applied`
       : proposals.length === 1
         ? 'Set aside'
