@@ -139,6 +139,8 @@ export interface PlanMaterial {
   brief?: BriefMaterial
   /** Said to the memory model when the style guide sets content above its second step (keeper/model.ts contentNoteFor). */
   contentNote?: string | null
+  /** The full content guidance applies (ai/prompts.ts fullContent): the beats are worded plainly (PLAN_PLAIN_BEATS). */
+  plainBeats?: boolean
   /**
    * Write the whole chapter (spec "Write the chapter, reworked", 2026-10-19): this scene's part of the chapter plan, made
    * before any scene was written, which the scene plan builds on. Left out: none.
@@ -353,6 +355,13 @@ Reply with only a JSON object:
 - Open plot threads stay open: plan no payoff for one unless the scene card or the author's direction asks for it, or its line says to pay it off now. One may come in only where it fits what is asked.
 - At most ${PLAN_MOST.beats} beats, ${PLAN_MOST.relies} relies and ${PLAN_MOST.changes} changes, the ones that matter most. Keep each short.`
 
+/**
+ * What the planner is told when the full content guidance applies (2026-10-20): the writer stages what the plan names,
+ * so a vague beat gave vague prose.
+ */
+export const PLAN_PLAIN_BEATS =
+  'Sex in this story is written explicitly. When adults have sex in the scene, give each act its own beat and name it plainly in blunt words: who does what to whom, with which part of the body, and how it ends. Never a vague beat such as "they make love" or "things heat up".'
+
 /** What the planner is told of the look-ups, when it may make them (the tools themselves go with the request). */
 export const LOOKUP_RULE =
   'Before you plan, if the scene needs something you weren’t given (a codex entry as it stands here, where someone was last, who knows something), look it up with the tools. You have what happened earlier only in short, not the earlier scenes’ own words: to read what an earlier scene said, word for word, use read_passage (find_in_story finds where something was said). Ask for everything you need at once: you get one round of look-ups. Look up nothing you were already given.'
@@ -437,7 +446,7 @@ export function planMessages(m: PlanMaterial, whole = true): ChatMessage[] {
   const cacheUpTo = whole && lead.length ? lead.join('\n\n').length : 0
   const system = planSystem(!!m.contract, !!b, !!m.lookups)
   return [
-    { role: 'system', content: m.contentNote ? `${system}\n\n${m.contentNote}` : system },
+    { role: 'system', content: [system, m.plainBeats ? PLAN_PLAIN_BEATS : '', m.contentNote ?? ''].filter(Boolean).join('\n\n') },
     { role: 'user', content: user, ...(cacheUpTo ? { cacheUpTo } : {}) }
   ]
 }

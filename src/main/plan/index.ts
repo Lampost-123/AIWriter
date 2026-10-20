@@ -11,7 +11,7 @@
 
 import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import type { ContextPreview, ID, SceneCard } from '@shared/types'
+import type { ContextPreview, ID, SceneCard, StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
 import { beatsOnPage } from '@shared/beats'
 import { getSettings } from '../settings'
@@ -23,6 +23,7 @@ import { pausedNote } from '../usage/gate'
 import { toldStage, type ContextInput, type PreparedContext } from '../ai/context'
 import { memoryScale } from '../ai/memoryRoom'
 import { shortPlace } from '../ai/mustStay'
+import { fullContent } from '../ai/prompts'
 import { briefSize, briefWanted, hasEarlierBooks, type ContinuityBrief } from '../ai/brief'
 import type { LookupContext } from '../ai/lookups'
 import { SO_FAR_BLOCK } from '../beats/instructions'
@@ -123,6 +124,15 @@ export function forgetScenePlans(): void {
   wholePlans.clear()
 }
 
+/**
+ * What the planner is told of the content: the memory jobs' note, and with the full content guidance the plain-beats
+ * rule (PLAN_PLAIN_BEATS), with the note said as for the top level (the genre may call for it with the level unset).
+ */
+export function planContentFor(style: Pick<StyleGuide, 'intensity' | 'genres'>): Pick<PlanMaterial, 'contentNote' | 'plainBeats'> {
+  if (!fullContent(style)) return { contentNote: contentNoteFor(style.intensity) }
+  return { contentNote: contentNoteFor({ ...style.intensity, romance: 4 }), plainBeats: true }
+}
+
 const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).filter(Boolean).length
 
 /**
@@ -192,7 +202,7 @@ export async function planBeforeWriting(
     const core: PlanCore | null = read ? { ...read, ...(notes.length ? { notes } : {}) } : null
     const plain: PlanMaterial = {
       ...planMaterial(b.input, b.preview, b.prepared, { core, beats: !!o.beat, ...(o.chapter?.trim() ? { chapter: o.chapter } : {}) }),
-      contentNote: contentNoteFor(b.input.style.intensity)
+      ...planContentFor(b.input.style)
     }
     // With a continuity brief (fix 14) when Adam wants one; a brief that can't be put together leaves the plan as it was.
     const material =

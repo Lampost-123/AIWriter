@@ -232,12 +232,13 @@ export function contractReminder(intent?: AskIntent | null, unclear = false): st
 
 /**
  * Block 1: how to answer, with the style guide in effect (its spelling and limits matter for any lines
- * or names suggested). The sample passage is always trimmed, and the short form leaves it out.
+ * or names suggested). The sample passage is always trimmed, and the short form leaves it out. The content guidance goes in
+ * when it applies (2026-10-20), since the edits it proposes are prose.
  */
 export function askInstructions(style: StyleGuide, short = false): string {
   const shown = short ? { ...style, samplePassage: '' } : style
   const intro = withAgentTools(withFormat(chatExp('CONTRACT') ? withActFirst(CONTRACT_INTRO) : INTRO))
-  return instructionsText(shown, { intro, trimSample: true, proseRules: false })
+  return instructionsText(shown, { intro, trimSample: true, proseRules: false, contentCraft: true })
 }
 
 /** One earlier question and the answer that came back. */

@@ -149,14 +149,22 @@ export function soundLikeText(echo: Pick<OwnPassage, 'text'>): string {
  * (milestone 4's AI edits, say); '' leaves the introduction out (the style guide alone).
  * The short form (`trimSample`) keeps only the opening of the sample passage, the leading genre without its
  * worn-out moves, and the rules without the list of phrases. `proseRules: false` leaves out the rules against
- * AI phrasing (for jobs that don't write prose, such as Ask the world). The drafting writer's own rules carry the
+ * AI phrasing and the content guidance (for jobs that don't write prose); `contentCraft` brings the guidance back. The drafting writer's own rules carry the
  * rules against AI phrasing (writerInstructions); a job with an `intro` of its own gets them as their own list.
  * `ownSample`: passages of Adam's own writing (style/ownWords.ts) in place of the style guide's sample passage (short
  * form: the first of them, trimmed).
  */
 export function instructionsText(
   style: StyleGuide & { avoidAiPhrases?: boolean },
-  opts: { trimSample?: boolean; intro?: string; proseRules?: boolean; addBelow?: boolean; ownSample?: OwnSample | null } = {}
+  opts: {
+    trimSample?: boolean
+    intro?: string
+    proseRules?: boolean
+    addBelow?: boolean
+    ownSample?: OwnSample | null
+    /** The content guidance even with `proseRules` false: the chat, whose proposed edits are prose. */
+    contentCraft?: boolean
+  } = {}
 ): string {
   const short = !!opts.trimSample
   const aiPhrases = opts.proseRules !== false && style.avoidAiPhrases !== false
@@ -176,8 +184,8 @@ export function instructionsText(
   if (feel) parts.push(feel)
   const content = contentText(style)
   if (content) parts.push(content)
-  // Ask the world sets proseRules false, so it does not get the sex-scene craft.
-  if (opts.proseRules !== false) {
+  // Jobs that write no prose (proseRules false) don't get the content guidance, unless they ask for it (the chat does).
+  if (opts.contentCraft ?? opts.proseRules !== false) {
     const sex = sexSceneText(style)
     if (sex) parts.push(sex)
   }
@@ -232,20 +240,35 @@ function firstSentences(text: string, n: number): string {
 }
 
 /**
- * Craft for Explicit romance, on jobs that write prose. Empty otherwise.
- * The content limits in the style guide still win: they are stated above this block.
+ * True when the full content guidance applies: the romance level is at its top step, or it is left unset and the genre
+ * calls for it (2026-10-20). A level Adam picked wins.
  */
-export function sexSceneText(style: Pick<StyleGuide, 'intensity'>): string {
-  if (style.intensity?.romance !== 4) return ''
+export function fullContent(style: Pick<StyleGuide, 'intensity' | 'genres'>): boolean {
+  const romance = style.intensity?.romance
+  return romance === 4 || (romance == null && (style.genres ?? []).includes('erotica'))
+}
+
+/**
+ * The content guidance (fullContent), on jobs that write prose. Empty otherwise.
+ * The content limits in the style guide still win: they are stated above this block.
+ * 2026-10-20: the plain words are listed by kind and the vague ones to avoid are named, for the narration too.
+ */
+export function sexSceneText(style: Pick<StyleGuide, 'intensity' | 'genres'>): string {
+  if (!fullContent(style)) return ''
   return `Sex scenes
 When anyone is having sex in this passage, write the sex as a physical scene, the way a porn page tags acts and the way people talk in one. Any passage that is not sexual, leave alone.
 - Stage each act in order, on the page. Do not cut away, skip to afterwards, or summarise it ("they had sex", "they made love").
-- When the scene card names acts (oral, anal, a position, finishing inside, and the like), give each named act its own stretch: who does it, the contact, a line of talk, and how that stretch ends.
-- Use blunt words for bodies, acts and fluids: cock, cunt, clit, balls, tits, ass, fuck, suck, come. Never use coy stand-ins such as manhood, member, length, core, heat, centre, flower, nectar or velvet, or "their bodies moved as one".
+- When the scene card or the plan names acts (oral, anal, a position, finishing inside, and the like), give each named act its own stretch: who does it, the contact, a line of talk, and how that stretch ends.
+- Use blunt words for every body part, act and fluid, in the narration as well as the talk: not "he touched her" but what touches what. Bodies: cock, dick, balls, cunt, pussy, clit, tits, nipples, arse, hole. Acts: fuck, suck, lick, finger, ride, stroke, grind, come. Fluids and wetness: come, spunk, wet, slick. Vary them so the same word doesn't come back within a few lines, and pick the ones this character would use.
+- Never use a vague or coy stand-in: manhood, member, length, shaft, hardness, arousal, core, centre, heat, entrance, folds, mound, flower, nectar, juices, "her sex", "down there", "inside her" with nothing named, "their bodies moved as one", "things heated up".
 - During the sex, dialogue is direct, and this overrides the rule about subtext: characters say what they want and what is happening, in short lines (a command, begging, praise, or the name of the act). Save longer speeches for afterwards.
 - Stay in the body: pressure, wetness, stretch, taste, smell, breath, and where the hands and the mouth are. Clothes come off in the prose. Do not give anyone an extra hand.
 - Adults only. Consent shows in what they do and say.`
 }
+
+/** The closing instruction's reminder when the full content guidance applies (Generate's and Add below's). */
+const FULL_CONTENT_LINE =
+  '- If adults have sex in this scene, play every act on the page in blunt words and direct talk, and name each body part and act with its blunt word; do not fade out or euphemise.'
 
 /** "Content": one sentence for each intensity scale Adam set; the content limits still win. Empty when none is set. */
 export function contentText(style: Pick<StyleGuide, 'intensity' | 'contentLimits'>): string {
@@ -339,9 +362,7 @@ export function finalInstruction(o: {
   lines.push(lengthLine(o))
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
-  if (o.style.intensity?.romance === 4) {
-    lines.push('- If adults have sex in this scene, play every act on the page in blunt words and direct talk; do not fade out or euphemise.')
-  }
+  if (fullContent(o.style)) lines.push(FULL_CONTENT_LINE)
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
   if (o.hasStand) lines.push(STAND_LINE)
@@ -427,9 +448,7 @@ function addBelowFinal(o: FinalOptions): string {
   lines.push(keepLine(o.style))
   const feel = feelLine(o.style, o.tone)
   if (feel) lines.push(feel)
-  if (o.style.intensity?.romance === 4) {
-    lines.push('- If adults have sex in this scene, play every act on the page in blunt words and direct talk; do not fade out or euphemise.')
-  }
+  if (fullContent(o.style)) lines.push(FULL_CONTENT_LINE)
   const avoid = avoidLine(o.style)
   if (avoid) lines.push(avoid)
   if (o.hasStand) lines.push(STAND_LINE)
