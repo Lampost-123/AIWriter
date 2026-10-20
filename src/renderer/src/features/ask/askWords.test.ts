@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerNote, asOfText, chatWhen, examples, notProposedNote, savedMessage, speaksOfChanges, staleBadge } from './askWords'
+import { answerNote, asOfText, chatWhen, examples, refusedReason, savedMessage, speaksOfChanges, staleBadge, turnOutcome } from './askWords'
 
 describe('Ask the world’s words', () => {
   it('give examples that name the world’s own characters, never someone from elsewhere', () => {
@@ -85,16 +85,38 @@ describe('a change that didn’t go through, said plainly (Adam, 2026-10-19)', (
     const tools = [
       tried('Not proposed: nothing is waiting for the writer.\n1. entry: Not proposed. “Favourite colour” isn’t one of Mara’s fields. Give fields by key; Mara’s are: eyes (Eyes).')
     ]
-    expect(notProposedNote('I’d give her green eyes.', tools, 0)).toBe('Nothing was proposed: Mara has no “Favourite colour” field.')
-    // A change came with it, nothing was tried, or the answer already says it (the truth check's lead): no note.
-    expect(notProposedNote('Done.', tools, 1)).toBeNull()
-    expect(notProposedNote('Her eyes are grey.', [], 0)).toBeNull()
-    expect(notProposedNote('No change was made: I couldn’t make it because Mara has no “Favourite colour” field.', tools, 0)).toBeNull()
+    expect(refusedReason(tools)).toBe('Mara has no “Favourite colour” field')
+    // Nothing was tried, or it went through: no reason.
+    expect(refusedReason([])).toBeNull()
+    expect(refusedReason(undefined)).toBeNull()
+    expect(refusedReason([tried('Proposed.', 'done')])).toBeNull()
   })
   it('marks a change it couldn’t apply by why: its words gone, or something else', () => {
     expect(staleBadge('The words this change looks for aren’t in the scene any more: another change changed them.')).toBe('Not found')
     expect(staleBadge('The words this change looks for now stand in more than one place in the scene, so it wasn’t applied.')).toBe('Not found')
     expect(staleBadge('Write the chapter is writing this scene right now, so the change can’t go in yet.')).toBe('Not applied')
     expect(staleBadge('Ch 1, Sc 1 is taking longer than usual to open, so the change wasn’t made.')).toBe('Not applied')
+  })
+})
+
+describe('the outcome line of an Ask answer (chat-truth R1)', () => {
+  const turn = (over: Record<string, unknown>) => ({ status: 'complete' as const, ...over })
+  const p = (id: string, status: 'pending' | 'started' | 'applied' | 'declined') => ({ id, status })
+  it('works it out from the answer’s changes, as they stand now', () => {
+    expect(turnOutcome(turn({ proposals: [p('a', 'pending'), p('b', 'applied')] }), new Set()).words).toBe('1 applied, 1 waiting: press Apply.')
+    expect(turnOutcome(turn({ proposals: [p('a', 'applied')] }), new Set()).state).toBe('applied')
+  })
+  it('a change whose Apply failed this session is the red one', () => {
+    expect(turnOutcome(turn({ proposals: [p('a', 'pending')] }), new Set(['a'])).state).toBe('failed')
+  })
+  it('nothing changed, with why a tried change was turned down', () => {
+    const tools = [{ status: 'not-proposed' as const, kind: 'propose' as const, result: 'Not proposed: the words it meant to change aren’t in the scene as written.', outcome: '' }]
+    expect(turnOutcome(turn({ tools }), new Set()).words).toMatch(/^Nothing was changed: .+\.$/)
+    expect(turnOutcome(turn({}), new Set()).words).toBe('Nothing was changed.')
+  })
+  it('a stopped answer still gets its line; one still streaming, or that failed with nothing to show, doesn’t', () => {
+    expect(turnOutcome(turn({ status: 'stopped' }), new Set()).state).toBe('none')
+    expect(turnOutcome(turn({ status: 'streaming', proposals: [p('a', 'pending')] }), new Set()).words).toBeNull()
+    expect(turnOutcome(turn({ status: 'error' }), new Set()).words).toBeNull()
   })
 })

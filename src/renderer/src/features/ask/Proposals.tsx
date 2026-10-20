@@ -553,6 +553,18 @@ const useLocal = create<Record<string, Local>>(() => ({}))
 const localKey = (generationId: ID, id: string): string => `${generationId}:${id}`
 const setLocal = (key: string, patch: Local): void => useLocal.setState((s) => ({ [key]: { ...s[key], ...patch } }))
 
+/**
+ * The changes of an answer whose Apply failed this session (still waiting, with why on their card), as a stable key
+ * ("id1 id2"), for the answer's outcome line.
+ */
+export const useFailedOf = (generationId: ID): string =>
+  useLocal((s) =>
+    Object.entries(s)
+      .filter(([k, l]) => k.startsWith(`${generationId}:`) && l.stale && !l.applying)
+      .map(([k]) => k.slice(generationId.length + 1))
+      .join(' ')
+  )
+
 /** Applies changes, each card showing it is being applied, then its own Undo (or why it couldn't go in). */
 async function apply(generationId: ID, list: Proposal[]): Promise<void> {
   for (const p of list) setLocal(localKey(generationId, p.id), { applying: true, stale: undefined })
@@ -645,6 +657,11 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
           <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-danger">
             <AlertTriangle size={12} aria-hidden /> {staleBadge(local.stale ?? '')}
           </span>
+        ) : p.status === 'pending' && !local.applying ? (
+          // Waiting looks waiting (chat-truth R9): nothing has changed yet.
+          <span data-waiting className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-ai">
+            <Hourglass size={12} aria-hidden /> Waiting: press Apply
+          </span>
         ) : null}
       </div>
       <div className={cn(p.status === 'applied' && 'opacity-80')}>
@@ -706,8 +723,9 @@ function ChangesBar({ generationId, proposals, locked }: { generationId: ID; pro
         : 'All set aside'
   return (
     <div data-changes-bar className="sticky top-0 z-[1] -mx-1 flex min-h-9 flex-wrap items-center gap-x-1 gap-y-1 bg-surface/95 px-2 py-1 backdrop-blur-sm">
-      <span className="mr-auto text-[12.5px] font-medium text-fg" title={pending.length ? 'Nothing changes until you apply' : undefined}>
-        {words}
+      <span className="mr-auto flex flex-col">
+        <span className="text-[12.5px] font-medium text-fg">{words}</span>
+        {pending.length ? <span className="text-[11.5px] text-muted">Nothing changes until you apply.</span> : null}
       </span>
       {waiting.length > 1 ? (
         <Button size="sm" variant="secondary" disabled={locked || busy} onClick={() => void apply(generationId, waiting)}>

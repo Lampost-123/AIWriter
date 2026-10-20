@@ -84,7 +84,8 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await ask(win, 'Pretend to tidy the opening')
     const tidied = changes(win).last().locator('[data-proposal]').first()
     await expect(tidied).toContainText('Tidied, as claimed.')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    // The app's own line says what came of it (chat-truth R1).
+    await expect(panel(win).locator('[data-turn-status]').last().locator('[data-outcome]')).toHaveAttribute('data-outcome', 'waiting')
     await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
     // One that still doesn't propose them never shows the claim (the truth check, 2026-10-19): it says no change was
     // made, with what it would suggest.
@@ -95,7 +96,8 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(stubborn.locator('[data-answer]')).toContainText('I’d tidy up the opening.')
     await expect(stubborn.locator('[data-answer]')).not.toContainText('I’ve tidied')
     await expect(stubborn.locator('[data-answer]')).not.toContainText('Apply the changes below')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+    await expect(stubborn.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'none')
+    await expect(stubborn.locator('[data-outcome]')).toHaveText('Nothing was changed.')
   } finally {
     await fake.close()
   }
@@ -139,6 +141,8 @@ test('a model that claims changes it never made: the chat shows the honest resul
     )
     await expect(bad.locator('[data-answer]')).not.toContainText('I’ve fixed')
     await expect(bad.locator('[data-proposal]')).toHaveCount(0)
+    await expect(bad.locator('[data-outcome]')).toHaveAttribute('data-outcome', 'refused')
+    await expect(bad.locator('[data-outcome]')).toContainText('Nothing was changed: ')
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
   } finally {
     await fake.close()

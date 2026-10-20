@@ -1,7 +1,8 @@
 // The words Ask the world shows: its example questions, when a chat was last asked in, where answers
 // are from, how an answer ended, and what saving a note did. Pure, so it is unit-tested.
-import type { SavedNote } from '@shared/contracts/ask'
-import { NO_CHANGE_LEAD, writerReason } from '@shared/askTruth'
+import type { AskTurn, Proposal, SavedNote } from '@shared/contracts/ask'
+import { outcomeOf, type Outcome } from '@shared/askOutcome'
+import { writerReason } from '@shared/askTruth'
 import type { ToolActivity } from '@shared/toolActivity'
 import { formatCost } from '@/features/generate/format'
 
@@ -89,23 +90,35 @@ export function savedMessage(note: Pick<SavedNote, 'name' | 'created' | 'onlyIn'
   return `Saved to memory for ${note.name}, as your own note.`
 }
 
-/** Said under an answer that talks of changes to apply when none came with it (the model claimed what it didn't do). */
-export const NO_CHANGES_CAME = 'No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.'
-
 /** True when an answer clearly says it made or proposed changes (shared/askChanges.ts): "apply pressure" doesn't count. */
 export { claimsChanges as speaksOfChanges } from '@shared/askChanges'
 
 /**
- * Said under an answer whose changes were all turned down by their checks (Adam, 2026-10-19: the reason was only in a
- * folded tool row): why, in plain words, from the last one turned down. Null when a change came with the answer, none
- * was tried, or the answer already says so itself (the truth check's "No change was made: …").
+ * Why the changes an answer tried were all turned down by their checks, in plain words (from the last one turned
+ * down), or null when none was tried or one went through. Shown in the answer's outcome line.
  */
-export function notProposedNote(answer: string, tools: Pick<ToolActivity, 'status' | 'kind' | 'result' | 'outcome'>[] | undefined, proposals: number): string | null {
-  if (proposals) return null
+export function refusedReason(tools: Pick<ToolActivity, 'status' | 'kind' | 'result' | 'outcome'>[] | undefined): string | null {
   const failed = (tools ?? []).filter((t) => t.status === 'not-proposed' && (t.kind === 'propose' || t.kind === 'draft'))
   const last = failed.at(-1)
-  if (!last || answer.trim().startsWith(NO_CHANGE_LEAD)) return null
-  return `Nothing was proposed: ${writerReason(last.result || last.outcome || '')}.`
+  if (!last) return null
+  return writerReason(last.result || last.outcome || '').replace(/[.\s]+$/, '') || null
+}
+
+/**
+ * The outcome line under an Ask answer (chat-truth R1), from its recorded changes as they stand now. `failed`: the
+ * changes whose Apply failed this session (still waiting, with why on their card). None while the answer streams, nor
+ * for one that failed with nothing to show.
+ */
+export function turnOutcome(
+  turn: Pick<AskTurn, 'status' | 'tools'> & { proposals?: Pick<Proposal, 'id' | 'status'>[] },
+  failed: ReadonlySet<string>
+): Outcome {
+  const proposals = turn.proposals ?? []
+  return outcomeOf({
+    finished: turn.status === 'complete' || turn.status === 'stopped' || (turn.status === 'error' && proposals.length > 0),
+    changes: proposals.map((p) => ({ status: p.status, failed: failed.has(p.id) })),
+    refused: proposals.length ? null : refusedReason(turn.tools)
+  })
 }
 
 /**
