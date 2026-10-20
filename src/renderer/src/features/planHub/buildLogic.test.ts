@@ -7,6 +7,7 @@ import {
   castStatus,
   costWords,
   defaultSection,
+  shownIdea,
   tabFor,
   estimateWords,
   ideaStatus,
@@ -88,6 +89,13 @@ describe('how each section of Build with AI stands', () => {
     expect(tabFor({}, 'cast', 'writing')).toBe('cast')
     expect(tabFor({}, null, 'start')).toBe('idea')
     expect(tabFor({}, null, 'planned')).toBe('line')
+  })
+
+  it('shows the same idea in both boxes: the plot, the premise until anything is typed, an emptied box empty', () => {
+    expect(shownIdea('A ferryman', false, 'The premise')).toBe('A ferryman')
+    expect(shownIdea('', false, 'The premise')).toBe('The premise')
+    expect(shownIdea('  ', false, 'The premise')).toBe('The premise')
+    expect(shownIdea('', true, 'The premise')).toBe('')
   })
 })
 

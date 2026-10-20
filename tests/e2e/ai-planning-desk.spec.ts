@@ -350,7 +350,7 @@ test('a window that isn’t full screen: Build with AI keeps its talk beside the
   await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
   const hub = win.locator('[data-plan-hub]')
   await expect(hub).toBeVisible()
-  const main = (await hub.locator('.hub-main').boundingBox())!
+  const main = (await hub.locator('.hub-main:not([hidden])').boundingBox())!
   const side = (await hub.locator('.hub-side').boundingBox())!
   expect(side.x).toBeGreaterThanOrEqual(main.x + main.width - 1)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
@@ -363,7 +363,7 @@ test('a window that isn’t full screen: Build with AI keeps its talk beside the
   await expect.poll(async () => (await win.evaluate('innerWidth')) as number).toBeLessThanOrEqual(800)
   await expect
     .poll(async () => {
-      const m = (await hub.locator('.hub-main').boundingBox())!
+      const m = (await hub.locator('.hub-main:not([hidden])').boundingBox())!
       const s = (await hub.locator('.hub-side').boundingBox())!
       return s.y >= m.y + m.height - 1
     })
@@ -385,15 +385,18 @@ test('Build with AI on the desk: its sections as tabs along the top, one at a ti
   const hub = win.locator('[data-plan-hub]')
   const nav = hub.locator('[data-build-nav]')
   await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
-  // Full screen: along the top, above the section; only the chosen section is in the page.
+  // Full screen: along the top, above the section; only the chosen section shows (the others kept in the page, hidden,
+  // so what is half typed in them survives a look at another).
   let n = (await nav.boundingBox())!
-  let m = (await hub.locator('.build-main').boundingBox())!
+  let m = (await hub.locator('.build-main:not([hidden])').boundingBox())!
   expect(n.y + n.height).toBeLessThanOrEqual(m.y)
-  await expect(hub.locator('[data-build-section]')).toHaveCount(1)
+  await expect(hub.locator('[data-build-section]')).toHaveCount(4)
+  await expect(hub.locator('[data-build-section]:not([hidden])')).toHaveCount(1)
   await expect(hub.locator('[data-build-section="line"]')).toBeVisible()
+  await expect(hub.locator('[data-build-section="idea"]')).toBeHidden()
   await nav.locator('[data-nav="threads"]').click()
   await expect(nav.locator('[data-nav="threads"]')).toHaveAttribute('aria-selected', 'true')
-  await expect(hub.locator('[data-build-section]')).toHaveCount(1)
+  await expect(hub.locator('[data-build-section]:not([hidden])')).toHaveCount(1)
   await expect(hub.locator('[data-build-section="threads"]')).toBeVisible()
   // Plan before writing is a writing setting: only beside the story line.
   await expect(hub.locator('[data-plan-first]')).toHaveCount(0)
@@ -414,7 +417,7 @@ test('Build with AI on the desk: its sections as tabs along the top, one at a ti
   await expect
     .poll(async () => {
       n = (await nav.boundingBox())!
-      m = (await hub.locator('.build-main').boundingBox())!
+      m = (await hub.locator('.build-main:not([hidden])').boundingBox())!
       return n.width > m.width
     })
     .toBe(true)

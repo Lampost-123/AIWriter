@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn'
 import { SECTIONS, type BuildSection } from './buildLogic'
 
 export const tabId = (s: BuildSection): string => `build-tab-${s}`
-export const PANEL_ID = 'build-tabpanel'
+export const panelId = (s: BuildSection): string => `build-panel-${s}`
 
 export function BuildTabs({
   tab,
@@ -41,7 +41,7 @@ export function BuildTabs({
             role="tab"
             id={tabId(s.id)}
             aria-selected={on}
-            aria-controls={PANEL_ID}
+            aria-controls={panelId(s.id)}
             tabIndex={on ? 0 : -1}
             className={cn('build-nav-btn', on && 'is-on')}
             onClick={() => onPick(s.id)}

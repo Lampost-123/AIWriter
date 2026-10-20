@@ -67,7 +67,7 @@ const hub = (win: Page) => main(win).locator('[data-plan-hub]')
 /** The newest batch's head: what it is doing, how many are left, Keep all, What the AI saw. */
 const batchHead = (win: Page) => hub(win).locator('[data-batch-head]').first()
 /** The story's idea, in the box of the tab shown: Your idea's, or Plan your story's (the same idea; its premise while it has no plot of its own). */
-const ideaBox = (win: Page) => hub(win).getByLabel(/^Your idea, in (your own words|a line or two)/)
+const ideaBox = (win: Page) => hub(win).getByLabel(/^Your idea, in (your own words|a line or two)/).filter({ visible: true })
 
 /** Opens the Plan hub from the story menu (at the head of Write's list, which also says what the story holds). */
 async function openHelper(win: Page, story = 'Book 1'): Promise<void> {

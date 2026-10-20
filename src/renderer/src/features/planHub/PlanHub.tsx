@@ -30,7 +30,6 @@ import { api } from '@/lib/api'
 import { useApp, type View } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
 import { useDesk } from '@/features/look/look'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { Switch } from '@/features/world/parts/Switch'
 import { useEntryCounts } from '@/features/binder/WorldSection'
 import { PremiseCard } from '@/features/outline/PremiseCard'
@@ -51,7 +50,7 @@ import { cardIsEmpty } from '@/features/outline/ideasLogic'
 import { fitSize, fitStageSize } from '@/features/outline/size'
 import { defaultMode, WHOLE_MOST_CHAPTERS, type PlanMode } from '@/features/outline/stages'
 import type { TreeNode } from '@/features/outline/tree'
-import { builderKey, briefOf, followRecipe, loadBrief, patchBrief, sizeForLength, useBuilders } from '@/features/storyBuilder/store'
+import { builderKey, briefOf, followRecipe, loadBrief, patchBrief, sizeForLength, useBuilders, writeIdea } from '@/features/storyBuilder/store'
 import { IdeaStep } from '@/features/storyBuilder/IdeaStep'
 import { CodexTalk, useCodexLocked } from '@/features/storyBuilder/CodexStep'
 import { loadPlan, patchPlan, planOf } from '@/features/recipes/planStore'
@@ -71,7 +70,7 @@ import {
   writtenLine,
   type Where
 } from './hubLogic'
-import { castStatus, ideaStatus, lineStatus, sectionLabel, tabFor, threadsStatus, type BuildSection, type BuildView } from './buildLogic'
+import { castStatus, ideaStatus, lineStatus, SECTIONS, sectionLabel, shownIdea, tabFor, threadsStatus, type BuildSection, type BuildView } from './buildLogic'
 import {
   hubKey,
   hubOf,
@@ -92,7 +91,7 @@ import {
   waitingThreads
 } from './hubStore'
 import { DriftCard, NextCard, SizeChoice, StartCard } from './HubCards'
-import { BuildTabs, PANEL_ID, tabId } from './BuildTabs'
+import { BuildTabs, panelId, tabId } from './BuildTabs'
 import { ChapterPage, ScenePage } from './ZoomPages'
 import { zoomOf } from './zoomLogic'
 import { StoryLine } from './StoryLine'
@@ -217,23 +216,21 @@ async function followFromRecipe(storyId: ID, recipeId: ID): Promise<void> {
 }
 
 /**
- * Waits for an element to be in the page (a row opening), then brings it into view at the top of the area. Opened at
- * once (not glided), it is kept there for a moment while what is above it settles (a list still loading), unless Adam
+ * Waits for an element to be in the page (a row opening), then brings it into view at the top of the area, at once. It
+ * is kept there for a moment while what is above it settles (a list still loading), unless Adam
  * scrolls, clicks or types first.
  */
-function scrollToSoon(root: HTMLElement | null, selector: string, smooth: boolean, then?: (el: HTMLElement) => void): void {
+function scrollToSoon(root: HTMLElement | null, selector: string): void {
   if (!root) return
   const until = Date.now() + 1500
-  const glide = smooth && !reducedMotion() && !keyboardDriven()
   const go = (): void => {
     const el = root.querySelector<HTMLElement>(selector)
     if (!el) {
       if (Date.now() < until) requestAnimationFrame(go)
       return
     }
-    el.scrollIntoView({ block: 'start', behavior: glide ? 'smooth' : 'auto' })
-    then?.(el)
-    if (!glide) pin(root, el)
+    el.scrollIntoView({ block: 'start' })
+    pin(root, el)
   }
   requestAnimationFrame(go)
 }
@@ -343,10 +340,9 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
   /** Shows a section (its tab, or another section's button): from a chapter's page, Story line goes back to its row. */
   const goTo = useCallback(
     (s: BuildSection, then?: (el: HTMLElement) => void): void => {
-      setSection(storyId, s)
       const near = s === 'line' && zoom ? { near: zoom.chapterId } : {}
       useApp.getState().navigate({ kind: 'planHub', storyId, section: s, ...near, ...(back ? { back } : {}) })
-      if (then) whenShown(scroller.current, `[data-build-section="${s}"]`, then)
+      if (then) whenShown(scroller.current, `[data-build-section="${s}"]:not([hidden])`, then)
     },
     [storyId, back, zoom]
   )
@@ -376,7 +372,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           : view.tool
             ? `[data-scene-page="${CSS.escape(z.sceneId)}"] .zoom-tools`
             : null
-      if (target) scrollToSoon(scroller.current, target, false)
+      if (target) scrollToSoon(scroller.current, target)
       return
     }
     // A tab starts at the top of the page; back out from a chapter's page, its row is open and in view.
@@ -384,7 +380,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     if (view.near) {
       const open = rowsToOpen(storyLine(shape), { chapterId: view.near })
       for (const k of open.rowKeys) toggleRow(storyId, k, true)
-      if (open.chapterId) scrollToSoon(scroller.current, `[data-chapter="${CSS.escape(open.chapterId)}"]`, false)
+      if (open.chapterId) scrollToSoon(scroller.current, `[data-chapter="${CSS.escape(open.chapterId)}"]`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
@@ -398,13 +394,12 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
   const scope = pickScope(scopes, hub.scope ?? view.at)
   const [problem, setProblem] = useState<string | null>(null)
   // The idea: the Story builder's plot, the one place it is written (the story's premise stands for it while there is none).
-  // Once Adam types in Plan your story's box, it shows what he wrote, even emptied (as Your idea's box does).
-  const [ideaTyped, setIdeaTyped] = useState(false)
-  const idea = ideaTyped || brief?.plot.trim() ? (brief?.plot ?? '') : story.premise
-  const writeIdea = (plot: string): void => {
-    setIdeaTyped(true)
+  // Plan your story's box shows it as Your idea's does (shownIdea), the two boxes one idea.
+  const ideaTyped = useBuilders((st) => !!st.builders[builderKey(storyId)]?.ideaTyped)
+  const idea = shownIdea(brief?.plot ?? '', ideaTyped, story.premise)
+  const typeIdea = (plot: string): void => {
     if (plot.trim()) setProblem(null)
-    patchBrief(storyId, { plot })
+    writeIdea(storyId, plot)
   }
   const focusIdea = (): void => goTo('idea', (el) => el.querySelector<HTMLTextAreaElement>('[data-plot]')?.focus())
 
@@ -478,10 +473,10 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     </aside>
   )
 
-  // The section the tab shows, or (zoomed in, under Story line) the chapter's or the scene's own page.
-  let panel: React.JSX.Element | null = null
-  if (zoom && zoomChapter) {
-    panel =
+  // Each section, all kept in the page (a draft half typed in one survives a look at another) and only the chosen one
+  // shown; zoomed in, Story line shows the chapter's or the scene's own page.
+  const zoomPage =
+    zoom && zoomChapter ? (
       zoom.kind === 'scene' && zoomScene ? (
         <ScenePage storyId={storyId} chapter={zoomChapter} scene={zoomScene} hub={hub} back={back} />
       ) : (
@@ -500,12 +495,11 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           back={back}
         />
       )
-  } else if (tab === 'idea') {
-    panel = <IdeaStep storyId={storyId} premise={story.premise} />
-  } else if (tab === 'cast') {
-    panel = <CastSection storyId={storyId} summary={hub.summary} premise={story.premise} onGo={(s) => (s === 'idea' ? focusIdea() : goTo(s))} />
-  } else if (tab === 'threads') {
-    panel = (
+    ) : null
+  const body: Record<BuildSection, React.JSX.Element> = {
+    idea: <IdeaStep storyId={storyId} premise={story.premise} />,
+    cast: <CastSection storyId={storyId} summary={hub.summary} premise={story.premise} onGo={(s) => (s === 'idea' ? focusIdea() : goTo(s))} />,
+    threads: (
       <ThreadsSection
         storyId={storyId}
         threads={hub.board?.threads ?? null}
@@ -516,9 +510,8 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           })
         }
       />
-    )
-  } else {
-    panel = (
+    ),
+    line: zoomPage ?? (
       <>
         {mode !== 'start' ? (
           <NextCard
@@ -546,7 +539,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           <StartCard
             mode={mode}
             idea={idea}
-            onIdeaChange={writeIdea}
+            onIdeaChange={typeIdea}
             brief={brief}
             onCastAndWorld={() => goTo('cast')}
             scopes={scopes}
@@ -595,7 +588,6 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
       className="plan-hub build"
       data-plan-hub={mode}
       data-desk={desk || undefined}
-      data-in-view={tab}
       data-zoomed={zoom?.kind}
       style={{ '--nav-h': `${navH}px` } as React.CSSProperties}
     >
@@ -621,15 +613,19 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
         <div className="build-body">
           <BuildTabs tab={tab} statuses={statuses} onPick={(s) => goTo(s)} navRef={nav} />
 
-          <div
-            className="hub-main build-main build-sec"
-            role="tabpanel"
-            id={PANEL_ID}
-            aria-labelledby={tabId(tab)}
-            data-build-section={tab}
-          >
-            {panel}
-          </div>
+          {SECTIONS.map((s) => (
+            <div
+              key={s.id}
+              className="hub-main build-main build-sec"
+              role="tabpanel"
+              id={panelId(s.id)}
+              aria-labelledby={tabId(s.id)}
+              data-build-section={s.id}
+              hidden={tab !== s.id}
+            >
+              {body[s.id]}
+            </div>
+          ))}
 
           {side}
         </div>

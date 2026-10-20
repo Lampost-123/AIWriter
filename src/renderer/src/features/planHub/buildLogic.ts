@@ -103,6 +103,12 @@ export function threadsStatus(threads: readonly Pick<BoardThread, 'column' | 'du
 export const defaultSection = (mode: HubMode): BuildSection => (mode === 'start' ? 'idea' : 'line')
 
 /**
+ * The idea as both its boxes show it (Your idea's, Plan your story's): the plot; the story's premise while there is
+ * none, until anything is typed in either (then an emptied box stays empty).
+ */
+export const shownIdea = (plot: string, typed: boolean, premise: string): string => (typed || plot.trim() ? plot : premise)
+
+/**
  * The tab Build with AI shows: Story line on a chapter's or a scene's own page; else the section the view asks for; else
  * the one Adam last chose for this story; else where the story stands.
  */

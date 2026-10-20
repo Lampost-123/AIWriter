@@ -26,8 +26,6 @@
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--hub-card) 94%, transparent);
   backdrop-filter: blur(8px);
-}
-.build-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -48,10 +46,6 @@
   transition:
     background-color var(--dur-quick) ease-out,
     color var(--dur-quick) ease-out;
-}
-.build-nav-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 .build-nav-btn:focus-visible {
   outline: 2px solid var(--accent);
@@ -123,6 +117,14 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+/* The sections not chosen stay in the page (what is half typed in them is kept), unseen. */
+.build-sec[hidden] {
+  display: none;
+}
+/* What a way in brings to the top of the page sits below the tabs, which stay at the top. */
+.plan-hub.build :is([data-chapter], [data-write-panel], [data-chapter-plan], .zoom-tools) {
+  scroll-margin-top: calc(var(--nav-h, 64px) + 12px);
 }
 
 /* ---------- A chapter's panel, in its row: Plan this chapter, Write this chapter ---------- */
