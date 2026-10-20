@@ -454,3 +454,16 @@ describe('review fixes 4: the new summary verbs leave story words alone', () => 
     expect(changeClaims('Tightened the opening. Cut the last line.')).toHaveLength(2)
   })
 })
+
+// Re-review of fix 4 (2026-10-20): only the verb's own object can name the app's thing.
+describe('review fixes 5: a story-told summary verb is the chat again only by its object', () => {
+  const OPEN = 'Here’s the revised paragraph:'
+  it('an app word later in the story line keeps the prose handed over', () => {
+    for (const s of ['Merged the two rivers, and the scene went quiet.', 'Sharpened the knife and the plan forming in his head.'])
+      expect(changeClaims(`${OPEN}\n\n${s}\n\nThe end.`).map((c) => c.sentence), s).toEqual([OPEN])
+  })
+  it('a summary naming an app thing as its object still ends the hand-over', () => {
+    for (const s of ['Merged scenes 2 and 3.', 'Also updated the scene card.', 'I updated it too.'])
+      expect(changeClaims(`${OPEN}\n\nThe rain fell.\n\n${s}`).length, s).toBeGreaterThan(1)
+  })
+})

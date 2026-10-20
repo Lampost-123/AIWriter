@@ -352,14 +352,18 @@ const PRONOUN_EDIT = new RegExp(
 )
 /** A line among handed-over words that is the chat again: it names one of the app's things, or a sentence of it is a claim. */
 function chatAgain(line: string): boolean {
-  if (APP_THING.test(line)) return true
   return line.split(/(?<=[.!?])\s+/).some((raw) => {
     const t = raw.trim().replace(MARK, '')
     const plain = t.slice(LEAD_IN.exec(t)?.[0].length ?? 0)
     const bare = BARE_START.exec(plain.charAt(0).toUpperCase() + plain.slice(1))
     const v = bare?.[1].toLowerCase() ?? ''
-    const summary = !!bare && (!STORY_TOO.has(v) || (BOTH_FORMS.has(v) && /^(?:also|plus|and)\b/i.test(t)))
-    return summary || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t) || PRONOUN_EDIT.test(t)
+    // A verb a story also tells with ("Merged the two rivers, and the scene went quiet."): only its own object, up to
+    // a comma or "and", can name the app's thing ("Merged scenes 2 and 3.").
+    if (bare && STORY_TOO.has(v)) {
+      const object = plain.replace(/^(?:\*\*)?\p{L}+(?:\*\*)?\s+/u, '').split(/[,;.!?]|\s+and\s+/)[0]
+      return APP_THING.test(object) || (BOTH_FORMS.has(v) && /^(?:also|plus|and)\b/i.test(t))
+    }
+    return APP_THING.test(raw) || !!bare || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t) || PRONOUN_EDIT.test(t)
   })
 }
 /** A paragraph that is plainly the chat speaking again after words it handed over (or a heading, or another hand-over). */
