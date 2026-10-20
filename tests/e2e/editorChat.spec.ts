@@ -57,13 +57,21 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(card.locator('del')).toHaveText('The tide came in over the flats.')
     await expect(card.locator('ins')).toHaveText('THE TIDE CAME IN OVER THE FLATS.')
 
+    // The app's own line under the answer (chat-truth R1): waiting until Apply, then applied; Undo makes it wait again.
+    const outcome = panel(win).locator('[data-turn-status]').first().locator('[data-outcome]')
+    await expect(outcome).toHaveAttribute('data-outcome', 'waiting')
+    await expect(outcome).toHaveText('1 change is waiting for you: press Apply.')
+
     // Apply: into the page, the card marked applied; its own Undo takes it back.
     await card.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(prose(win)).toHaveText('THE TIDE CAME IN OVER THE FLATS. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'applied')
+    await expect(outcome).toHaveAttribute('data-outcome', 'applied')
+    await expect(outcome).toHaveText('Applied.')
     await card.getByRole('button', { name: /^Undo this change/ }).click()
     await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
     await expect(card).toHaveAttribute('data-status', 'pending')
+    await expect(outcome).toHaveAttribute('data-outcome', 'waiting')
 
     // A new place is only proposed; Apply makes it.
     await ask(win, 'Suggest a new place by the harbour')
@@ -695,6 +703,40 @@ test('the chat looks a thing up in the story index and loads an instruction pack
     await expect(pack).toHaveAttribute('data-status', 'done')
     await expect(pack).toContainText('Read the instructions for explaining the memory')
     expect(JSON.stringify(fake.lastRequest()!.body)).toContain('How AI Write')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a card change applied from Ask shows in the open scene card, and typing in another field keeps it (chat-truth R7)', async ({ launch }) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    await useFakeModel(win, fake)
+    const sceneId = await firstScene(win)
+    // The scene card open in the inspector: it stays mounted (hidden) while Ask is open beside the page.
+    await win.getByRole('tab', { name: 'Scene card' }).click()
+    const card = win.getByRole('tabpanel', { name: 'Scene card' })
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('')
+
+    await areaButton(win, 'Ask').click()
+    await ask(win, 'Change this scene’s card: the goal should be that the gulls fall silent.')
+    const proposal = changes(win).locator('[data-proposal]').first()
+    await expect(proposal).toContainText('the gulls fall silent')
+    await proposal.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(proposal).toHaveAttribute('data-status', 'applied')
+    await expect(panel(win).locator('[data-turn-status]').last().locator('[data-outcome]')).toHaveAttribute('data-outcome', 'applied')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.goal).toBe('the gulls fall silent')
+
+    // Back on the card: the change is there, and typing in another field saves with it, never the old card over it.
+    await panel(win).getByRole('button', { name: 'Close Ask the world' }).click()
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('the gulls fall silent')
+    await card.getByRole('textbox', { name: 'Conflict', exact: true }).fill('The keeper wants the noise back.')
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.conflict).toBe('The keeper wants the noise back.')
+    expect((await invoke(win, 'getScene', sceneId)).card.goal).toBe('the gulls fall silent')
+    await expect(card.getByRole('textbox', { name: 'Goal', exact: true })).toHaveValue('the gulls fall silent')
   } finally {
     await fake.close()
   }

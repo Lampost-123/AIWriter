@@ -28,6 +28,13 @@ describe('settleTalk', () => {
     }
     expect(claimsChange('I’ve moved those scenes to the kitchen.')).toBe(true)
   })
+
+  it('names the button that makes the change (the Plan hub: “Make this change”)', () => {
+    const out = settleTalk('Done! The plan now reads: Mara crosses at dusk.', true, 'Make this change')
+    expect(out).toMatch(/Nothing changes until you press Make this change\./)
+    expect(out).not.toMatch(/press Apply/)
+    expect(settleTalk('Done! The plan now reads: Mara crosses at dusk.', true)).toMatch(/press Apply\./)
+  })
 })
 
 describe('talkOutcome', () => {

@@ -227,6 +227,9 @@ const READY = new RegExp(
   'iu'
 )
 
+/** "Done —", "All done,", "There you go:" before a first-person claim in the same sentence. */
+const DONE_BEFORE = /^(?:\*\*)?(?:done|all done|there you go|there we go|all set|sorted|finished)(?:\*\*)?\s*(?:[,:—–]|--?)\s*$/iu
+
 /** "Done.", "All done!", "There you go —" at the start of the answer or of a line. */
 const DONE = /^(?:\*\*)?(?:done|all done|there you go|there we go|all set|sorted|finished)\b(?:\*\*)?\s*(?:[.!:,—–-]|$)/iu
 
@@ -253,6 +256,17 @@ const WRITER_DID = /\byou(?:['’]ve| have)?\s+(?:just\s+|already\s+)?(?:applied
 /** What follows a verb that says nothing was changed ("I've changed nothing", "I've changed my mind"). */
 const NOTHING = /^\s*(?:nothing|no\b|none\b|anything\b|my mind\b)/i
 
+/**
+ * "made" a thing of the story into something ("I made the first chapter a betrayal", "I've made the opening punchier",
+ * "I've made scene 3 darker"): a determiner (or a scene, chapter or beat by number), one of the app's things, then what
+ * it became. Never "made a note", "made sure", "made up", "made the opening line." (nothing it became), nor "made the
+ * scene for you" (a word like "for" or "you" after the thing).
+ */
+const MADE_INTO = new RegExp(
+  String.raw`^\s*(?:(?:the|a|an|your|this|that|these|those|its|her|his|their)\s+(?:\p{L}+\s+){0,2}?(?:${THINGS})(?:['’]s\s+\p{L}+)?|(?:scene|chapter|beat|line|paragraph)\s+\d+)\s+(?!(?:of|for|with|in|on|at|to|from|about|by|that|which|who|when|where|while|and|but|so|as|because|I|you|we|he|she|they|it|is|was|were|are|${THINGS})\b)\p{L}`,
+  'iu'
+)
+
 /** True when a guarded verb is followed by the words that make it a change ("made the change", "set her age to"). */
 function follows(verb: string, after: string): boolean {
   switch (verb.toLowerCase()) {
@@ -262,7 +276,10 @@ function follows(verb: string, after: string): boolean {
         /^\s*(?:the|her|his|their|its|your|a|an|this|that)\s+(?:\p{L}+\s+){0,2}?(?:goal|mood|conflict|outcome|beats?|card|pov|point of view|when|notes|title|length|target|word count|location|age|field)\b/iu.test(after)
       )
     case 'made':
-      return /^\s*(?:the|these|this|that|those|some|a few|a couple of|your|a|an|one|two|three|four|several|all the|both)\s+(?:\w+\s+)?(?:change|changes|edit|edits|fix|fixes|update|updates|corrections?|adjustments?|tweaks?|revisions?|cuts?)\b/i.test(after)
+      return (
+        /^\s*(?:the|these|this|that|those|some|a few|a couple of|your|a|an|one|two|three|four|several|all the|both)\s+(?:\w+\s+)?(?:change|changes|edit|edits|fix|fixes|update|updates|corrections?|adjustments?|tweaks?|revisions?|cuts?)\b/i.test(after) ||
+        MADE_INTO.test(after)
+      )
     case 'put':
       return /^[^.;!?\n]{0,50}\b(?:in|into)\b/.test(after)
     case 'filled':
@@ -387,13 +404,17 @@ export function changeClaims(answer: string): Claim[] {
       if (CONDITION.test(s.slice(0, at)) || NOTHING.test(after) || !follows(verb, after)) continue
       const adverbs = (m[1] ?? '').replace(/\b(?:gone|went) ahead and\s+/g, '')
       const offer = `I’d ${adverbs}${VERBS[verb]}`
+      // "Done — I've updated…": the "Done" before it goes with the claim, or it would still say the change was made.
+      const head = lead + markLen
+      const at0 = at > head && DONE_BEFORE.test(s.slice(head, at)) ? head : at
+      const len = m[0].length + (at - at0)
       // At the sentence's start (a list mark aside), a backed claim is said as waiting: "Change 1 is ready to apply: cut…".
-      const starts = at <= lead + markLen
+      const starts = at0 <= head
       const names = namesIn(clauseOf(written.slice(at + m[0].length)))
       mine.push(
-        make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', at: from + at, length: m[0].length, to: offer }, {
-          at: from + at,
-          length: m[0].length,
+        make(targetOf(verb, after), names, !PROPOSING.has(verb), { kind: 'reword', at: from + at0, length: len, to: offer }, {
+          at: from + at0,
+          length: len,
           to: starts ? `{ready}: ${VERBS[verb]}` : offer
         })
       )
@@ -696,7 +717,14 @@ const SAYS_WAITING = /\bready to apply\b|\bwaiting for you\b|\bpress apply\b/i
 export function honestReply(
   answer: string,
   claims: Claim[],
-  o: { proposed: string[]; failure?: string | null; backed?: { claim: Claim; ids: string[] }[]; earlierWas?: 'pending' | 'declined' | null }
+  o: {
+    proposed: string[]
+    failure?: string | null
+    backed?: { claim: Claim; ids: string[] }[]
+    earlierWas?: 'pending' | 'declined' | null
+    /** The words on the button that makes the change ("Make this change" on the Plan hub); Apply when not given. */
+    applyLabel?: string
+  }
 ): string {
   const backed = o.backed ?? []
   if (!claims.length && !backed.length) return answer
@@ -748,7 +776,7 @@ export function honestReply(
     const which = n === 1 ? `change ${o.proposed[0]} is` : `${NUMBER[n] ?? n} changes (${o.proposed.join(', ')}) are`
     leads.push(`Only ${which} ready to apply; nothing else was changed${reason ? `: ${reason}` : ''}.`)
   } else if (backed.length && !SAYS_WAITING.test(rest)) {
-    leads.push(`${readyWords(o.proposed)}. Nothing changes until you press Apply.`)
+    leads.push(`${readyWords(o.proposed)}. Nothing changes until you press ${o.applyLabel ?? 'Apply'}.`)
   }
   if (claims.some((c) => c.earlier)) leads.push(`That earlier change isn’t in the story: ${o.earlierWas === 'declined' ? 'it was turned down' : 'it hasn’t been applied'}.`)
   const lead = leads.join(' ')
@@ -761,7 +789,11 @@ export function honestReply(
  * chat is applied by the AI; a claim about an earlier change stands only when Adam applied it (`earlier`: the earlier
  * answers' proposals, with their status). `failure`: why the last proposal was turned down, in plain words.
  */
-export function settleAnswer(answer: string, proposals: readonly Proposed[], o: { failure?: string | null; earlier?: readonly Proposed[] } = {}): string {
+export function settleAnswer(
+  answer: string,
+  proposals: readonly Proposed[],
+  o: { failure?: string | null; earlier?: readonly Proposed[]; applyLabel?: string } = {}
+): string {
   const checked = checkClaims(answer, proposals, o.earlier)
   const bad = checked.filter((c) => !c.ok)
   const backed = checked.filter((c) => c.ok && c.claim.made && !c.claim.earlier)
@@ -771,7 +803,7 @@ export function settleAnswer(answer: string, proposals: readonly Proposed[], o: 
   return honestReply(
     answer,
     bad.map((c) => c.claim),
-    { proposed, failure: o.failure ?? null, backed: backed.map((c) => ({ claim: c.claim, ids: c.ids })), earlierWas }
+    { proposed, failure: o.failure ?? null, backed: backed.map((c) => ({ claim: c.claim, ids: c.ids })), earlierWas, applyLabel: o.applyLabel }
   )
 }
 

@@ -21,7 +21,8 @@
 import { answerMarkers, parseAnswer, wordsOutsideBlocks } from '@shared/answerBlocks'
 import { CANARIES } from './world'
 import type { TurnResult } from './harness'
-import { claimsUnmade } from '@shared/askTruth'
+// This checkout's truth check, never --root's (which '@shared' points at): every run, before or after, is judged alike.
+import { checkClaims } from '../../src/shared/askTruth'
 
 /** The new tools' fixed names. */
 export const TOOLS = { changes: 'propose_changes', ask: 'ask_user', draft: 'propose_draft' } as const
@@ -378,8 +379,12 @@ export function summarise(turns: TurnResult[], estimatedTokens: boolean): Summar
 /** A turn ended with a real proposal: one that applies (or isn't a change to words), or a draft hand-off. */
 const realProposal = (t: TurnResult): boolean => drafted(t) || t.checks.some((c) => c.applies !== false)
 
-/** Whether a turn's answer claims a change it never made (read again from the answer for an older report). */
-export const unmade = (t: TurnResult): boolean => t.claimsUnmade ?? claimsUnmade(t.answer, t.proposals)
+/**
+ * Whether the answer Adam saw claims a change never made: a claim no proposal backs, or one a proposal backs that says
+ * the change was made while it only waits for Apply (nothing in a chat is applied by the AI). Always read again from
+ * the final answer with this checkout's check, so old reports, and runs of another checkout (--root), score alike.
+ */
+export const unmade = (t: TurnResult): boolean => checkClaims(t.answer, t.proposals).some((c) => !c.ok || (c.claim.made && !c.claim.earlier))
 
 function truthSummary(turns: TurnResult[]): Summary['truth'] {
   const edit = turns.filter((t) => t.intent === 'edit')

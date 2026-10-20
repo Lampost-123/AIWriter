@@ -97,13 +97,14 @@ export function takeBackLast(scope: string): string | null {
 /**
  * Says something in a talk: `ask` makes the AI call with the task id and the talk so far, and resolves with its answer
  * (null when it was stopped). A revision waits as the preview. `carry`: a preview still waiting is built on, not
- * declined (the caller reads it before saying).
+ * declined (the caller reads it before saying). `applyLabel`: the words on the button that makes a waiting change.
  */
 export async function say(
   scope: string,
   message: string,
   ask: (taskId: ID, history: ChatTurn[]) => Promise<Answer | null>,
-  carry = false
+  carry = false,
+  applyLabel = 'Apply'
 ): Promise<void> {
   const words = message.trim()
   const t = talkOf(scope)
@@ -124,7 +125,7 @@ export async function say(
     const changed = !!out.revision
     // A claim of a change with none sent says why in the outcome line; the words are put right by the shared check.
     const reason = changed ? null : (out.reason ?? (claimsChange(said) ? NO_CHANGE.notSent : null))
-    const answer = settleTalk(said, changed) || (changed ? 'Here it is with those changes.' : reason ? 'That didn’t come through. Please ask again.' : '…')
+    const answer = settleTalk(said, changed, applyLabel) || (changed ? 'Here it is with those changes.' : reason ? 'That didn’t come through. Please ask again.' : '…')
     const turn: TalkTurn = {
       role: 'assistant',
       text: answer,

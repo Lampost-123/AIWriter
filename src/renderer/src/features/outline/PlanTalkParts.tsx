@@ -286,7 +286,7 @@ export function PlanTalk({
       quick={quick ?? ['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
       disabled={running ? 'Wait for the plan to finish arriving.' : null}
       about={about}
-      onSay={(m) => void talkPlan(storyId, m, looking, { handOff })}
+      onSay={(m) => void talkPlan(storyId, m, looking, { handOff, applyLabel })}
       preview={isPlanRevision(preview) ? <PlanPreview storyId={storyId} revision={preview} /> : null}
       onApply={() => applyPlanTalk(storyId)}
       onDecline={() => declinePlanTalk(storyId)}

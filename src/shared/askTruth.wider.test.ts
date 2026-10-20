@@ -176,3 +176,57 @@ describe('settleAnswer: nothing is ever said as made, backed or not', () => {
     expect(settleAnswer('Her line “I’ve changed” still works.', [])).toBe('Her line “I’ve changed” still works.')
   })
 })
+
+describe('“made” with a thing and what it became (chat-truth task A)', () => {
+  it('catches “I made the first chapter a betrayal” and “I’ve made the opening punchier”', () => {
+    for (const s of [
+      'I made the first chapter a betrayal.',
+      'I’ve made the opening punchier.',
+      'I’ve made scene 3 darker.',
+      'I’ve made your ending quieter and colder.',
+      'I made the card’s goal sharper.',
+      'I’ve made this scene tenser.',
+      'I’ve made that line shorter.'
+    ])
+      expect(claims(s), s).toBe(true)
+    expect(changeClaims('I’ve made the opening punchier.')[0].target).toBe('words')
+    expect(changeClaims('I’ve made the opening punchier.')[0].made).toBe(true)
+  })
+  it('leaves “made a note”, “made sure”, “made up”, story people, quotes and offers be', () => {
+    for (const s of [
+      'I made a note of that.',
+      'I made sure the dates line up.',
+      'I made up a name for the inn, but only as an idea.',
+      'Mara made tea for the crew.',
+      'Mara made the first chapter of her diary a lie.',
+      'She said “I made the opening punchier” to the editor.',
+      'I’d make the opening punchier.',
+      'I could make the first chapter a betrayal.',
+      'If I made the opening punchier, the pause would go.',
+      'I made the mistake of reading it twice.',
+      'I made the opening line.',
+      'I made it clear that the plan waits for you.'
+    ])
+      expect(claims(s), s).toBe(false)
+  })
+})
+
+describe('honestReply: the button’s own name', () => {
+  it('says “press Make this change” when the button says so', () => {
+    expect(settleAnswer('Done! The plan now reads: Mara crosses at dusk.', [{ kind: 'chapterCard', id: '1' }] as never[], { applyLabel: 'Make this change' })).toBe(
+      'Change 1 is ready to apply. Nothing changes until you press Make this change.\n\nThe plan would read: Mara crosses at dusk.'
+    )
+  })
+})
+
+describe('“Done —” before a claim goes with it', () => {
+  it('a backed “Done — I’ve updated the chapter card.” is said as waiting, with no “Done” left', () => {
+    const out = settleAnswer('Done — I’ve updated the chapter card.', [{ kind: 'chapterCard', id: '1', chapterLabel: 'Ch 3 “Low Water”' }] as never[])
+    expect(out).toBe('Change 1 is ready to apply: update the chapter card.')
+    expect(changeClaims(out).every((c) => !c.made)).toBe(true)
+  })
+  it('an unbacked one becomes an offer', () => {
+    const out = settleAnswer('All done, I’ve updated the chapter card.', [])
+    expect(out).toBe('No change was made, so there’s nothing to apply. Here’s what I’d suggest:\n\nI’d update the chapter card.')
+  })
+})

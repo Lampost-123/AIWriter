@@ -112,7 +112,7 @@ const labelOf = (c: PlanChange): string => `${c.mark === 'new' ? 'New ' : c.mark
  * that (twice at most), so one request makes the whole change. A revision still waiting is built on, so "it still
  * says his bedroom" fixes the preview rather than starting over.
  */
-export function talkPlan(storyId: ID, message: string, looking?: string, o: { handOff?: boolean } = {}): Promise<void> {
+export function talkPlan(storyId: ID, message: string, looking?: string, o: { handOff?: boolean; applyLabel?: string } = {}): Promise<void> {
   const scope = planScope(storyId)
   const pending = talkOf(scope).preview
   return say(
@@ -176,7 +176,8 @@ export function talkPlan(storyId: ID, message: string, looking?: string, o: { ha
         changes: result.changes.map(labelOf)
       }
     },
-    true
+    true,
+    o.applyLabel
   )
 }
 

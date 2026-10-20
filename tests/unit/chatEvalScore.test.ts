@@ -175,3 +175,27 @@ describe('chat eval scores (Phase 2: the answer format)', () => {
     expect(ab).toMatch(/\| Edit answers repeating the change \| 1 of 1 \| 1 of 1 \|/)
   })
 })
+
+describe('chat eval: claims never made, judged on the final text (chat-truth task 23)', () => {
+  const card = { kind: 'chapterCard', id: '1', chapterLabel: 'Ch 3 “Low Water”' } as unknown as Proposal
+  const truth = (t: TurnResult) => summarise([t], false).truth.claimsUnmade
+  it('counts a claim nothing backs, read again from the answer (never the recorded flag)', () => {
+    expect(truth(turn({ answer: 'Plan updated. The goal now reads: Ilse learns the truth.', claimsUnmade: false }))).toBe(1)
+    expect(truth(turn({ answer: 'I’d set the goal to: Ilse learns the truth.' }))).toBe(0)
+  })
+  it('counts a backed claim that says the change was made, while it only waits', () => {
+    expect(truth(turn({ answer: 'Done — I’ve updated the chapter card.', proposals: [card] }))).toBe(1)
+    expect(truth(turn({ answer: 'Change 1 is ready to apply: update the chapter card.', proposals: [card] }))).toBe(0)
+    expect(truth(turn({ answer: 'I’ve proposed a new chapter card.', proposals: [card] }))).toBe(0)
+  })
+})
+
+describe('chat eval: the plan requests set (chat-truth task 23)', () => {
+  it('is picked by --scenarios plan: card, goal, length, chapter card proposed; move and reorder not', () => {
+    const plan = pickScenarios(['PLAN'])
+    expect(plan).toHaveLength(6)
+    expect(plan.filter((s) => s.turns[0].expect.do === 'propose')).toHaveLength(4)
+    expect(plan.filter((s) => s.turns[0].expect.do === 'no-propose')).toHaveLength(2)
+    expect(pickScenarios(['ALL']).some((s) => s.group === 'plan')).toBe(true)
+  })
+})

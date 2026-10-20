@@ -40,7 +40,8 @@
 //   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
-//   fake/claims, fake/claims-stubborn, fake/claims-no-toolchoice, fake/bad-proposal, fake/bad-field, fake/sloppy
+//   fake/claims, fake/claims-stubborn, fake/claims-no-toolchoice, fake/bad-proposal, fake/bad-field, fake/sloppy,
+//   fake/claims-wordy
 //                          the editor chat says it made changes, made or not (m4/ask.mjs, SLOPPY)
 //   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
 //   fake/critique-bad-json asked for a critique, answers the first time with words, not JSON (critique.mjs)

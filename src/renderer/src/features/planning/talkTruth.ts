@@ -20,14 +20,14 @@ export const claimsChange = (answer: string): boolean => changeClaims(answer).so
 /**
  * The answer as Adam sees it. `changed`: a change came with it (it waits in the preview). A claim with nothing sent is
  * put right under "No change was made" (the outcome line says why); one of a change made, while it only waits, is said
- * as waiting.
+ * as waiting. `applyLabel`: the words on the button that makes it ("Make this change" on the Plan hub).
  */
-export function settleTalk(answer: string, changed: boolean): string {
+export function settleTalk(answer: string, changed: boolean, applyLabel = 'Apply'): string {
   const checked = checkClaims(answer, changed ? PREVIEW : [])
   const bad = checked.filter((c) => !c.ok).map((c) => c.claim)
   const backed = checked.filter((c) => c.ok && c.claim.made && !c.claim.earlier).map((c) => ({ claim: c.claim, ids: [] }))
   if (!bad.length && !backed.length) return answer
-  return honestReply(answer, bad, { proposed: [], backed })
+  return honestReply(answer, bad, { proposed: [], backed, applyLabel })
 }
 
 /** Why nothing changed, in plain words after "Nothing was changed: " (talks that sent a change that didn't read). */
