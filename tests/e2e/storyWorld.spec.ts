@@ -56,7 +56,7 @@ test('keeping an outline gives the story its cast and places before anything is 
 
     // Then the World builder lays out what the story needs, in the background, and says when it is done.
     // (A quick machine may already have finished: "Building…" turns into "ready" before it is looked for. CI, 2026-10-20.)
-    await expect(toasts(win).getByText(/^(Building your story’s (characters|world)|Your story’s world is ready)/)).toBeVisible({ timeout: 15_000 })
+    await expect(toasts(win).getByText(/^(Building your story’s (characters|world)|Your story’s world is ready)/).first()).toBeVisible({ timeout: 15_000 })
     await expect(toasts(win).getByText(/^Your story’s world is ready/)).toBeVisible({ timeout: 60_000 })
     const filled = await invoke(win, 'getEntry', mara.id)
     expect(filled.summary).not.toBe('')
