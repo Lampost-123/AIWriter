@@ -602,6 +602,65 @@
     opacity: 0;
   }
 }
+/*
+  A section opening and closing (components/ui/Fold.tsx): the row's height grows from nothing as the contents fade in,
+  and shrinks back quicker. Clipped only while it moves; the clip margin keeps focus rings inside showing.
+*/
+.fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--dur-base) var(--motion-glide),
+    opacity var(--dur-base) var(--motion-glide);
+}
+@starting-style {
+  .fold {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.fold[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition-duration: var(--dur-exit);
+}
+.fold[data-instant] {
+  transition: none;
+}
+.fold:not([data-settled]) > .fold-in {
+  min-height: 0;
+  overflow: clip;
+  overflow-clip-margin: 6px;
+}
+/*
+  The tour's light and card glide from one part of the window to the next (features/tour/Tour.tsx). Left, top and
+  size, not a transform: the light is a cut-out in a shadow, and scaling it would warp its corners. Rare, so it can.
+*/
+.tour-glide {
+  transition-property: left, top, width, height;
+  transition-duration: var(--dur-view);
+  transition-timing-function: var(--motion-drawer);
+}
+/* The floating binder closing from the pointer leaves toward the edge it came from (layout/ResizablePane.tsx). */
+.pane-out-left {
+  animation: pane-out-left var(--dur-exit) var(--motion-glide) forwards;
+}
+.pane-out-right {
+  animation: pane-out-right var(--dur-exit) var(--motion-glide) forwards;
+}
+@keyframes pane-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+@keyframes pane-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
 /* The New look's tick that draws itself (components/ui/DrawnTick.tsx), and a ring that pulses once round a scene's
    dot as it is marked done (features/binder/StatusDot.tsx). */
 .drawn-tick path {

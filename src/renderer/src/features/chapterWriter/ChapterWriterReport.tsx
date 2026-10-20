@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import type { ChapterWriterReport as Report } from '@shared/contracts/chapterWriter'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
+import { DrawnTick } from '@/components/ui/DrawnTick'
 import { api } from '@/lib/api'
 import { costWords, fixedCount, namedWords, reportHeading } from './chapterWriterLogic'
 import { openChapterWriter, undoChapterWriter, useChapterWriter } from './chapterWriterStore'
@@ -31,6 +32,11 @@ export function ChapterWriterReport({ chapterId }: { chapterId: ID }): React.JSX
   }, [chapterId, rev])
 
   const here = running?.chapterId === chapterId
+  // Watched it write here: when the new report comes in written and clean, the tick draws itself (once, not on every
+  // visit, and not on the report from before this run, which still shows for a moment as it ends).
+  const [whileRunning, setWhileRunning] = useState<Report | null | undefined | false>(false)
+  if (here && whileRunning !== report) setWhileRunning(report)
+  const draw = whileRunning !== false && report !== whileRunning
   const busy = !!running
   const undo = async (): Promise<void> => {
     setUndoing(true)
@@ -58,19 +64,22 @@ export function ChapterWriterReport({ chapterId }: { chapterId: ID }): React.JSX
           </Button>
         ) : null}
       </div>
-      {report && !here ? <ReportBody report={report} /> : null}
+      {report && !here ? <ReportBody report={report} draw={draw} /> : null}
     </div>
   )
 }
 
-function ReportBody({ report }: { report: Report }): React.JSX.Element {
+function ReportBody({ report, draw }: { report: Report; draw: boolean }): React.JSX.Element {
   const fixed = fixedCount(report)
   const setAside = report.scenes.reduce((k, s) => k + s.setAside.length, 0)
   const spent = costWords(report.cost).replace(/ so far$/, '')
   const named = namedWords(report)
   return (
     <div className="flex flex-col gap-2.5 border-t border-line pt-3">
-      <p className="text-[13px] font-medium text-fg">{reportHeading(report)}</p>
+      <p className="flex items-start gap-1.5 text-[13px] font-medium text-fg">
+        {report.status === 'done' && !report.undone ? <DrawnTick size={15} draw={draw} className="mt-0.5 text-success" /> : null}
+        <span>{reportHeading(report)}</span>
+      </p>
       {named ? <p className="text-[12.5px] leading-relaxed text-muted">{named}</p> : null}
       <p className="text-[12px] text-faint">
         {[fixed ? `${fixed} ${fixed === 1 ? 'thing' : 'things'} fixed` : '', setAside ? `${setAside} judged not a problem` : '', spent ? `cost ${spent}` : '']

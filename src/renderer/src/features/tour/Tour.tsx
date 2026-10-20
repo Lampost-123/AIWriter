@@ -3,7 +3,9 @@
 // setup, and the command bar's Show the tour brings it back from the first step.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, toast } from '@/components/ui'
+import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { keyboardDriven } from '@/features/look/motion'
 import { useSetup } from '@/features/setup/setupStore'
 import { stepAfter, stepBefore, TOUR_STEPS, type TourStep } from './tourSteps'
 import { useTour } from './tourStore'
@@ -45,6 +47,13 @@ export function Tour(): React.JSX.Element | null {
   const index = useTour((s) => s.index)
   const step = TOUR_STEPS[index]
   const [rect, setRect] = useState<DOMRect | null>(null)
+  // Opened from the pointer (or on its own after setup), the tour fades in; decided once, as it opens.
+  const [fadeIn, setFadeIn] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setFadeIn(!keyboardDriven())
+  }
 
   // Measure the step's target when the step changes and when the window does (a room or the top bar may move).
   useLayoutEffect(() => {
@@ -81,6 +90,9 @@ export function Tour(): React.JSX.Element | null {
 
   if (!open || !step) return null
   const last = stepAfter(index) === null
+  // From the pointer, the light and the card glide to the next part (280 ms, the drawer's curve) and the words fade
+  // in; from the keyboard they move at once.
+  const glide = !keyboardDriven()
   const next = (): void => {
     const n = stepAfter(index)
     if (n === null) void finishTour()
@@ -88,11 +100,11 @@ export function Tour(): React.JSX.Element | null {
   }
 
   return (
-    <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-labelledby="tour-title">
+    <div className={cn('fixed inset-0 z-[80]', fadeIn && 'animate-fade-in')} role="dialog" aria-modal="true" aria-labelledby="tour-title">
       {rect ? (
         <div
           aria-hidden
-          className="pointer-events-none fixed rounded-xl"
+          className={cn('pointer-events-none fixed rounded-xl', glide && 'tour-glide')}
           style={{
             left: rect.left - PAD,
             top: rect.top - PAD,
@@ -104,7 +116,7 @@ export function Tour(): React.JSX.Element | null {
       ) : (
         <div aria-hidden className="fixed inset-0 bg-black/60" />
       )}
-      <TourCard step={step} index={index} rect={rect} last={last} onNext={next} onBack={() => useTour.getState().go(stepBefore(index))} onSkip={() => void finishTour()} />
+      <TourCard step={step} index={index} rect={rect} last={last} glide={glide} onNext={next} onBack={() => useTour.getState().go(stepBefore(index))} onSkip={() => void finishTour()} />
     </div>
   )
 }
@@ -114,6 +126,7 @@ function TourCard({
   index,
   rect,
   last,
+  glide,
   onNext,
   onBack,
   onSkip
@@ -122,6 +135,7 @@ function TourCard({
   index: number
   rect: DOMRect | null
   last: boolean
+  glide: boolean
   onNext(): void
   onBack(): void
   onSkip(): void
@@ -142,16 +156,18 @@ function TourCard({
 
   return (
     <div
-      className="fixed rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl"
+      className={cn('fixed rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl', glide && 'tour-glide')}
       style={{ left, top, width: CARD_W }}
     >
-      <p className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">
-        Step {index + 1} of {TOUR_STEPS.length}
-      </p>
-      <h2 id="tour-title" className="mt-1 font-heading text-[18px] leading-6">
-        {step.title}
-      </h2>
-      <p className="mt-2 text-[14px] leading-6 text-muted">{step.body}</p>
+      <div key={index} className={glide ? 'animate-fade-in' : undefined}>
+        <p className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">
+          Step {index + 1} of {TOUR_STEPS.length}
+        </p>
+        <h2 id="tour-title" className="mt-1 font-heading text-[18px] leading-6">
+          {step.title}
+        </h2>
+        <p className="mt-2 text-[14px] leading-6 text-muted">{step.body}</p>
+      </div>
       <div className="mt-5 flex items-center justify-between gap-2">
         <Button variant="ghost" size="sm" onClick={onSkip}>
           Skip tour

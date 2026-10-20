@@ -1885,6 +1885,23 @@ What follows is how the New look was built over Classic; read "Classic's values"
   - *The selection pill* (`GlidePill`) glides its position and size together (220 ms, `ease-glide`, no overshoot),
     placed by layout offsets so a row in motion can't mislead it; it jumps when the keyboard moved the selection or
     the new row is more than 240 px away.
+  - *Folding sections* (`components/ui/Fold.tsx`): a section's contents open by growing the row's height from nothing
+    (a grid row, 0fr to 1fr) as they fade in, 220 ms, and close in 140 ms before they go (inert meanwhile). Clipped
+    only while they move. At once from the keyboard, with less motion, or when the section is already open as the
+    screen arrives. World page sections, the check report, world cards on the start screen, earlier suggestions, and
+    the story line's chapters and scenes (`as="li"` where the contents are a list item). "Show me" on the story line
+    scrolls once the fold has grown.
+  - *A story board card let go somewhere new*: it and its pin glide from where they were let go into the new place,
+    and the cards that made room glide too (FLIP with WAAPI's `translate`, 220 ms; the dropped card keeps its z-index
+    and loses its lift as it lands). Not from the keyboard (Alt+arrows) or with less motion.
+  - *The floating binder* closed from the pointer leaves toward its edge (8 px, fading, 140 ms) before it hides.
+  - *The tour* fades in when opened from the pointer; its light and card glide between steps (280 ms, the drawer's
+    curve: left, top and size, since the light is a cut-out in a shadow), and each step's words fade in. Keyboard
+    steps move at once.
+  - *Finished moments*: import done, and a chapter just written with AI (only when watched, and only on the new
+    report), get the tick that draws itself.
+  - Code that waits on a motion token reads it with `tokenMs` (`features/look/motion.ts`): the built CSS writes
+    220ms as .22s.
   - *Toasts*: one that goes stays a moment where it was, lifeless, and drops back the way it came (`toast-out`,
     140 ms); the others glide into their new places (FLIP with WAAPI, 220 ms, carrying on from where an unfinished
     glide has got to), and the stack lifts over a bar with a transform. All in `Toaster` (`components/ui/Toast.tsx`):

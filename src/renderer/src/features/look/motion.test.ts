@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { installInputModality, keyboardDriven } from './motion'
+import { installInputModality, keyboardDriven, msOf } from './motion'
 
 /** A key press as the window sees it (plain Events: the unit tests have no DOM). */
 const keydown = (key: string): Event => Object.assign(new Event('keydown'), { key })
@@ -34,5 +34,15 @@ describe('the New look: keyboard or pointer', () => {
     target.dispatchEvent(new Event('pointerdown'))
     target.dispatchEvent(keydown('a'))
     expect(keyboardDriven()).toBe(false)
+  })
+})
+
+describe('motion tokens in milliseconds', () => {
+  it('reads milliseconds and seconds alike (the built CSS writes 220ms as .22s)', () => {
+    expect(msOf('220ms')).toBe(220)
+    expect(msOf(' .22s')).toBe(220)
+    expect(msOf('0.14s')).toBeCloseTo(140)
+    expect(msOf('0ms')).toBe(0)
+    expect(msOf('')).toBe(0)
   })
 })

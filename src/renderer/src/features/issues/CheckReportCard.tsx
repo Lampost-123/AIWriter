@@ -11,6 +11,7 @@ import type { CheckReport } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { ChevronDown, ChevronRight, CircleAlert, CircleCheck } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
+import { Fold } from '@/components/ui/Fold'
 import { cn } from '@/lib/cn'
 import {
   CHECK_WORDS,
@@ -98,8 +99,8 @@ export function CheckReportCard({ sceneId, openIssues = null }: { sceneId: ID; o
             {when}
           </p>
         ) : null}
-        {open ? (
-          <ul className="flex flex-col gap-2 border-t border-line px-3 py-2.5 animate-fade-in">
+        <Fold open={open}>
+          <ul className="flex flex-col gap-2 border-t border-line px-3 py-2.5">
             {report.items.map((item) => (
               <li key={item.check} className="flex gap-2 text-[12.5px] leading-relaxed" data-report-check={item.check}>
                 {item.ok ? (
@@ -140,7 +141,7 @@ export function CheckReportCard({ sceneId, openIssues = null }: { sceneId: ID; o
               </li>
             ) : null}
           </ul>
-        ) : null}
+        </Fold>
       </div>
     </section>
   )

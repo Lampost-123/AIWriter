@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react'
 import type { ID } from '@shared/types'
 import { ChevronRight } from '@/components/ui/icons'
-import { Button } from '@/components/ui'
+import { Button, Fold } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { chapterHelperKey, earlierShown, helperKey, putAwayEarlier, treeOf, useOutlineHelper, type HelperRun } from './helperStore'
@@ -48,7 +48,7 @@ export function EarlierSuggestions({ storyId, chapterId = null, className }: { s
         The {what} you hadn’t decided on when you suggested again. Nothing here goes into the story until you keep it.
         {open ? null : ' Open them to keep, change or discard any of it.'}
       </p>
-      {open ? (
+      <Fold open={open}>
         <div className="mt-4 flex flex-col gap-6">
           {batches.map(({ run, tree }) => {
             const left = countNodes(tree, run.decisions, 'open')
@@ -72,7 +72,7 @@ export function EarlierSuggestions({ storyId, chapterId = null, className }: { s
             )
           })}
         </div>
-      ) : null}
+      </Fold>
     </section>
   )
 }
