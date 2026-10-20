@@ -5127,8 +5127,11 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
 - **Cleanup: tabs, nothing locked behind another section** (Adam, 2026-10-20: "kind of confusing with stuff locked behind
   other sections and it's hard to navigate"; spec `docs/superpowers/specs/2026-10-20-build-with-ai-cleanup-design.md`):
   - *Tabs* (`BuildTabs.tsx`): Your idea, Cast and world, Story line, Threads, each with its number and status; a real tab
-    list (`role="tablist"`, roving tabindex; arrows, Home and End move, Enter or Space picks). Only the chosen section is
-    in the page (`role="tabpanel"`, `data-build-section`); the scroll-spy and each section's own head are gone. The tab
+    list (`role="tablist"`, roving tabindex; arrows, Home and End move, Enter or Space picks). Only the chosen section
+    shows: all four stay in the page, the others `hidden` (`role="tabpanel"`, `data-build-section`), so a draft half
+    typed in one (an Ask me questions answer, an open Change form) survives a look at another; the scroll-spy and each
+    section's own head are gone. Both idea boxes show `buildLogic.shownIdea` with one typed flag (the builder store's
+    `ideaTyped`, `writeIdea`). What a way in brings to the top keeps clear of the tabs (`scroll-margin-top`). The tab
     is the view's `section` (`buildLogic.tabFor`): on a chapter's or a scene's page always Story line; else the view's
     section, else the tab last chosen for that story while the app runs (`hubStore` `section`, `setSection`), else
     `defaultSection`. A tab click (`goTo`) navigates to that section (from a chapter's page Story line goes back with
