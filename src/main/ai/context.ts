@@ -103,7 +103,7 @@ import type { VoiceMark } from '../style/voiceMarks'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, placesHere, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { withoutMentioned } from '../storyIndex/there'
 import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
@@ -1875,6 +1875,8 @@ function buildBriefing(
       .map(clean)
       .filter(Boolean)
       .join('\n'),
+    // Where the scene happens, for an order that holds somewhere ("whenever she is at home").
+    where: placesHere([...input.memory.entries, ...input.memory.elsewhere.map((x) => x.entry)], card.locationId),
     // The stage block right above says where things stand at this same moment: the list doesn't say it again.
     stageShown: !!full,
     happened: happenedOf(input.memory.entries),

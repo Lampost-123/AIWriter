@@ -8,6 +8,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import * as repo from '../db/repo'
 import * as kdb from '../db/keeper'
+import * as mem from '../db/memory'
 import type { MemoryModel } from './model'
 import { runScene } from './run'
 import { READING_MARKER } from './prompts'
@@ -15,6 +16,9 @@ import { gatherContextInput } from '../ai/gather'
 import { assembleContext, MUST_BLOCK } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import { sceneMemory } from '../memory/scene'
+import { cueOf, orderAbout } from '../memory/items'
+import { checkSections, gatherSceneCheck, RULES_TITLE } from '../checks/context'
+import { ALL_CHECKS } from '@shared/contracts/checks'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -116,6 +120,10 @@ describe('an order or suggestion someone is to follow (memory review, 2026-10-20
       assembleContext(gatherContextInput(db, id, undefined, { prefs: PREFS, contextLength: null, creativity: 'steady' }), countRaw).blocks.find((b) => b.id === MUST_BLOCK)
         ?.text ?? ''
     expect(must(later)).toContain(`Mary is to follow: ${fact} (given by Ana)`)
+    // And the consistency check is told it, so a draft that goes against it is caught.
+    const rules = checkSections(gatherSceneCheck(db, later, PREFS), ALL_CHECKS).find((x) => x.id === 'rules')
+    expect(rules?.title).toBe(RULES_TITLE)
+    expect(rules?.text).toContain(`- Mary is to follow: ${fact}`)
 
     // The story lifts it: the memory ends the fact, and from then on it is no longer told.
     save(db, lifted, [['a', LIFTED]])
@@ -197,5 +205,83 @@ describe('an order or suggestion someone is to follow (memory review, 2026-10-20
     await readWith(db, after, [{ type: 'end', entry: 'Mary Dunn', fact: brief, quote: MORNING }])
     expect(rule(last, brief)).toBeUndefined()
     expect(rule(last, lasting)?.bound).toEqual([mary.id])
+  })
+  it('given from afar, by a letter, still binds the one it names', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const o = repo.getOutline(db, story.id)
+    const first = o.scenes[0].id
+    const given = repo.createScene(db, o.chapters[0].id, { title: 'The letter', afterId: first }).id
+    const later = repo.createScene(db, o.chapters[0].id, { title: 'Later', afterId: given }).id
+    save(db, first, [['a', 'Mary lost her hat.']])
+    await readWith(db, first, [])
+    // Mary is somewhere else: she is only written to.
+    const LETTER = 'Ana wrote to Mary: you will wear only one shoe until I say awake.'
+    save(db, given, [
+      ['a', 'Ana lost her bag.'],
+      ['b', 'Ana sat alone at her desk.'],
+      ['c', LETTER]
+    ])
+    const fact = 'Mary must wear only one shoe until Ana says awake'
+    await readWith(db, given, [{ type: 'said', kind: 'rule', entry: 'Ana', heard: ['Mary'], fact, quote: LETTER }])
+    const mary = repo.listEntries(db).find((e) => e.name === 'Mary')!
+    expect(sceneMemory(db, later).facts.find((f) => f.fact === fact)?.rule?.bound).toEqual([mary.id])
+    // A promise or secret is still heard only by those there.
+    const SECRET = 'Ana wrote to Mary that she had kept the key.'
+    save(db, given, [
+      ['a', 'Ana lost her bag.'],
+      ['b', 'Ana sat alone at her desk.'],
+      ['c', LETTER],
+      ['d', SECRET]
+    ])
+    await readWith(db, given, [{ type: 'said', kind: 'secret', entry: 'Ana', heard: ['Mary'], fact: 'Ana kept the key', quote: SECRET }])
+    expect(sceneMemory(db, later).facts.find((f) => f.fact === 'Ana kept the key')?.knownBy ?? []).not.toContain(mary.id)
+  })
+  it('added by hand on her page (to follow from the start) is told in every scene, from no one', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const scene = repo.getOutline(db, story.id).scenes[0].id
+    const mary = repo.createEntry(db, 'character', { name: 'Mary Dunn' })
+    repo.updateSceneCard(db, scene, { ...repo.getScene(db, scene).card, povId: mary.id, presentIds: [mary.id], beats: ['Mary reads.'] })
+    const fact = 'Mary never wears a jacket'
+    // As the "Knows at the start" box adds it: the change goes through the same cleaning as every one Adam makes.
+    const input = mem.cleanChangeInput(db, {
+      entryId: mary.id,
+      anchor: 'baseline',
+      kind: 'knowledge',
+      payload: { factId: 'f-hand', fact, said: { kind: 'rule', by: '', words: fact } }
+    })
+    mem.insertChange(db, { ...input, sceneId: null, origin: 'adam' } as Parameters<typeof mem.insertChange>[1])
+    const must =
+      assembleContext(gatherContextInput(db, scene, undefined, { prefs: PREFS, contextLength: null, creativity: 'steady' }), countRaw).blocks.find(
+        (b) => b.id === MUST_BLOCK
+      )?.text ?? ''
+    expect(must).toContain(`Mary Dunn is to follow: ${fact}`)
+    expect(must).not.toContain('given by')
+  })
+  it('binds the one it is about, not the one its cue names', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const o = repo.getOutline(db, story.id)
+    const given = o.scenes[0].id
+    const later = repo.createScene(db, o.chapters[0].id, { title: 'Later', afterId: given }).id
+    const LINE = '“Whenever Tom says sleep, you will kneel,” Ana told Mary.'
+    save(db, given, [
+      ['a', 'Mary lost her hat. Ana lost her bag. Tobin lost his oar.'],
+      ['b', 'Tom Price stood by the door.'],
+      ['c', LINE]
+    ])
+    const fact = 'Whenever Tom says sleep, Mary must kneel'
+    const tom = repo.createEntry(db, 'character', { name: 'Tom Price' })
+    await readWith(db, given, [{ type: 'said', kind: 'rule', entry: 'Ana', heard: ['Mary', 'Tom Price'], fact, quote: LINE }])
+    const mary = repo.listEntries(db).find((e) => e.name === 'Mary')!
+    expect(sceneMemory(db, later).facts.find((f) => f.fact === fact)?.rule?.bound).toEqual([mary.id])
+    expect(sceneMemory(db, later).facts.find((f) => f.fact === fact)?.rule?.bound).not.toContain(tom.id)
+    expect(orderAbout(fact).trim()).toBe('Mary')
+    expect(orderAbout('Mary and Ana must wait by the gate').trim()).toBe('Mary and Ana')
+    expect(orderAbout('Mary kneels at the bell')).toBe('')
+    // The strong order word first; a pronoun before it binds whoever isn't the cue (review round 6).
+    expect(orderAbout('Tom will ring the bell and Mary must stand').trim()).toBe('ring the bell and Mary')
+    expect(cueOf('When Tom says sleep, she must kneel')).toBe('Tom says sleep')
   })
 })

@@ -38,7 +38,9 @@ import {
 } from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
 import { isOff, itemKey, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
-import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
+import { cueOf, holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
+
+export { cueOf }
 import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
 import { clearStalePlacing } from './briefingFixes'
@@ -120,6 +122,8 @@ export interface MustInput {
   holdings?: Holding[]
   /** What the scene is about (its card, beats, Adam's direction, the scene so far): the items it names come first. */
   about?: string
+  /** Where the scene happens and the places around it (placesHere), for an order that holds somewhere. Left out: not known. */
+  where?: PlaceHere[]
   /**
    * The short form, for a model with little room: at most MUST_SHORT lines, and none of who knows what or of the
    * codex's changed looks (the briefing above has those) beyond what the scene is most likely to break.
@@ -218,6 +222,53 @@ const FIELD_LABEL = new Map(FACT_FIELDS.map((f) => [f.key, f.label]))
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const clipTo = (s: string, most: number): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
+
+/** Words that say nothing of which cue it is. */
+const CUE_STOP = new Set(
+  'that this they them their there then than with from into onto upon over under when what which while hears heard hear says said sees seen goes comes come gets told tells someone anyone anything something says again ever'.split(' ')
+)
+/** A cue's words that pick it out, four letters or more: "she hears the bell" → ["bell"]. */
+export const cueWords = (cue: string): string[] =>
+  (cue.toLowerCase().match(/[\p{L}'’-]+/gu) ?? []).filter((w) => w.length >= 4 && !CUE_STOP.has(w))
+/**
+ * The names of where a scene happens and the places it is in, for an order that holds somewhere ("whenever she is at
+ * home"): the place on its card, then each place around it, with their other names.
+ */
+export function placesHere(
+  entries: Pick<EntryState, 'id' | 'name' | 'aliases' | 'parentId' | 'fields'>[],
+  locationId: ID | null | undefined
+): PlaceHere[] {
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  const out: PlaceHere[] = []
+  const seen = new Set<ID>()
+  for (let at = locationId ? byId.get(locationId) : undefined; at && !seen.has(at.id); at = at.parentId ? byId.get(at.parentId) : undefined) {
+    seen.add(at.id)
+    out.push({ names: [at.name, ...(at.aliases ?? [])].map(clean).filter(Boolean), lives: clean(at.fields?.people) })
+  }
+  return out
+}
+/** A place the scene happens in or within: its names, and who lives there (its "Who rules or lives there"). */
+export interface PlaceHere {
+  names: string[]
+  lives: string
+}
+/** Words that say a place is someone's home. */
+const HOME_WORDS = /\b(?:home|house|flat|apartment|cottage|bedroom|room)\b/i
+/**
+ * Whether a cue of being at home is surely met here for someone: a place here they live in (its "Who rules or lives
+ * there" names them), or one whose name says whose home it is ("Mary's flat", "the Dunn house"). Never a place only
+ * called a home ("the nursing home").
+ */
+function homeHere(cue: string, where: PlaceHere[], person: Pick<EntryState, 'name' | 'aliases'>): boolean {
+  if (!/\bhome\b/i.test(cue)) return false
+  const names = [person.name, ...(person.aliases ?? []), ...person.name.split(/\s+/)].map(clean).filter((n) => n.length >= 3)
+  return where.some((p) => names.some((n) => nameIn(p.lives, n)) || p.names.some((w) => HOME_WORDS.test(w) && names.some((n) => nameIn(w, n))))
+}
+/** Whether some words name every word of a cue, each whole or with a plural ending ("bell" in "the bells rang", not "belly"). */
+export const cueIn = (text: string, cue: string): boolean => {
+  const words = cueWords(cue)
+  return words.length > 0 && words.every((w) => new RegExp(`(?<![\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:e?s)?(?![\\p{L}])`, 'iu').test(text))
+}
 const joinAnd = (items: string[]): string =>
   items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 
@@ -643,19 +694,42 @@ export function mustLines(o: MustInput): MustLine[] {
   if (!people.length && o.reach === 'here') o.stand?.characters.forEach((c, i) => stageLines(c, i))
 
   // What someone here is to follow (memory review, 2026-10-20): an order or suggestion given however long ago and not yet
-  // lifted, newest first, a key kind so it is never crowded out.
+  // lifted, a key kind so it is never crowded out: one whose cue comes in this scene first ("whenever she hears the bell":
+  // the card, the direction or the scene so far name the bell), then the newest. It says when they don't remember being
+  // told, so the writer shows them follow it without knowing why.
+  const where = o.where ?? []
+  const whereWords = where.flatMap((p) => p.names).join('\n')
+  // Said to be met only for being at home, at a place that is theirs: a word of any other cue in the scene's words may be
+  // chance ("sleep" for "whenever Tom says sleep"), so those only come first in the list.
+  const metFor = (f: FactState, person: EntryState): boolean => {
+    const cue = cueOf(f.fact)
+    return !!cue && /\bhome\b/i.test(cue) && homeHere(cue, where, person)
+  }
+  const likely = (f: FactState): boolean => {
+    const cue = cueOf(f.fact)
+    return !!cue && !/\bhome\b/i.test(cue) && cueIn(`${about}\n${whereWords}`, cue)
+  }
+  const cuedHere = (f: FactState): boolean => likely(f) || people.some((e) => !!f.rule?.bound.includes(e.id) && metFor(f, e))
   const ruled = o.facts
     .filter((f) => f.rule && clean(f.fact))
-    .sort((a, b) => (b.at ?? -1) - (a.at ?? -1))
+    .sort((a, b) => Number(cuedHere(b)) - Number(cuedHere(a)) || (b.at ?? -1) - (a.at ?? -1))
   let rules = 0
   for (const f of ruled) {
     const r = f.rule
     if (!r) continue
+    const cue = cueOf(f.fact)
     for (const id of r.bound) {
       const who = people.findIndex((e) => e.id === id && living.has(id))
       if (who < 0 || rules >= MUST_RULES) continue
-      const by = clean(r.byName) ? ` (given by ${clean(r.byName)})` : ''
-      add('rule', who, `${people[who].name} is to follow: ${clean(f.fact).replace(/\.$/, '')}${by}`, shortPlace(r.where, o.storyTitle), false, [id], {
+      const name = people[who].name
+      const met = metFor(f, people[who])
+      const notes = [
+        clean(r.byName) ? `given by ${clean(r.byName)}` : '',
+        f.knownBy.includes(id) ? '' : `${name} doesn't remember being told`,
+        met ? `${cue} in this scene: show ${name} follow it` : cue ? `if ${cue} in this scene, show ${name} follow it` : ''
+      ].filter(Boolean)
+      const tail = notes.length ? ` (${notes.join('; ')})` : ''
+      add('rule', who, `${name} is to follow: ${clean(f.fact).replace(/\.$/, '')}${tail}`, shortPlace(r.where, o.storyTitle), false, [id], {
         words: f.fact,
         who: [people[who].name]
       })

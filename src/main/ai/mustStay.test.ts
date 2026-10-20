@@ -24,7 +24,9 @@ import {
   stageFor,
   namedThere,
   stageInScene,
-  type MustInput
+  type MustInput,
+  cueOf,
+  type PlaceHere
 } from './mustStay'
 import { stageTold } from '../repair'
 import { stageLines } from '../repair/prompts'
@@ -1114,6 +1116,65 @@ describe('what the scene before left, told only as far as it carries here (2026-
     // Never for someone not in the scene, nor once nobody is bound by it.
     expect(at({ people: [entry('character', 'Ash Penrose')] })).not.toContain('to follow')
     expect(at({ facts: [{ ...rule, rule: { ...rule.rule!, bound: [] } }] })).not.toContain('to follow')
+    // Told she won't remember: the writer shows her follow it without knowing why.
+    expect(at({ facts: [{ ...rule, knownBy: [] }] })).toContain('(given by Dr Vale; Mary Dunn doesn\'t remember being told)')
+  })
+
+  it('a suggestion for whenever she is at home: shown at her home, said not to apply elsewhere', () => {
+    const m = mary('a grey coat')
+    const home: FactState = {
+      factId: 'f-home',
+      fact: 'Mary wears no jacket whenever she is at home',
+      knownBy: [],
+      rule: { by: 'vale', byName: 'Dr Vale', bound: [m.id], where: 'The Lantern Inn, Ch 3, Sc 2' }
+    }
+    const at = (where?: PlaceHere[]): string =>
+      mustStayTrue(base({ stand: null, reach: 'later', people: [m], facts: [home], storyTitle: 'The Lantern Inn', about: 'Mary reads.', where })).join('\n')
+    const shown = 'she is at home in this scene: show Mary Dunn follow it'
+    const ifSo = 'if she is at home in this scene, show Mary Dunn follow it'
+    // Surely her home: its name says whose it is, or "Who rules or lives there" names her.
+    expect(at([{ names: ["Mary's flat"], lives: '' }])).toContain(shown)
+    expect(at([{ names: ['Flat 3'], lives: 'Mary Dunn and her cat' }])).toContain(shown)
+    expect(at([{ names: ['The Dunn house'], lives: '' }])).toContain(shown)
+    // Not sure (somewhere else, a home that isn't hers, Rose Cottage with no one listed, or not known): what to do if so,
+    // never that it doesn't apply.
+    for (const where of [[{ names: ['The Crown'], lives: 'the landlord' }], [{ names: ['the nursing home'], lives: '' }], [{ names: ['Rose Cottage'], lives: '' }], undefined])
+      expect(at(where), JSON.stringify(where)).toContain(ifSo)
+    expect(at([{ names: ['The Crown'], lives: '' }])).not.toContain("doesn't apply")
+    // Said with no "when": "at home" is its cue too.
+    expect(cueOf('Mary wears no jacket at home')).toBe('at home')
+  })
+
+  it('puts first a suggestion whose cue comes in this scene, and says to show it', () => {
+    const m = mary('a grey coat')
+    const fact = (id: string, text: string, at: number): FactState => ({
+      factId: id,
+      fact: text,
+      knownBy: [m.id],
+      at,
+      rule: { by: 'vale', byName: 'Dr Vale', bound: [m.id], where: 'The Lantern Inn, Ch 3, Sc 2' }
+    })
+    const bell = fact('f-bell', 'Mary sits down whenever she hears the bell', 1)
+    const rest = [2, 3, 4].map((i) => fact(`f-${i}`, `Mary must hum tune number ${i}`, 10 + i))
+    const lines = (about: string): string[] =>
+      mustStayTrue(base({ stand: null, reach: 'later', people: [m], facts: [bell, ...rest], storyTitle: 'The Lantern Inn', about })).filter((l) =>
+        l.includes('to follow')
+      )
+    // No bell in the scene: the newest three, the bell left out.
+    expect(lines('Mary goes to market.').join('\n')).not.toContain('bell')
+    // The bells ring in the scene: the bell first, saying to show it.
+    const rung = lines('The church bells ring as Mary crosses the square.')
+    expect(rung[0]).toContain('Mary sits down whenever she hears the bell')
+    // Never said to come: a word of it in the scene may be chance. Only what to do if it does.
+    expect(rung[0]).toContain('if she hears the bell in this scene, show Mary Dunn follow it')
+    expect(rung.join('\n')).not.toContain('she hears the bell in this scene:')
+    // Only every word of the cue, whole, puts it first: not "bell" in "belly".
+    expect(lines('Her belly ached as she walked.').join('\n')).not.toContain('bell')
+    // Someone who gives the cue being there is no cue: what to do if it comes.
+    const tom = entry('character', 'Tom Price')
+    const word = fact('f-word', 'Mary stands still whenever Tom says the word', 0)
+    const withTom = mustStayTrue(base({ stand: null, reach: 'later', people: [m, tom], facts: [word], storyTitle: 'The Lantern Inn', about: 'They talk.' })).join('\n')
+    expect(withTom).toContain('if Tom says the word in this scene, show Mary Dunn follow it')
   })
 
   it('a Ch 4 scene days later is told the green jumper, in must stay true and as a fact in her profile', () => {

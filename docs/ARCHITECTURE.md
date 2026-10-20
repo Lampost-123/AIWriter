@@ -5509,7 +5509,26 @@ migration.
   the room who heard it), else all of them, the giver apart. It holds until a change of it ends ("end": "an order lifted
   or over", so one "until morning" ends when the memory reads that morning; a count of scenes is no count of time),
   though they may forget it (a fact no one knows any more stays while someone is bound). The scene's contract keeps to
-  it as well (`ai/contract.ts` `KEEP_ORDER`). What must stay true says "Mary is to follow: …
+  it as well (`ai/contract.ts` `KEEP_ORDER`).
+- **Where and when an order holds.** Its cue is read from its fact (`ai/mustStay.ts` `cueOf`: "whenever she hears the
+  bell", "when she is at home", "at home" said with no when). The line says it is in this scene only for being at home,
+  at a place here that is theirs (`placesHere`, `homeHere`: its "Who rules or lives there" names them, or its name names
+  them beside home, house, flat or room; never only "home", as in "the nursing home"). Any other cue is told as "if … in
+  this scene, show them follow it", and comes first when every word of it, whole, is in the card's words, Adam's
+  direction, the scene so far or the names of where the scene happens (`cueIn`; not "bell" in "belly"). It never says a
+  cue is met by chance ("sleep" in the card for "whenever Tom says sleep"), nor that an order doesn't apply. The
+  line also says when they don't remember being told. Who is bound is the one it is about: the hearers named just before
+  its order word ("must", "is to", "will"…: `memory/items.ts` `orderAbout`; Mary in "Whenever Tom says sleep, Mary must
+  kneel", not Tom), else any it names outside its cue, else all who heard it but the one its cue names (the strong order words first: "must", "is to"; then "will", "never"…). An order about clothes that holds only somewhere or on a cue is never what they usually wear
+  (`memory/looks.ts` `ORDERED`, `ONLY_THEN`); the reading asks for one tied to a place or cue as a rule only.
+- **Given from afar.** An order said by letter, telephone or a recording binds the one its fact names though they aren't
+  there (`keeper/apply.ts` `'said'`); a promise or secret is still heard only by those there.
+- **Replaced.** "end" lifts an order the scene lifts, replaces or whose time is up (the reading's own words).
+- **The checks** are told what those in the scene are to follow (`checks/context.ts` `RULES_TITLE`), and going against one
+  where it applies is a warning, unless the scene lifts it; following it without knowing why never is.
+- **By hand.** "Knows at the start" on a character's page can add something they are to follow from the start (a
+  knowledge change with `said.kind` `rule` and no giver). One from the story shows in its history as "An order or rule"
+  and can be removed there, with Undo. Not built: ending one by hand at a chosen scene. What must stay true says "Mary is to follow: …
   (given by Ana) (since Ch 3, Sc 2)" for those in the scene, a key kind (`rule`, `MUST_RULES` 3) in every form. The
   keeper's request lists such facts first, saying who must follow them (`keeper/request.ts`), and "end" finds one for
   someone bound who no longer knows it (`keeper/apply.ts` `endTarget`). Limits: those told must be there at the words

@@ -52,6 +52,12 @@ export const LASTING = /\b(?:from now on|from then on|henceforth|for good(?=\s*(
 const LASTING_WORDS = /\s*[,;(]?\s*\b(?:from now on|from then on|henceforth|for good(?=\s*(?:$|[,;.)!])))(?![\w-])\)?/gi
 /** "Nothing but", said first: with words that it lasts, what follows is all they wear. */
 const NOTHING_BUT = /^(?:wearing\s+)?(?:nothing|none)\s+(?:but|except|save)\s+/i
+/**
+ * An order about clothes that holds only somewhere or on a cue ("told to wear no top whenever she is at home"): an order
+ * to follow there (memory/state.ts `FactState.rule`), never what they usually wear (memory review, 2026-10-20).
+ */
+const ORDERED = /\b(?:told(?: \w+)? to|ordered|instructed|commanded|suggested|suggestion|must|made to)\b/i
+const ONLY_THEN = /\b(?:whenever|each time|every time|at home|indoors|in (?:the|her|his|their) (?:house|home|flat|room|bedroom))\b/i
 
 /** The Looks fields (shared/fields.ts) a passing undress may reach. */
 const LOOKS = new Set(['build', 'face', 'hair', 'eyes', 'skin', 'marks', 'clothing', 'movement'])
@@ -82,6 +88,7 @@ const momentPiece = (piece: string): boolean => (MOMENT_PIECE.test(piece) || BAR
  */
 export function usualLook(field: string, value: string | null | undefined, note = ''): string {
   let v = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (field === 'clothing' && ORDERED.test(`${note} ${v}`) && ONLY_THEN.test(`${note} ${v}`)) return ''
   if (field === 'clothing' && NOTHING_BUT.test(v) && (LASTING.test(v) || LASTING.test(note))) v = v.replace(NOTHING_BUT, '')
   if (passingLook(field, v)) return ''
   if (field !== 'clothing') return v

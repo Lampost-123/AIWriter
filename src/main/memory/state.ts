@@ -41,7 +41,7 @@ import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
 import { clothingAfter, passingLook, usualLook } from './looks'
 import { learnedHow } from './ledger'
-import { nameIn } from './items'
+import { cueOf, nameIn, orderAbout } from './items'
 import { soleFirstName } from '@shared/names'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
@@ -619,13 +619,22 @@ export function stateAt(
     const fact = factText.get(factId) ?? ''
     const heard = [...r.bound].filter((id) => entries.has(id))
     const heardNames = heard.map((id) => entries.get(id)?.name ?? '')
-    const named = heard.filter((id, i) => {
-      const e = entries.get(id)
-      if (!e) return false
-      const first = soleFirstName(e.name, heardNames.filter((_, j) => j !== i))
-      return [e.name, ...(e.aliases ?? []), first].some((n) => n.trim() && nameIn(fact, n))
-    })
-    const bound = named.length ? named : heard
+    // Whom it is about first (the one named before "must": not Tom in "whenever Tom says sleep, Mary must kneel"), then
+    // anyone it names, then everyone it was said to.
+    const namedIn = (text: string) =>
+      heard.filter((id, i) => {
+        const e = entries.get(id)
+        if (!e || !text) return false
+        const first = soleFirstName(e.name, heardNames.filter((_, j) => j !== i))
+        return [e.name, ...(e.aliases ?? []), first].some((n) => n.trim() && nameIn(text, n))
+      })
+    const about = namedIn(orderAbout(fact))
+    const cue = cueOf(fact)
+    const named = about.length ? about : namedIn(fact.replace(cue, ''))
+    // Never the one who is its cue ("when Tom says sleep, she must kneel"), unless no one else heard it.
+    const cueGivers = new Set(namedIn(cue))
+    const others = heard.filter((id) => !cueGivers.has(id))
+    const bound = named.length ? named : others.length ? others : heard
     if (!bound.length) continue
     let f = facts.get(factId)
     if (!f) facts.set(factId, (f = { factId, fact, knownBy: [], at: learnedAt.get(factId) ?? -1, backed: !unbacked.has(factId), since: {} }))

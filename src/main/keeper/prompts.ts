@@ -52,21 +52,21 @@ export const READING_SYSTEM = `${READING_MARKER}
 You keep a novel's memory up to date as the author writes. You get the memory at this point, the facts already read from this scene, and its new or changed paragraphs. Reply with one JSON object only.
 
 Rules
-- Read only paragraphs P1, P2 ...; "Context" lines are only there to help: take nothing from them.
+- Read only paragraphs P1, P2 ...; "Context" lines only help: take nothing from them.
 - Report only what the words show happens, is said to be true or becomes true: no guesses or reading between the lines, and nothing the memory already says in any words (facts whose words changed excepted).
-- Every fact needs "quote": words copied character for character from one P paragraph: the shortest phrase or sentence that shows it.
+- Every fact needs "quote": words copied character for character from one P paragraph, the shortest that shows it.
 - Refer to entries by their ids (E1, E2 ...), those under "Elsewhere in the world" too: never make a new entry with a name or alias already listed. Later items can refer to a new entry by its "ref" (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries or makes (a bead, a letter) is an item. Give a new entry only fields the words show.
 - Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change alters a field for good (a bandage off, a hat lost, to wear only X from now on; not clothes off for a while), also give its new value in "fields".
 - Details: facts about an entry that don't change in the scene (a newcomer's eye colour).
-- Said lines later scenes must keep to (a promise or vow, a threat, a secret told; "rule": an order or suggestion to follow, its fact saying who must do what, until when): a "said" item with who says it, who hears it, and the words saying it as the quote. A secret told: "said" only, not also "knows".
+- Said lines later scenes must keep to (a promise or vow, a threat, a secret told; "rule": an order or suggestion to follow, its fact saying who must do what, where or on what cue (then not in fields), until when): a "said" item with who says it, who hears it, and the words saying it as the quote. A secret told: "said" only, not also "knows".
 - Knows: give "how" and, if told or overheard, "from" whom; "wrong": true if what they believe isn't true.
 - Names: a listed character called something the memory doesn't list (a nickname or title, "her brother" if here it can only mean them): a "name" item.
 - Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
-- Actions on the memory: "end" a "So far" note, known fact or wrong belief no longer true (a lost thing found, an order lifted or over); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
+- Actions on the memory: "end" a "So far" note, known fact or wrong belief no longer true (a lost thing found, an order lifted, replaced or over); "guess" to "confirm" or "withdraw" a detail marked (guess); "close" an open thread only when its payoff is on the page, never for a hint or plan; "summary" when the scene now tells an entry's summary otherwise.
 - Each fact under "Facts whose words changed" needs a verdict: "keep" (still said; give the words now showing it), "update" (it says something else now; give the new value and words) or "remove" (no longer said).
 - Don't repeat facts listed under "Facts from this scene".
-- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes", changing nothing. A clash is only something that can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words is never a clash.
+- If the scene contradicts the memory without it happening in the story (a different eye colour, a dead character walking about), put it under "clashes", changing nothing. A clash can't be true alongside what the memory says. A detail the memory doesn't have, a fuller or vaguer description, or the same thing in other words is never a clash.
 
 Reply with:
 {"facts": [verdicts], "add": [new facts], "clashes": [clashes]}

@@ -60,7 +60,8 @@ import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, scenePara
 import { aliasWorthy, cleanCalled } from './names'
 import { forgetCalledNotIn, keepCalled } from '../db/called'
 import { usualLook } from '../memory/looks'
-import type { CalledName } from '@shared/names'
+import { firstNameOf, type CalledName } from '@shared/names'
+import { nameIn, orderAbout } from '../memory/items'
 
 type DB = Database.Database
 
@@ -2190,10 +2191,20 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       // Only those there at the words hear them (live test, 2026-10-16: a confession that named Victor Crane, far away,
       // was kept as heard by him): the model's own list is kept to those on stage, and never an animal.
       const stage = run.stageAt(s)
+      // An order or suggestion given from afar (a telephone, a letter, a recording: memory review, 2026-10-20) still
+      // reaches the one its fact names, wherever they are.
+      const named = (e: Entry): boolean => kind === 'rule' && [e.name, ...(e.aliases ?? []), firstNameOf(e.name)].some((n) => n.trim() && nameIn(orderAbout(fact) || fact, n))
       const hearers: Entry[] = []
       for (const who of strList(a.heard ?? a.hearers, MAX_INVOLVED)) {
         const e = run.resolve(who, chunk.ids, refs)
-        if (e && isPerson(e) && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && stage.some((p) => p.id === e.id) && run.ensureHere(e, s))
+        if (
+          e &&
+          isPerson(e) &&
+          e.id !== entry.id &&
+          !hearers.some((h) => h.id === e.id) &&
+          (stage.some((p) => p.id === e.id) || named(e)) &&
+          run.ensureHere(e, s)
+        )
           hearers.push(e)
       }
       // The same line by the same speaker read again (however the model words the fact) is the fact already kept.

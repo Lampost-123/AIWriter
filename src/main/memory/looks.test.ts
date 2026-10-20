@@ -126,6 +126,19 @@ describe('typical clothing the story sets from now on (memory review, 2026-10-20
     expect(usualLook('clothing', 'a bare-shouldered silk gown, silver locket')).toBe('a bare-shouldered silk gown, silver locket')
   })
 
+  it('never keeps as usual an order about clothes that holds only somewhere or on a cue (memory review, 2026-10-20)', () => {
+    expect(usualLook('clothing', 'no jacket', 'told to wear no jacket whenever she is at home')).toBe('')
+    expect(usualLook('clothing', 'no jacket at home, by order')).toBe('no jacket at home, by order')
+    expect(usualLook('clothing', 'no jacket at home', 'Ana told her to go without one')).toBe('')
+    // Usual clothes said with where they are worn are still usual, and so is what a change merely mentions (review).
+    expect(usualLook('clothing', 'a long coat when outdoors')).toBe('a long coat when outdoors')
+    expect(usualLook('clothing', 'grey work uniform', 'now wears the uniform she has to wear while at work')).toBe('grey work uniform')
+    expect(usualLook('clothing', 'silver ring, grey dress', 'is to marry Tom when spring comes; wears his ring')).toBe('silver ring, grey dress')
+    expect(usualLook('clothing', 'blue wool coat', 'bought a blue coat when told it would snow')).toBe('blue wool coat')
+    // An order with no place or cue is what she wears from now on.
+    expect(usualLook('clothing', 'only the green jumper', 'told to wear only the green jumper from now on')).toBe('only the green jumper')
+  })
+
   it('reads "for good" as lasting only where it ends a clause: never "for good luck"', () => {
     expect(usualLook('clothing', 'red ribbon in her hair for good luck, grey dress')).toBe('red ribbon in her hair for good luck, grey dress')
     expect(usualLook('clothing', 'light linen dress for good weather')).toBe('light linen dress for good weather')
