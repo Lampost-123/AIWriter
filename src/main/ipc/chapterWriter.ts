@@ -147,13 +147,13 @@ function deps(runId: ID): RunDeps {
       let b: Awaited<ReturnType<typeof draftBriefing>>
       try {
         // The scene's part of the chapter plan goes to the writer, and to the plan before writing, which builds the scene
-        // plan on it with its own round of look-ups (spec "Write the chapter, reworked", 2026-10-19). No continuity brief
-        // (token audit, 2026-10-19): the chapter plan says what it would.
+        // plan on it with its own round of look-ups (spec "Write the chapter, reworked", 2026-10-19). With a continuity
+        // brief when Settings › Models says so, as every other path (Adam, 2026-10-20: it was left out while the plan read
+        // the whole book; it reads the chapters in short now, so it costs little).
         b = await draftBriefing(sceneId, options, {
           extras: { extraBlocks },
           signal: o.signal,
           catchUpMs: DRAFT_CATCH_UP_MS,
-          brief: false,
           ...(o.notes.trim() ? { chapterPlan: o.notes.trim() } : {})
         })
       } catch (e) {

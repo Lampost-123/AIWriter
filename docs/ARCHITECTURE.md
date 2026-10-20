@@ -4075,7 +4075,7 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
   (its copy of the contract points there).
 - **Every writing path**: Generate and Add below (a plan before each draft, `draftBriefing`); Variants (`ipc/variants.ts`
   no longer turns the plan off: the set is briefed once, so its drafts share one plan); Write the whole chapter (its drafts
-  through `draftBriefing`, with no brief, the scene plan built on the scene's part of the chapter plan); Beat by beat (`beats/index.ts`, `withPlan` with `beat`): one plan for
+  through `draftBriefing`, with a continuity brief as every other path since 2026-10-20, the scene plan built on the scene's part of the chapter plan); Beat by beat (`beats/index.ts`, `withPlan` with `beat`): one plan for
   the scene, made with its first beat (or the first after the card or the direction changed, or beat 1 started afresh),
   kept in memory (`plan/index.ts` scene plans, the 20 most recent) and given to the later beats with no call, the notes
   saying "(I write only beat 2 of 3 now…)", its brief with it, no scene-level "must" in a beat's contract; Continue
@@ -5027,8 +5027,8 @@ in the scene (19,600 characters), everyone and everything in it with all their h
   the story record". A brief written before reads back the same (`readBriefText`). Settings › Models' help says what the
   plan reads now ("the chapters so far in short, the scene before and what the story record says of everyone here").
 - **Every path**: Generate, Add below, Variants and Beat by beat's first beat as before; Directed writing writes by the same
-  plan; Write the whole chapter still plans with no brief (`brief: false`, its chapter plan says what a brief would), so it
-  shrinks only by the shorter "Also in the world".
+  plan; Write the whole chapter plans with a brief too now (Adam, 2026-10-20: left out while the plan read the whole
+  book, `brief: false`; turned back on once it no longer did).
 - **Measured** (offline, free): the trap harness's fake provider from the live run's saved world, with its real DeepSeek
   memory (`--fake --samples 1 --from-world <live run> --writer deepseek-flash --memory deepseek-flash --judge
   deepseek-flash --measure …`, chain K1; a fake run that names a real model now reads as much as it does live, DeepSeek
