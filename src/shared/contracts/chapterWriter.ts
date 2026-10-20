@@ -39,6 +39,11 @@ export interface ChapterWritingPlanScene {
   changes: { who: string; change: string }[]
   /** Facts the scene keeps to that its card doesn't say (from the look-ups). */
   keep: string[]
+  /**
+   * How the scene ends, in a short line: where it leaves the people in it ("Wren soaked to the knee, boots off by the
+   * fire"). Shown as "Ends with: …" in the plan Adam reads (Build with AI, 2026-10-20). Left out of older plans.
+   */
+  ends?: string
   /** The part as the writer is given it, and as Adam reads and changes it. */
   text: string
   /** Adam changed it before writing: `text` is his. */
@@ -49,6 +54,20 @@ export interface ChapterWritingPlanScene {
 export interface ChapterWritingPlan {
   /** What the chapter does, in a few lines. */
   overview: string
+  /**
+   * What the chapter does, in three parts (Build with AI's plan review, 2026-10-20): whose chapter it is (a name the
+   * codex has, usually the point of view), what they want in it, what is against them, and how it turns. Each '' or
+   * left out when the planner didn't say (and in plans made before), and the review shows the overview instead.
+   */
+  lead?: string
+  wants?: string
+  against?: string
+  turn?: string
+  /**
+   * Facts the plan holds to, each with where it was set ("Ash: burn on the left forearm (since Ch 1, Sc 2)"): the story
+   * index's, as the chapter begins, then the scenes' own Keep to lines; no AI call of their own. Left out of older plans.
+   */
+  kept?: string[]
   scenes: ChapterWritingPlanScene[]
   /** Things in Adam's cards that don't fit the story so far (his cards are never changed). */
   questions: string[]
@@ -61,6 +80,21 @@ export interface ChapterPlanAnswer {
   scenes?: { sceneId: ID; text: string }[]
   /** A new overview, when he changed it. */
   overview?: string
+  /** What the chapter does, in its three parts, each when he changed it. */
+  wants?: string
+  against?: string
+  turn?: string
+}
+
+/**
+ * Roughly how long writing the chapter takes and what it costs, from the plan on (Build with AI's plan review,
+ * chapterWriter/estimate.ts): the drafts, the memory reading each one, each scene's plan and check, a fix or so, and the
+ * critic. `cost` null: a model in use has no price (the review says "cost not known"); `free`: every model is free.
+ */
+export interface ChapterWriterEstimate {
+  minutes: number
+  cost: number | null
+  free: boolean
 }
 
 export interface ChapterWriterProgress {
@@ -79,6 +113,8 @@ export interface ChapterWriterProgress {
   sceneIds: ID[]
   /** While `stage` is 'review': the chapter plan waiting for Adam (answerChapterPlan). */
   plan?: ChapterWritingPlan | null
+  /** While `stage` is 'review': roughly how long writing it takes and what it costs (null: can't say). */
+  estimate?: ChapterWriterEstimate | null
 }
 
 /** One scene of the chapter, as the start dialog lists it. */

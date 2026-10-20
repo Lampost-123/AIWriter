@@ -5,7 +5,7 @@ import type { Handlers } from './index'
 import type { ChapterPlanAnswer, ChapterWriterApi } from '@shared/contracts/chapterWriter'
 import type { DraftOptions, ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
-import { CREATIVITY_PRESETS, cardLength, writerTemperature } from '@shared/defaults'
+import { AUTO_LENGTH, CREATIVITY_PRESETS, cardLength, writerTemperature } from '@shared/defaults'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as providers from '../ai/providers'
@@ -34,6 +34,9 @@ import { contractWanted, type SceneContract } from '../ai/contract'
 import { findInStory, meaningForCheck } from '../retrieval'
 import { shortPlace } from '../ai/mustStay'
 import { directDraft, directedWanted, directorModel } from '../director'
+import { memoryModel } from '../keeper'
+import { planWanted } from '../plan'
+import { chapterEstimate, type Price } from '../chapterWriter/estimate'
 
 /**
  * How long the run waits for the memory to read the scenes before the one it drafts or checks next, and write their
@@ -79,7 +82,13 @@ let watching = false
  * The run waiting for Adam's word on its chapter plan, by run id: what answerChapterPlan resolves (null: cancel). Stop
  * resolves it with null too.
  */
-const waitingPlans = new Map<ID, (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null) => void>()
+const waitingPlans = new Map<ID, (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null) => void>()
+
+/** A model's prices, as the estimate reads them (unknown when there is no model). */
+const priceOf = (choice: { promptPrice: number | null; completionPrice: number | null } | null | undefined): Price => ({
+  prompt: choice?.promptPrice ?? null,
+  completion: choice?.completionPrice ?? null
+})
 
 /** What a scene's part of the chapter plan is called in the writer's briefing. */
 const PART_BLOCK = { id: 'chapter-plan', title: 'This scene’s part of the chapter plan (keep to it)' }
@@ -126,7 +135,7 @@ function deps(runId: ID): RunDeps {
     review: (_plan, signal) =>
       new Promise((resolve) => {
         if (signal.aborted) return resolve(null)
-        const done = (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null): void => {
+        const done = (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null): void => {
           waitingPlans.delete(runId)
           signal.removeEventListener('abort', cancel)
           resolve(answer)
@@ -135,6 +144,27 @@ function deps(runId: ID): RunDeps {
         waitingPlans.set(runId, done)
         signal.addEventListener('abort', cancel, { once: true })
       }),
+    // Roughly how long writing takes and what it costs, shown with the plan (chapterWriter/estimate.ts).
+    estimate: (sceneIds) => {
+      const settings = getSettings()
+      const memory = memoryModel()
+      const check = (() => {
+        try {
+          return jobModel('check', sources()).choice
+        } catch {
+          return null
+        }
+      })()
+      const cards = repo.sceneCards(db, sceneIds)
+      return chapterEstimate({
+        scenes: sceneIds.map((id) => ({ words: cardLength(cards.get(id)) ?? AUTO_LENGTH.typical })),
+        writer: priceOf(writer.choice),
+        memory: priceOf('error' in memory ? null : memory.choice),
+        check: priceOf(check),
+        planFirst: planWanted(),
+        critic: settings.chapterCritic !== false
+      })
+    },
     find: async (sceneId, query, most) => {
       const title = repo.sceneLocation(db, sceneId).story.title
       return (await findInStory(db, sceneId, query, most))?.map((p) => ({ where: shortPlace(p.where, title), text: p.text })) ?? null
@@ -311,7 +341,14 @@ export const chapterWriterHandlers: Handlers<keyof ChapterWriterApi> = {
     const scenes = Array.isArray(answer?.scenes)
       ? answer.scenes.flatMap((x) => (x && typeof x.sceneId === 'string' && typeof x.text === 'string' ? [{ sceneId: x.sceneId, text: x.text.slice(0, 8000) }] : []))
       : []
-    waiting({ scenes, ...(typeof answer?.overview === 'string' ? { overview: answer.overview.slice(0, 4000) } : {}) })
+    const part = (k: 'wants' | 'against' | 'turn'): Partial<Record<typeof k, string>> => (typeof answer?.[k] === 'string' ? { [k]: answer[k]!.slice(0, 1000) } : {})
+    waiting({
+      scenes,
+      ...(typeof answer?.overview === 'string' ? { overview: answer.overview.slice(0, 4000) } : {}),
+      ...part('wants'),
+      ...part('against'),
+      ...part('turn')
+    })
   },
   chapterWriterNow: () => activeRun()?.progressNow() ?? null,
   getChapterWriterReport: (chapterId) => loadReport(world.db(), chapterId),

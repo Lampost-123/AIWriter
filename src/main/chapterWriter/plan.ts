@@ -210,7 +210,12 @@ export function planOpening(o: {
 /** A plan as the model gave it (tool arguments or JSON), read loosely. */
 export interface RawChapterPlan {
   overview: string
-  scenes: { scene: string; does: string; threads: string[]; changes: { who: string; change: string }[]; keep: string[] }[]
+  /** Whose chapter, what they want, what is against them, how it turns ('' when not said). */
+  lead?: string
+  wants?: string
+  against?: string
+  turn?: string
+  scenes: { scene: string; does: string; ends?: string; threads: string[]; changes: { who: string; change: string }[]; keep: string[] }[]
   questions: string[]
 }
 
@@ -248,15 +253,33 @@ export function readChapterPlan(v: unknown): RawChapterPlan | null {
       const change = squash(x.change ?? x.what ?? x.ends)
       return who && change ? [{ who, change }] : []
     })
-    return [{ scene: squash(s.scene), does: squash(s.does ?? s.purpose ?? s.what), threads: texts(s.threads), changes, keep: texts(s.keep) }]
+    return [
+      {
+        scene: squash(s.scene),
+        does: squash(s.does ?? s.purpose ?? s.what),
+        ends: squash(s.ends ?? s.endsWith ?? s.ends_with ?? s.end),
+        threads: texts(s.threads),
+        changes,
+        keep: texts(s.keep)
+      }
+    ]
   })
-  return { overview: squash(r.overview), scenes, questions: texts(r.questions) }
+  return {
+    overview: squash(r.overview),
+    lead: squash(r.lead ?? r.who ?? r.pov),
+    wants: squash(r.wants ?? r.want ?? r.goal),
+    against: squash(r.against ?? r.obstacle ?? r.conflict),
+    turn: squash(r.turn ?? r.turns ?? r.twist),
+    scenes,
+    questions: texts(r.questions)
+  }
 }
 
 /** A scene's part, in the words the writer is given and Adam reads. */
-export function partText(p: Pick<ChapterWritingPlanScene, 'does' | 'threads' | 'changes' | 'keep'>): string {
+export function partText(p: Pick<ChapterWritingPlanScene, 'does' | 'threads' | 'changes' | 'keep'> & { ends?: string }): string {
   const lines: string[] = []
   if (p.does.trim()) lines.push(`What it must do: ${p.does.trim()}`)
+  if (p.ends?.trim()) lines.push(`Ends with: ${p.ends.trim()}`)
   if (p.threads.length) lines.push(`Threads it moves on:\n${p.threads.map((t) => `- ${t}`).join('\n')}`)
   if (p.changes.length) lines.push(`What changes by its end:\n${p.changes.map((c) => `- ${c.who}: ${c.change}`).join('\n')}`)
   if (p.keep.length) lines.push(`Keep to:\n${p.keep.map((k) => `- ${k}`).join('\n')}`)
@@ -290,7 +313,14 @@ export function checkChapterPlan(raw: RawChapterPlan, o: { db: DB; scenes: Scene
     parts.set(
       id,
       had
-        ? { ...had, does: [had.does, s.does].filter(Boolean).join(' '), threads: [...had.threads, ...s.threads], changes: [...had.changes, ...s.changes], keep: [...had.keep, ...s.keep] }
+        ? {
+            ...had,
+            does: [had.does, s.does].filter(Boolean).join(' '),
+            ends: s.ends || had.ends,
+            threads: [...had.threads, ...s.threads],
+            changes: [...had.changes, ...s.changes],
+            keep: [...had.keep, ...s.keep]
+          }
         : s
     )
   })
@@ -311,6 +341,7 @@ export function checkChapterPlan(raw: RawChapterPlan, o: { db: DB; scenes: Scene
       .slice(0, PLAN_PART_MOST.changes)
     const part = {
       does: clip(p?.does || fromCard(o.db, ref.id), 600),
+      ends: clip(p?.ends ?? '', 300),
       threads: uniq(p?.threads ?? [])
         .slice(0, PLAN_PART_MOST.threads)
         .map((t) => clip(t, 240)),
@@ -321,23 +352,87 @@ export function checkChapterPlan(raw: RawChapterPlan, o: { db: DB; scenes: Scene
     }
     return { sceneId: ref.id, label: ref.label, ...part, text: partText(part) }
   })
-  return { overview: clip(raw.overview, 800), scenes, questions: uniq(raw.questions).slice(0, 8) }
+  const lead = raw.lead?.trim() ? known(raw.lead.trim()) : null
+  const three = { wants: clip(squash(raw.wants), 300), against: clip(squash(raw.against), 300), turn: clip(squash(raw.turn), 300) }
+  return {
+    overview: clip(raw.overview, 800),
+    ...(lead ? { lead } : {}),
+    ...(three.wants ? { wants: three.wants } : {}),
+    ...(three.against ? { against: three.against } : {}),
+    ...(three.turn ? { turn: three.turn } : {}),
+    scenes,
+    questions: uniq(raw.questions).slice(0, 8)
+  }
 }
 
-/** The plan as text: the overview, then each scene's part under its label (the report's, and the record's). */
+/** The most "Kept true from the memory" lines a plan shows, and the most of them about one person. */
+export const KEPT_MOST = { all: 8, each: 3 }
+
+/**
+ * What the plan holds to from the story so far, each with where it was set (Build with AI's plan review, 2026-10-20): the
+ * story index's lines for everyone on the cards as the chapter begins (ChapterCore.people: no AI call), the plain facts
+ * first (where they are, what they wear and carry, how they are), a few a person, then ties and what they know; then the
+ * scenes' own Keep to lines. At most KEPT_MOST.all, each once.
+ */
+export function keptFacts(core: Pick<ChapterCore, 'people'>, plan: Pick<ChapterWritingPlan, 'scenes'>): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const per = new Map<string, number>()
+  const add = (line: string, who: string | null): void => {
+    const l = squash(line)
+    const key = l.toLowerCase()
+    if (!l || seen.has(key) || out.length >= KEPT_MOST.all) return
+    if (who) {
+      const n = per.get(who) ?? 0
+      if (n >= KEPT_MOST.each) return
+      per.set(who, n + 1)
+    }
+    seen.add(key)
+    out.push(clip(l, 240))
+  }
+  const plain = (l: string): boolean => !/^[^:]+ knows:/.test(l) && !/^[^:]+ and [^:]+:/.test(l)
+  const who = (l: string): string | null => /^(.+?)(?: knows| and [^:]+)?:/.exec(l)?.[1]?.trim() ?? null
+  // Only what says where it was set ("since Ch 1, Sc 2", or a scene's label).
+  const placed = core.people.filter((l) => /\((?:since )?Ch \d+, Sc \d+\)/.test(l))
+  for (const l of placed.filter(plain)) add(l, who(l))
+  for (const l of placed.filter((x) => !plain(x))) add(l, who(l))
+  for (const s of plan.scenes) for (const k of s.keep) add(k, null)
+  return out
+}
+
+/** What the chapter does, as the drafts and the report are told it: the overview, then what they want, what is against them, how it turns. */
+export function chapterLine(p: Pick<ChapterWritingPlan, 'overview' | 'lead' | 'wants' | 'against' | 'turn'>): string {
+  const lead = p.lead?.trim() ?? ''
+  return [
+    p.overview.trim(),
+    p.wants?.trim() ? `${lead || 'The lead'} wants: ${p.wants.trim()}` : '',
+    p.against?.trim() ? `Against ${lead || 'them'}: ${p.against.trim()}` : '',
+    p.turn?.trim() ? `How it turns: ${p.turn.trim()}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** The plan as text: what the chapter does, then each scene's part under its label (the report's, and the record's). */
 export function chapterPlanText(p: ChapterWritingPlan): string {
-  return [p.overview.trim(), ...p.scenes.filter((s) => s.text.trim()).map((s) => `${s.label}:\n${s.text.trim()}`)].filter(Boolean).join('\n\n')
+  return [chapterLine(p), ...p.scenes.filter((s) => s.text.trim()).map((s) => `${s.label}:\n${s.text.trim()}`)].filter(Boolean).join('\n\n')
 }
 
 /**
  * The plan with Adam's changes: a scene's part he rewrote is his words from then on (what changes keeps only the people
  * his words still name, for the plan check after the draft); a new overview. Parts he left are as they were.
  */
-export function withAnswer(p: ChapterWritingPlan, a: Pick<ChapterPlanAnswer, 'scenes' | 'overview'>): ChapterWritingPlan {
+export function withAnswer(p: ChapterWritingPlan, a: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'>): ChapterWritingPlan {
   const by = new Map((a.scenes ?? []).map((s) => [s.sceneId, typeof s.text === 'string' ? s.text.replace(/\r\n?/g, '\n').trim() : '']))
+  // What the chapter does, each part he changed (left out: as it was).
+  const own = (v: unknown, was: string | undefined): Partial<Record<'v', string>> => (typeof v === 'string' ? { v: clip(squash(v), 600) } : was !== undefined ? { v: was } : {})
+  const three = { wants: own(a.wants, p.wants).v, against: own(a.against, p.against).v, turn: own(a.turn, p.turn).v }
   return {
     ...p,
     overview: typeof a.overview === 'string' ? clip(a.overview.trim(), 2000) : p.overview,
+    ...(three.wants !== undefined ? { wants: three.wants } : {}),
+    ...(three.against !== undefined ? { against: three.against } : {}),
+    ...(three.turn !== undefined ? { turn: three.turn } : {}),
     scenes: p.scenes.map((s) => {
       const text = by.get(s.sceneId)
       if (text === undefined || text === s.text.trim()) return s
@@ -553,5 +648,7 @@ export async function makeChapterPlan(d: PlanDeps): Promise<PlanOutcome> {
   }
   // The index's free checks on the cards, before the planner's own questions.
   plan.questions = [...new Set([...core.questions, ...plan.questions])].slice(0, 10)
+  // What it holds to from the story so far, for Adam to see (no AI call).
+  plan.kept = keptFacts(core, plan)
   return { status: 'complete', plan, core }
 }

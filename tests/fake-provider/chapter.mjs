@@ -1,8 +1,11 @@
 // Fake replies for Write the whole chapter (src/main/chapterWriter/prompts.ts: system prompts starting
 // "[AIWRITE-CHAPTER v1] <job>"), so tests know exactly what a run does:
 //   plan  Offered the look-ups and with none answered yet, it looks up Mara (state_of) when the request names her; then
-//         write_chapter_plan: the overview "A fake chapter plan.", and for each "### Sc N" heading in the request a part
-//         that "does" "Sc N moves the chapter on.", keeps "Keep Sc N true to the memory." and has the card's point of
+//         write_chapter_plan: the overview "A fake chapter plan.", whose chapter it is (the first card's point of view, else
+//         Mara when the request names her), what they want ("To get across before dark."), what is against them ("The
+//         river is up.") and how it turns ("The ferry leaves without them."); for each "### Sc N" heading in the request
+//         a part that "does" "Sc N moves the chapter on.", ends with "Sc N ends on the far bank.", keeps "Keep Sc N true
+//         to the memory." and has the card's point of
 //         view and the people it has there change ("ends Sc N further on her way"); questions ["Sc 1's card has Mara at the
 //         inn; the memory has her at the ferry."] when the request names Mara. Asked at its last request (no tools), it
 //         sends the same plan as JSON (chapterReply).
@@ -39,14 +42,20 @@ function fakePlan(user) {
     .split(/\n(?=### Sc \d+)/)
     .map((part) => ({ scene: /^### (Sc \d+)/.exec(part)?.[1], card: part.split('\n## ')[0] }))
     .filter((h) => h.scene)
+  const firstPov = heads.map((h) => /^Point of view: (.+)$/m.exec(h.card)?.[1]?.trim()).find(Boolean)
   return {
     overview: 'A fake chapter plan.',
+    lead: firstPov ?? (/\bMara\b/.test(user) ? 'Mara' : ''),
+    wants: 'To get across before dark.',
+    against: 'The river is up.',
+    turn: 'The ferry leaves without them.',
     scenes: heads.map(({ scene, card }) => {
       const pov = /^Point of view: (.+)$/m.exec(card)?.[1]?.trim()
       const present = (/^Characters present: (.+)$/m.exec(card)?.[1] ?? '').split(',').map((x) => x.trim()).filter(Boolean)
       return {
         scene,
         does: `${scene} moves the chapter on.`,
+        ends: `${scene} ends on the far bank.`,
         threads: [],
         changes: [...(pov ? [pov] : []), ...present].map((who) => ({ who, change: `ends ${scene} further on her way` })),
         keep: [`Keep ${scene} true to the memory.`]

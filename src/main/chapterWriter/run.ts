@@ -28,6 +28,7 @@ import type {
   ChapterWriterSceneReport,
   ChapterWriterStage,
   ChapterWriterStatus,
+  ChapterWriterEstimate,
   ChapterWritingPlan
 } from '@shared/contracts/chapterWriter'
 import type { CritiqueNote, CritiqueOutcome, CritiqueTarget } from '@shared/contracts/critique'
@@ -50,7 +51,7 @@ import { sceneWords } from '../ask/agent'
 import { cleanProse, dropRepeats, pageFrom, type Page } from './page'
 import { findingKey, foldWords, ProgressGuard, Tries, wordsHash, wordsOverlap } from './progress'
 import { missedDirection } from './prompts'
-import { chapterPlanText, makeChapterPlan, withAnswer } from './plan'
+import { chapterLine, chapterPlanText, makeChapterPlan, withAnswer } from './plan'
 import { fixPassage, type FixDeps } from './fix'
 import { loadReport, saveBefore, saveReport, scenesNow } from './store'
 import { findingLine, type Finding, type SceneRef } from './tools'
@@ -77,7 +78,12 @@ export interface RunDeps {
    * Shows Adam the chapter plan and waits for his word: the answer to write to (with any part he changed), or null to
    * cancel. Ends with null when `signal` is aborted. Left out: the run goes straight on to writing.
    */
-  review?: (plan: ChapterWritingPlan, signal: AbortSignal) => Promise<Pick<ChapterPlanAnswer, 'scenes' | 'overview'> | null>
+  review?: (plan: ChapterWritingPlan, signal: AbortSignal) => Promise<Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null>
+  /**
+   * Roughly how long writing these scenes takes and what it costs, shown with the plan (estimate.ts); null when it can't
+   * say. Left out: none is shown.
+   */
+  estimate?: (sceneIds: ID[]) => ChapterWriterEstimate | null
   /**
    * Drafts a scene from its card with the app's writer (the memory caught up first). `notes`: its part of the chapter plan
    * (the scene plan builds on it, and the writer is given it); `direction`, for a scene written again. Resolves with its
@@ -228,6 +234,8 @@ export class ChapterRun {
   private storyId: ID = ''
   private label = ''
   private plan: ChapterWritingPlan | null = null
+  /** How long writing takes and what it costs, worked out as the plan is shown. */
+  private estimate: ChapterWriterEstimate | null = null
   /** The run has begun writing (before that, Stop or Cancel at the plan changed nothing). */
   private writing = false
   private readonly findings: Finding[] = []
@@ -394,7 +402,8 @@ export class ChapterRun {
       round: this.round,
       cost: this.cost(),
       sceneIds: this.sceneIds,
-      plan: this.stage === 'review' ? this.plan : null
+      plan: this.stage === 'review' ? this.plan : null,
+      ...(this.stage === 'review' ? { estimate: this.estimate } : {})
     }
   }
 
@@ -462,6 +471,12 @@ export class ChapterRun {
     if (!this.d.review || !this.plan) return
     this.check()
     const at = this.clock()
+    try {
+      this.estimate = this.d.estimate?.(this.sceneIds) ?? null
+    } catch (e) {
+      console.warn('Could not work out what writing the chapter costs', e)
+      this.estimate = null
+    }
     this.tell('review', 'The chapter plan is ready for you to read')
     const answer = await this.d.review(this.plan, this.controller.signal)
     this.waited += this.clock() - at
@@ -477,7 +492,8 @@ export class ChapterRun {
     // The plan is made before any scene is written, so where everyone is at a later scene's start is only its guess
     // (review, 2026-10-16): the end of the scene before, as now written, says it (the briefing's "Where things stand").
     const later = this.refs.findIndex((r) => r.id === sceneId) > 0 && !!mine
-    return [p.overview.trim() && `The chapter: ${p.overview.trim()}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
+    const chapter = chapterLine(p)
+    return [chapter && `The chapter: ${chapter}`, mine, later ? LATER_START : ''].filter(Boolean).join('\n\n')
   }
 
   private partOf(sceneId: ID): string {
