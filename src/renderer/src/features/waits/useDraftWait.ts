@@ -19,7 +19,8 @@ export const useDraftSteps = create<Steps>(() => ({ steps: {} }))
 
 let listening = false
 
-function listen(): void {
+/** Hears the drafts' steps (once), for as long as the window is open. */
+export function listenForDraftSteps(): void {
   if (listening || typeof window === 'undefined' || !window.aiwrite) return
   listening = true
   onEvent('draft:step', (s) => useDraftSteps.setState({ steps: { ...useDraftSteps.getState().steps, [s.sceneId]: { ...s, at: Date.now() } } }))
@@ -52,7 +53,7 @@ export function useCalmLine(text: string): string {
  * forgotten once it is no longer getting ready, so the next draft starts from "Getting ready…".
  */
 export function useDraftWait(sceneId: ID, starting: boolean): { words: string; short: string; title: string } | null {
-  listen()
+  listenForDraftSteps()
   const heard = useDraftSteps((s) => s.steps[sceneId] ?? null)
   const memory = useApp((s) => s.memoryStatus)
   // Only steps heard since this draft began getting ready (one heard late from the draft before never counts).

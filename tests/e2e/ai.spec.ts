@@ -47,11 +47,14 @@ test('a draft keeps writing while another page is open, and every word reaches t
     await expect(prose(win)).toContainText('The rain')
     await openPage(win, 'Characters')
     await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
-    // The top bar says a draft is still being written, and Esc on this page leaves it alone.
-    const writing = topBar(win).getByRole('button', { name: 'Writing…' })
+    // The top bar says a draft is still being written, and Esc on this page leaves it alone; its progress card goes back
+    // to the scene.
+    const writing = topBar(win).getByTestId('draft-status').getByRole('button')
     await expect(writing).toBeVisible()
+    await expect(writing).toContainText('Writing “Scene 1”')
     await win.keyboard.press('Escape')
     await writing.click()
+    await win.locator('[data-progress-card="scene"]').getByRole('button', { name: 'Go to the scene' }).click()
     await expect(prose(win)).toBeVisible()
     await expect(generateButton(win)).toBeHidden()
 
@@ -86,7 +89,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
     await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
     await expect(prose(win)).not.toContainText('The rain')
     // The top bar can take Adam back to it from here.
-    await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeVisible()
+    await expect(topBar(win).getByTestId('draft-status')).toBeVisible()
 
     // One Generate draft at a time: this one says where the other is being written.
     await generateButton(win).click()
@@ -97,7 +100,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
     // The draft's one note (the calm overhaul) names the scene it was written in.
     const done = toasts(win).getByText('Draft of “Scene 1” written')
     await expect(done).toBeVisible()
-    await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeHidden()
+    await expect(topBar(win).getByTestId('draft-status')).toBeHidden()
     const [gen] = await invoke(win, 'listGenerations', sceneId)
     const rec = await invoke(win, 'getGeneration', gen.id)
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text.trim()).toBe(rec.response.trim())

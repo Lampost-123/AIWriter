@@ -1,0 +1,284 @@
+/* The top bar's writing progress (WritingStatus.tsx): the pill with its thin bar, and the progress card. Theme tokens
+   only; the bar eases as the words come (never jumps), and with less motion (styles.css) every change is instant. */
+
+.wp-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 0;
+  max-width: min(380px, 34vw);
+  padding: 0 10px 1px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  outline: none;
+  transition: background-color var(--dur-quick, 150ms) ease-out, color var(--dur-quick, 150ms) ease-out;
+}
+.wp-pill:hover,
+.wp-pill[data-state='open'] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.wp-pill:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}
+[data-look='new'] .wp-pill {
+  border-radius: 999px;
+}
+.wp-lead {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The numbers are never cut short: the title gives way first. */
+.wp-tail {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.wp-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--ai);
+}
+.wp-dot.is-live {
+  animation: wp-breathe 1.8s ease-in-out infinite;
+}
+.wp-dot.is-ended {
+  background: var(--faint);
+}
+@keyframes wp-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+.wp-pill-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--line) 80%, transparent);
+  overflow: hidden;
+}
+.wp-pill-bar > span,
+.wp-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ai);
+  transform-origin: left center;
+  transition: transform 600ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* ---------- The card ---------- */
+
+.wp-head {
+  padding: 14px 16px 0;
+}
+.wp-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.wp-title {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.wp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 14px;
+}
+.wp-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wp-steps > li {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.wp-step-t {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.wp-step-m {
+  font-size: 10.5px;
+  color: var(--faint);
+  font-weight: 400;
+}
+.wp-steps > li.is-done {
+  color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 40%, var(--line));
+}
+.wp-steps > li.is-now {
+  color: var(--fg);
+  font-weight: 600;
+  border-color: color-mix(in oklab, var(--ai) 55%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 45%, transparent);
+}
+.wp-now {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.wp-now > .wp-dot {
+  transform: translateY(-1px);
+}
+.wp-now-t {
+  color: var(--fg);
+}
+.wp-now.is-retry .wp-now-t {
+  color: var(--ai-ink, var(--fg));
+}
+.wp-now-d {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.wp-now-m,
+.wp-model {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.wp-scenes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.wp-scenes > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--faint);
+}
+.wp-scene-i {
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.wp-scene-i > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line-strong, var(--line));
+}
+.wp-scene-t {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wp-scene-w {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wp-scenes > li.is-written {
+  color: var(--muted);
+}
+.wp-scenes > li.is-written .wp-scene-i {
+  color: var(--success);
+}
+.wp-scenes > li.is-writing,
+.wp-scenes > li.is-busy {
+  color: var(--fg);
+}
+.wp-scenes > li.is-writing .wp-scene-i > span,
+.wp-scenes > li.is-busy .wp-scene-i > span {
+  border: none;
+  background: var(--ai);
+}
+.wp-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wp-bar {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.wp-bar-t {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.wp-facts {
+  font-size: 12px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.wp-ended {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.wp-ended.is-problem {
+  color: var(--danger);
+}
+.wp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--line);
+}
+.wp-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-left: auto;
+}
+.wp-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  outline: none;
+}
+.wp-link:hover {
+  text-decoration: underline;
+}
+.wp-link:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 40%, transparent);
+}

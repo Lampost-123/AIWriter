@@ -6,6 +6,7 @@
 // scene. A draft written here with nothing else to say says nothing: the page shows it. Pure, so it is unit-tested;
 // draftNote.ts keeps each scene's note and shows it.
 import type { ModelChoice } from '@shared/types'
+import { shortModelName } from '@shared/modelJobs'
 
 /** How a draft ended, as the note tells it. */
 export type DraftEnd =
@@ -164,7 +165,6 @@ export function anotherModel(models: Partial<Record<string, ModelChoice | null>>
 
 /** A model's name as Settings › Models shows it, short: "Claude Sonnet 4.6" for "anthropic/claude-sonnet-4.6". */
 export function modelName(m: Pick<ModelChoice, 'label' | 'modelId'>): string {
-  const label = (m.label || m.modelId).trim()
   // "Anthropic: Claude Sonnet 4.6" → "Claude Sonnet 4.6"; "fake/refuse" stays as it is.
-  return label.includes(': ') ? label.slice(label.indexOf(': ') + 2) : label
+  return shortModelName(m)
 }

@@ -14,7 +14,7 @@ import { AskButton } from '@/features/ask/AskButton'
 import { StorySwitcher } from '@/features/binder/StorySwitcher'
 import { FocusButton } from '@/features/look/FocusLayer'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
-import { ChapterWriterStatus } from '@/features/chapterWriter/ChapterWriterStatus'
+import { WritingStatus } from '@/features/progress/WritingStatus'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
 import { openStoryHome } from '@/features/desk/home/open'
 import { goToStartScreen } from '@/features/start/home'
@@ -90,7 +90,7 @@ export function DeskTopBar(): React.JSX.Element {
         <div data-update-slot className="flex min-w-0 justify-end">
           <UpdateBanner />
         </div>
-        <ChapterWriterStatus />
+        <WritingStatus />
         <span data-tour="keeper" className="contents">
           <KeeperStatus quiet />
         </span>

@@ -16,15 +16,18 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { endWords, undoWords } from './chapterWriterLogic'
 import { setHeld, showRunChange } from './hold'
+import { forgetSteps } from '@/features/waits/useDraftWait'
 
 interface ChapterWriterState {
   /** The run going now. */
   progress: ChapterWriterProgress | null
   /** Bumped when a chapter's report changes, so the report on its card reloads. */
   reportRev: number
+  /** How the latest run ended (the top bar's progress card, left open, says so). */
+  last: { chapterId: ID; report: ChapterWriterReport } | null
 }
 
-export const useChapterWriter = create<ChapterWriterState>(() => ({ progress: null, reportRev: 0 }))
+export const useChapterWriter = create<ChapterWriterState>(() => ({ progress: null, reportRev: 0, last: null }))
 
 /** The story a chapter is in: the binder's when it shows it, else the story open. */
 function storyOfChapter(chapterId: ID): ID | null {
@@ -47,6 +50,8 @@ const bumpReport = (): void => useChapterWriter.setState((s) => ({ reportRev: s.
 
 function setProgress(p: ChapterWriterProgress | null): void {
   const was = useChapterWriter.getState().progress
+  // A scene's draft begins: the steps heard before it (its earlier draft's, say) are forgotten.
+  if (p?.sceneId && p.doing === 'draft' && (was?.sceneId !== p.sceneId || was?.doing !== 'draft')) forgetSteps(p.sceneId)
   useChapterWriter.setState({ progress: p })
   setHeld(p?.sceneIds ?? [])
   // Past the plan: the chapter may have its new name now (saved before anything is written), so the binder, Build with
@@ -133,6 +138,7 @@ export function listenChapterWriter(): void {
   onEvent('chapterWriter:progress', (p) => setProgress(p))
   onEvent('chapterWriter:sceneChanged', (e) => showRunChange(e.sceneId, e.doc, e.text))
   onEvent('chapterWriter:done', (e) => {
+    useChapterWriter.setState({ last: { chapterId: e.chapterId, report: e.report } })
     setProgress(null)
     bumpReport()
     if (e.report.named) useApp.getState().bumpOutline()

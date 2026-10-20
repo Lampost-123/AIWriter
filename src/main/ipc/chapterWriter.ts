@@ -27,6 +27,7 @@ import { newId, UserError } from '../util'
 import { coreHandlers } from './core'
 import { isStartingDraft } from './ai'
 import { ChapterRun, chapterScenes, ownTitle, type RunDeps } from '../chapterWriter/run'
+import { draftEvents } from '../chapterWriter/progress'
 import { activeRun, setActiveRun } from '../chapterWriter/active'
 import { loadBefore, loadReport, saveReport, titleToPutBack } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
@@ -93,6 +94,7 @@ const priceOf = (choice: { promptPrice: number | null; completionPrice: number |
 
 /** What a scene's part of the chapter plan is called in the writer's briefing. */
 const PART_BLOCK = { id: 'chapter-plan', title: 'This scene’s part of the chapter plan (keep to it)' }
+
 
 function deps(runId: ID): RunDeps {
   const db = world.db()
@@ -220,8 +222,9 @@ function deps(runId: ID): RunDeps {
         thinking: b.thinking,
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
-        // The run puts the words in the scene itself; the window hears it from chapterWriter:sceneChanged.
-        emit: () => undefined,
+        // The run puts the words in the scene itself; the window hears it from chapterWriter:sceneChanged. Its words so
+        // far and its retries go to the progress card.
+        emit: draftEvents(o),
         ...providerNotes(b.target.id)
       })
       const end = await withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
@@ -229,6 +232,8 @@ function deps(runId: ID): RunDeps {
       return { ...end, note: b.note ?? null }
     },
     catchUp: (sceneId, signal) => catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal),
+    // About how long each draft is, for the progress card: as the estimate reckons it.
+    target: (sceneId) => sceneLengthFor(db, sceneId, getWritingPrefs()),
     save: (sceneId, page, label) => {
       const now = repo.getScene(db, sceneId)
       if ((now.text ?? '').trim()) currentHistory()?.take({ sceneId, kind: 'ai', label, doc: now.doc, text: now.text })

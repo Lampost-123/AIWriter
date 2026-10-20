@@ -31,11 +31,14 @@ import type {
   ChapterWriterStage,
   ChapterWriterStatus,
   ChapterWriterEstimate,
+  ChapterWriterDoing,
+  ChapterWriterSceneProgress,
   ChapterWritingPlan
 } from '@shared/contracts/chapterWriter'
 import type { CritiqueNote, CritiqueOutcome, CritiqueTarget } from '@shared/contracts/critique'
 import type { CheckKind } from '@shared/contracts/checks'
 import type { ID, SceneCard, StyleGuide, WritingPrefs } from '@shared/types'
+import { countWords } from '@shared/defaults'
 import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 import { effectiveStyle } from '@shared/style'
 import { findSlop } from '@shared/slop'
@@ -99,7 +102,15 @@ export interface RunDeps {
    */
   draft: (
     sceneId: ID,
-    o: { notes: string; direction: string; signal: AbortSignal }
+    o: {
+      notes: string
+      direction: string
+      signal: AbortSignal
+      /** The draft's words so far, as they come (now and then, not every word): for the progress card. */
+      onWords?: (words: number) => void
+      /** Why its request is being tried again (null once it goes on): for the progress card. */
+      onRetry?: (reason: string | null) => void
+    }
   ) => Promise<{ status: 'complete' | 'stopped' | 'error'; text: string; error: string | null; cutOff?: boolean; refused?: boolean; note?: string | null }>
   /**
    * Waits for the memory to finish reading the scenes before this one and writing their summaries (Adam, 2026-10-17:
@@ -130,6 +141,26 @@ export interface RunDeps {
   retryDelays?: number[]
   /** The clock, in milliseconds (tests). */
   clock?: () => number
+  /**
+   * About how many words a scene's draft aims for (its card's, else its share of the chapter's), for the progress card;
+   * null when it can't say. Left out: none is said.
+   */
+  target?: (sceneId: ID) => number | null
+}
+
+/** The progress card's live words are passed on at most this often while a scene is drafted. */
+const WORDS_EVERY_MS = 700
+
+/** What a run is doing at each stage, unless it says more. */
+const DOING_OF: Record<ChapterWriterStage, ChapterWriterDoing> = {
+  planning: 'plan',
+  review: 'review',
+  drafting: 'draft',
+  checking: 'check',
+  fixing: 'fix',
+  study: 'plan',
+  reviewing: 'fix',
+  proofreading: 'fix'
 }
 
 class Stopped extends Error {}
@@ -231,6 +262,17 @@ export class ChapterRun {
   private stage: ChapterWriterStage = 'planning'
   private note = ''
   private sceneNow: ID | null = null
+  private doing: ChapterWriterDoing = 'plan'
+  /** The progress card: each scene's words once written by this run, the words so far of the one being drafted. */
+  private readonly wordsOf = new Map<ID, number>()
+  private liveWords = 0
+  private lastWordsAt = 0
+  private readonly targets = new Map<ID, number | null>()
+  private retrying: string | null = null
+  private fixAt: { at: number; of: number } | null = null
+  /** When writing began (after the plan), Date.now(). */
+  private writingMs: number | null = null
+  private readonly startedMs = Date.now()
   private round = 0
   private readonly startedAt = now()
   private readonly startedClock: number
@@ -339,6 +381,13 @@ export class ChapterRun {
       throw new UserError("None of this chapter's scenes has a scene card to write from yet. Give each scene a goal, beats or an outcome first.")
     }
     this.report.scenes = this.refs.map((r) => ({ sceneId: r.id, label: r.label, fixed: [], setAside: [], rewritten: [] }))
+    for (const r of this.refs) {
+      try {
+        this.targets.set(r.id, this.d.target?.(r.id) ?? null)
+      } catch {
+        this.targets.set(r.id, null)
+      }
+    }
     saveBefore(db, this.chapterId, scenesNow(db, this.sceneIds))
     // An earlier run's name for the chapter is that run's: this run's Undo puts back only what this run did.
     saveNamed(db, this.chapterId, null)
@@ -394,11 +443,53 @@ export class ChapterRun {
 
   // ---------- Progress ----------
 
-  private tell(stage: ChapterWriterStage, note: string, sceneId: ID | null = null): void {
+  private tell(stage: ChapterWriterStage, note: string, sceneId: ID | null = null, doing?: ChapterWriterDoing): void {
     this.stage = stage
     this.note = note
     this.sceneNow = sceneId
+    this.doing = doing ?? DOING_OF[stage]
+    this.retrying = null
+    if (this.doing !== 'fix') this.fixAt = null
     this.d.progress(this.progressNow())
+  }
+
+  /** The scene being drafted has more words: passed on now and then. */
+  private onWords = (words: number): void => {
+    this.liveWords = words
+    const t = Date.now()
+    if (t - this.lastWordsAt < WORDS_EVERY_MS) return
+    this.lastWordsAt = t
+    if (!this.stopped) this.d.progress(this.progressNow())
+  }
+
+  /** The run's own calls' events go where the deps say; a call being tried again, or going on, is said on the card. */
+  private taskEmit: Emit = ((event: string, payload: { reason?: string }) => {
+    if (event === 'task:retrying') this.onRetry(payload.reason || 'The AI didn’t answer')
+    else if (event === 'task:progress' || event === 'task:done') this.onRetry(null)
+    ;(this.d.taskEmit as (e: string, p: unknown) => void)(event, payload)
+  }) as Emit
+
+  /** A call is being tried again (or has gone on): passed on at once. */
+  private onRetry = (reason: string | null): void => {
+    if ((reason ?? null) === this.retrying) return
+    this.retrying = reason ?? null
+    if (!this.stopped) this.d.progress(this.progressNow())
+  }
+
+  /** Each scene of the run as the progress card lists it. */
+  private sceneProgress(): ChapterWriterSceneProgress[] {
+    const drafting = this.doing === 'draft' || this.doing === 'rewrite'
+    return this.refs.map((r) => {
+      const done = this.wordsOf.get(r.id)
+      const now = drafting && this.sceneNow === r.id
+      return {
+        sceneId: r.id,
+        label: r.label,
+        state: now ? 'writing' : done !== undefined ? 'written' : 'waiting',
+        words: now ? this.liveWords : (done ?? 0),
+        target: this.targets.get(r.id) ?? null
+      }
+    })
   }
 
   progressNow(): ChapterWriterProgress {
@@ -412,7 +503,14 @@ export class ChapterRun {
       cost: this.cost(),
       sceneIds: this.sceneIds,
       plan: this.stage === 'review' ? this.plan : null,
-      ...(this.stage === 'review' ? { estimate: this.estimate } : {})
+      ...(this.stage !== 'planning' ? { estimate: this.estimate } : {}),
+      doing: this.doing,
+      scenes: this.sceneProgress(),
+      startedMs: this.startedMs,
+      writingMs: this.writingMs,
+      waitedMs: this.waited,
+      retrying: this.retrying,
+      fixAt: this.fixAt
     }
   }
 
@@ -457,7 +555,7 @@ export class ChapterRun {
       model: this.d.agentModel,
       signal: this.controller.signal,
       onTask: this.onTask,
-      taskEmit: this.d.taskEmit,
+      taskEmit: this.taskEmit,
       ...(this.d.find ? { find: this.d.find } : {}),
       fetchImpl: this.d.fetchImpl,
       retryDelays: this.d.retryDelays
@@ -540,10 +638,11 @@ export class ChapterRun {
   private async draftAll(): Promise<void> {
     this.check()
     this.writing = true
+    this.writingMs = Date.now()
     for (const [i, r] of this.refs.entries()) {
       this.check()
       if (i > 0 && this.d.catchUp) {
-        this.tell('drafting', `Updating memory with ${this.refs[i - 1].label} before writing ${r.label}`, r.id)
+        this.tell('drafting', `Updating memory with ${this.refs[i - 1].label} before writing ${r.label}`, r.id, 'memory')
         await this.d.catchUp(r.id, this.controller.signal)
         this.check()
       }
@@ -554,7 +653,15 @@ export class ChapterRun {
 
   /** Drafts a scene (again) and saves it. Resolves with its words. */
   private async write(sceneId: ID, direction: string): Promise<string> {
-    const r = await this.d.draft(sceneId, { notes: this.notesFor(sceneId), direction, signal: this.controller.signal })
+    this.liveWords = 0
+    const r = await this.d.draft(sceneId, {
+      notes: this.notesFor(sceneId),
+      direction,
+      signal: this.controller.signal,
+      onWords: this.onWords,
+      onRetry: this.onRetry
+    })
+    this.retrying = null
     if (r.status === 'stopped' || this.stopped) throw new Stopped()
     if (r.status === 'error') this.failed(r.error)
     // A draft cut off at the writer's reply limit, or a refusal sent back as words, is never kept as the scene (review,
@@ -582,6 +689,8 @@ export class ChapterRun {
   private saveScene(sceneId: ID, page: Page, label: string): void {
     this.check()
     this.d.save(sceneId, page, label)
+    this.wordsOf.set(sceneId, countWords(page.text))
+    this.liveWords = 0
     this.d.sceneChanged(sceneId, page)
   }
 
@@ -666,7 +775,7 @@ export class ChapterRun {
       const checks = mine ? STATE_CHECKS : FOLLOW_ON_CHECKS
       if (!checkedAsIs(db, r.id, checks)) {
         this.check()
-        this.tell('checking', mine ? `Checking ${r.label} against the plan, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id)
+        this.tell('checking', mine ? `Checking ${r.label} against the plan, round ${this.round}` : `Checking that ${r.label} still follows on, round ${this.round}`, r.id, mine ? 'check' : 'follow')
         await this.checkScene(r.id, checks)
       }
     }
@@ -674,7 +783,7 @@ export class ChapterRun {
     // The critic reads the chapter once, for craft (spec, step 3); never when Adam has switched it off.
     if (first && this.criticOn()) {
       this.check()
-      this.tell('checking', `The critic is reading ${this.label}`)
+      this.tell('checking', `The critic is reading ${this.label}`, null, 'critic')
       const c = await this.critiqueOf({ scope: 'chapter', id: this.chapterId })
       this.chapterNotes = c.notes
       this.critiqueAt = c.at
@@ -748,7 +857,7 @@ export class ChapterRun {
       const misses = give.filter((f) => f.sceneId === r.id && f.from === 'plan')
       if (!misses.length) continue
       this.check()
-      this.tell('fixing', `Writing ${r.label} again: it missed part of the chapter plan`, r.id)
+      this.tell('fixing', `Writing ${r.label} again: it missed part of the chapter plan`, r.id, 'rewrite')
       for (const m of misses) this.tries.given(m)
       const text = await this.write(r.id, missedDirection(misses.map((m) => m.what)))
       this.rewrites.set(r.id, (this.rewrites.get(r.id) ?? 0) + 1)
@@ -768,16 +877,19 @@ export class ChapterRun {
       style: this.style(),
       signal: this.controller.signal,
       onTask: this.onTask,
-      taskEmit: this.d.taskEmit,
+      taskEmit: this.taskEmit,
       fetchImpl: this.d.fetchImpl,
       retryDelays: this.d.retryDelays
     }
+    const passages = give.filter((x) => x.from !== 'plan' && !rewritten.has(x.sceneId ?? ''))
+    let at = 0
     for (const r of this.refs) {
       // A scene written again: its other findings wait for the check of its new words (they weren't tried).
       if (rewritten.has(r.id)) continue
       for (const f of give.filter((x) => x.sceneId === r.id && x.from !== 'plan')) {
         this.check()
-        this.tell('fixing', `Fixing ${r.label}: ${clip(squash(f.what), 80)}`, r.id)
+        this.fixAt = { at: ++at, of: passages.length }
+        this.tell('fixing', `Fixing ${r.label}: ${clip(squash(f.what), 80)}`, r.id, 'fix')
         this.tries.given(f)
         const out = await fixPassage(fixDeps, r, f, this.partOf(r.id))
         if (out.status === 'stopped' || this.stopped) throw new Stopped()
@@ -851,7 +963,7 @@ export class ChapterRun {
     const { db } = this.d
     const where = placeLabel(db, sceneId)
     this.check()
-    this.tell('checking', `Checking that ${where} still follows on, round ${this.round}`)
+    this.tell('checking', `Checking that ${where} still follows on, round ${this.round}`, null, 'follow')
     // What was open there before the run first looked is Adam's already: only what its checks find since is noted.
     if (!this.outsideBefore.has(sceneId)) this.outsideBefore.set(sceneId, new Set(issueFindings(db, sceneId).map((f) => f.issueId!)))
     if (!checkedAsIs(db, sceneId, FOLLOW_ON_CHECKS)) await this.checkScene(sceneId, FOLLOW_ON_CHECKS)

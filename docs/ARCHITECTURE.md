@@ -5396,6 +5396,40 @@ Adam: the chapter writer wrote the text "but not picking a name that fits the st
   `chapterWriter/chapterWriterLogic.test.ts` (the report's and Undo's words), `tests/e2e/chapterWriter.spec.ts` (the box,
   changed, saved, put back). The fake planner (`tests/fake-provider/chapter.mjs`) answers "The Far Bank" when asked.
 
+## Writing progress in the top bar (Adam, 2026-10-20)
+
+Adam: "when the AI is writing a chapter or a scene there is no way to see its progress other than this" (a pill cut off
+at "Writing Sc 1 “Morning Confrontation” (…"); then "also show what model is being used when a task is active". No
+migration; the progress event only gains fields.
+
+- **The pill** (`features/progress/WritingStatus.tsx`, in both top bars, in place of `ChapterWriterStatus.tsx`): while
+  Write this chapter runs or Generate drafts, "Writing Ch 3 · scene 2 of 4 · 1,240 words" or "Writing “Morning
+  Confrontation” · 640 of ~1,500 words": the title gives way (cut with "…"), the numbers never do; a thin bar under it;
+  the hover has the whole title, what it is doing and the model. "The chapter plan is ready for you" is as before. The
+  older "Writing…" button stays for drafts that aren't Generate's (Beat by beat).
+- **The card** (a click): the steps with the current one marked (a chapter: The plan › Writing › Checking and fixing, as
+  `writeStep`; a scene: The memory › The plan, when Plan before writing is on › Writing › Checking, the check of new words
+  after it), each step's model when they differ, else one "Model: …" line; each scene of a chapter (written with its
+  words, being written with its live words against its aim, waiting); what it is doing right now in plain words, with
+  its model ("Looking up where everyone is", "Waiting for the story’s memory to catch up", "Fixing problem 2 of 5, in Sc 2
+  “The ferry”" and the problem, "Trying again: OpenRouter is busy"); the bar and what it measures; the time so far (not
+  the time the plan waited for Adam), about how long is left (`secondsLeft`: from how far it has got once 8% is done and
+  20 s have passed, else from the plan's estimate while it has time to run; hidden otherwise); the cost so far (a
+  chapter's); Go to the scene, Stop, and for a chapter See the plan and The report so far. Left open when it ends, it
+  says how it ended and what was kept (See the report and Undo for a chapter). The words are `progressLogic.ts`'s (pure).
+- **What main adds** (`ChapterWriterProgress`, all optional): `doing` (plan, review, memory, draft, check, follow,
+  critic, rewrite, fix), `scenes` (each scene's state, words and aim: `RunDeps.target`, `sceneLengthFor`), `startedMs`,
+  `writingMs`, `waitedMs`, `retrying` and `fixAt`; `estimate` is kept past the review. A chapter draft's own events are
+  heard for it (`chapterWriter/progress.ts` `draftEvents`: its words counted at most every 500 ms, a retake's words taken
+  back, a retry), passed on at most every 700 ms (`run.ts` `onWords`); the run's own calls' retries too (`taskEmit`).
+  A Generate draft's words, aim, start and models are kept in `useDraft` (`live`, `last`, `checking`; `draftRun.ts`).
+- **Models** (`shared/modelJobs.ts`): `MODEL_FALLBACKS` (Settings › Models' "Same as …", which `ai/jobModel.ts` now uses
+  too), `jobModelName`. The memory's reading, filling in and re-reading (`KeeperStatus`) and the top bar's Check name their
+  model on hover too.
+- **Tests**: `features/progress/progressLogic.test.ts`, `chapterWriter/progressCard.test.ts`, `chapterWriter.test.ts`
+  ("says how it goes for the progress card"), `tests/e2e/progress.spec.ts` (pictures to `PROGRESS_SHOTS`); `ai.spec.ts`
+  follows the pill.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

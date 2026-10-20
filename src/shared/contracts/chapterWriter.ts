@@ -105,10 +105,43 @@ export interface ChapterWriterEstimate {
   free: boolean
 }
 
+/**
+ * What the run is doing right now, more finely than its stage (the top bar's progress card, 2026-10-20): making the
+ * plan, waiting for Adam to read it, waiting for the memory to catch up, drafting a scene, checking a scene of the
+ * chapter, checking that a scene after it still follows on, the critic reading, writing a scene again, fixing a passage.
+ */
+export type ChapterWriterDoing = 'plan' | 'review' | 'memory' | 'draft' | 'check' | 'follow' | 'critic' | 'rewrite' | 'fix'
+
+/** One scene of the run, as the progress card lists it. */
+export interface ChapterWriterSceneProgress {
+  sceneId: ID
+  /** "Sc 2 “The ferry”". */
+  label: string
+  /** Not written by this run yet, being written now (drafted, or written again), or written. */
+  state: 'waiting' | 'writing' | 'written'
+  /** Its words: as written (and fixed) for a written scene, so far for the one being written, 0 while waiting. */
+  words: number
+  /** About how many words its draft aims for (its card's, else its share of the chapter's); null when it can't say. */
+  target: number | null
+}
+
 export interface ChapterWriterProgress {
   runId: ID
   chapterId: ID
   stage: ChapterWriterStage
+  /**
+   * The progress card (2026-10-20), each left out by runs before it: what it is doing now; each scene with its words;
+   * when the run began and when writing began (Date.now() in the main process, the same clock as the window's); the time
+   * Adam took over the plan (not counted as the run's); why a call is being tried again, while it is; which fix of how
+   * many this round, while fixing.
+   */
+  doing?: ChapterWriterDoing
+  scenes?: ChapterWriterSceneProgress[]
+  startedMs?: number
+  writingMs?: number | null
+  waitedMs?: number
+  retrying?: string | null
+  fixAt?: { at: number; of: number } | null
   /** The scene being worked on, if any. */
   sceneId: ID | null
   /** What it is doing, in a few plain words: "Writing Sc 2 of 4", "Checking the chapter, round 2". */
@@ -121,7 +154,10 @@ export interface ChapterWriterProgress {
   sceneIds: ID[]
   /** While `stage` is 'review': the chapter plan waiting for Adam (answerChapterPlan). */
   plan?: ChapterWritingPlan | null
-  /** While `stage` is 'review': roughly how long writing it takes and what it costs (null: can't say). */
+  /**
+   * Roughly how long writing it takes and what it costs (null: can't say), worked out as the plan is shown: with the
+   * 'review' stage, and (since the progress card, 2026-10-20) every stage after it.
+   */
   estimate?: ChapterWriterEstimate | null
 }
 

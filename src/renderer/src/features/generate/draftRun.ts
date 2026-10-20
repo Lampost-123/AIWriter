@@ -21,8 +21,9 @@ import { draftEndActions, type DraftEndAction } from './draftEnd'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
-import { repairLanded } from '@/features/repair/repairRun'
-import { cardLength } from '@shared/defaults'
+import { checkLanded } from '@/features/repair/repairRun'
+import { cardLength, countWords } from '@shared/defaults'
+import { jobModelName, shortModelName } from '@shared/modelJobs'
 import { withDirected } from '@/features/director/store'
 import { beginDraftNote, draftNoteRecord, noteDraftEnd, noteDraftStart } from '@/features/draftNote/draftNote'
 import { anotherModel, modelName } from '@/features/draftNote/compose'
@@ -47,6 +48,34 @@ interface Run {
   model: DraftOptions['model'] | null
   /** The scene had words before the draft. */
   hadText: boolean
+  /** The draft's words so far (the top bar's progress card counts them). */
+  text: string
+}
+
+/** A draft as the top bar's progress card shows it (features/progress), from Generate to its first words and on. */
+export interface DraftLive {
+  sceneId: ID
+  /** When Generate was pressed, and when the first words came (Date.now()). */
+  startedAt: number
+  firstWordAt: number | null
+  /** Its words so far (counted now and then). */
+  words: number
+  /** The length it aims for; null for Auto. */
+  target: number | null
+  /** The writer model's name as Settings shows it (or the one it was tried with). */
+  model: string
+  /** The memory model's (it catches up and plans the scene). */
+  memoryModel: string
+}
+
+/** How the latest draft ended, for a progress card left open (features/progress). */
+export interface DraftLast {
+  sceneId: ID
+  status: 'complete' | 'stopped' | 'error'
+  words: number
+  error: string | null
+  cutOff: boolean
+  at: number
 }
 
 interface DraftState {
@@ -57,13 +86,44 @@ interface DraftState {
   retrying: string | null
   /** A message's button asked for a panel under this scene's Generate button. */
   panel: { sceneId: ID; which: 'options' | 'need-model' } | null
+  /** The draft going now, as the top bar's progress card shows it. */
+  live: DraftLive | null
+  /** How the latest draft ended. */
+  last: DraftLast | null
+  /** The scene whose new words are being checked straight after its draft (features/repair), while they are. */
+  checking: ID | null
 }
 
-export const useDraft = create<DraftState>(() => ({ sceneId: null, phase: 'idle', retrying: null, panel: null }))
+export const useDraft = create<DraftState>(() => ({ sceneId: null, phase: 'idle', retrying: null, panel: null, live: null, last: null, checking: null }))
+
+/** How often the progress card's word count follows a draft. */
+const COUNT_MS = 400
+let countTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Counts the draft's words for the progress card, now and then. */
+function countSoon(r: Run): void {
+  if (countTimer) return
+  countTimer = setTimeout(() => {
+    countTimer = null
+    const live = useDraft.getState().live
+    if (run !== r || !live || live.sceneId !== r.sceneId) return
+    useDraft.setState({ live: { ...live, words: countWords(r.text), firstWordAt: live.firstWordAt ?? Date.now() } })
+  }, COUNT_MS)
+}
+
+/** The model's name as Settings shows it: the one this draft was tried with, else the writer model. */
+function draftModelName(model: DraftOptions['model'] | null | undefined): string {
+  const models = useApp.getState().settings?.models
+  if (model) {
+    const same = Object.values(models ?? {}).find((m) => m && m.providerId === model.providerId && m.modelId === model.modelId)
+    return same ? shortModelName(same) : model.modelId
+  }
+  return jobModelName(models, 'writer')
+}
 
 let run: Run | null = null
 
-const idle = (): Partial<DraftState> => ({ sceneId: null, phase: 'idle', retrying: null })
+const idle = (): Partial<DraftState> => ({ sceneId: null, phase: 'idle', retrying: null, live: null })
 
 /** The scene's title in quotes, as the binder shows it, or null when it isn't in the open story. */
 function titled(sceneId: ID): string | null {
@@ -129,6 +189,8 @@ export function listenForDrafts(): void {
     }
     if (p.generationId !== r.generationId) return
     r.bridge.appendStream(p.generationId, p.text)
+    r.text += p.text
+    countSoon(r)
     if (useDraft.getState().retrying) useDraft.setState({ retrying: null })
   })
   // Directed writing (src/main/director): the draft's last paragraph is taken back for a retake.
@@ -136,6 +198,9 @@ export function listenForDrafts(): void {
     const r = run
     if (!r || r.cancelled || r.generationId !== p.generationId) return
     r.bridge.takeBackStream?.(p.generationId)
+    const at = p.text ? r.text.lastIndexOf(p.text) : -1
+    if (at >= 0) r.text = r.text.slice(0, at)
+    countSoon(r)
   })
   onEvent('generation:retrying', (p) => {
     const r = run
@@ -173,7 +238,12 @@ function finish(p: AppEvents['generation:done']): void {
   const landed = stream && !(stream.replace && !stream.before) ? stream.from : null
   const { replaced, away } = r.bridge.endStream(p.generationId, { failed })
   run = null
-  useDraft.setState(idle())
+  const words = countWords(r.text)
+  const ended: DraftLast['status'] = p.status === 'stopped' ? 'stopped' : p.status === 'error' ? 'error' : 'complete'
+  useDraft.setState({
+    ...idle(),
+    last: { sceneId: r.sceneId, status: ended, words, error: p.status === 'error' ? p.error : null, cutOff: !!p.cutOff, at: Date.now() }
+  })
   const app = useApp.getState()
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
   // The draft took the place of the scene's text: how to have the old text back.
@@ -237,7 +307,11 @@ function finish(p: AppEvents['generation:done']): void {
   // The draft's words are in the page: checked claim by claim now, slips mended in amber (features/repair). Not a draft
   // that went wrong, nor one that finished while Adam was in another scene (the check after the draft covers those).
   if (landed !== null && !away && p.status !== 'error' && !p.refused && editor && !editor.isDestroyed && r.bridge.sceneId === r.sceneId) {
-    repairLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: editor.state.doc.content.size })
+    // The top bar's progress card says it is checking them, while it does.
+    useDraft.setState({ checking: r.sceneId })
+    void checkLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: editor.state.doc.content.size }).finally(() => {
+      if (useDraft.getState().checking === r.sceneId) useDraft.setState({ checking: null })
+    })
   }
 }
 
@@ -294,9 +368,23 @@ export async function startDraft(
     replace: o.replace,
     options: o.options,
     model: o.model ?? null,
-    hadText: !!bridge.editor && bridge.sceneId === sceneId && bridge.editor.state.doc.textContent.trim().length > 0
+    hadText: !!bridge.editor && bridge.sceneId === sceneId && bridge.editor.state.doc.textContent.trim().length > 0,
+    text: ''
   }
   run = r
+  const models = useApp.getState().settings?.models
+  useDraft.setState({
+    live: {
+      sceneId,
+      startedAt: Date.now(),
+      firstWordAt: null,
+      words: 0,
+      target: null,
+      model: draftModelName(o.model),
+      memoryModel: jobModelName(models, 'memory')
+    },
+    checking: null
+  })
   // The draft's one note begins (features/draftNote).
   beginDraftNote(sceneId, null)
   useDraft.setState({ sceneId, phase: 'starting', retrying: null })
@@ -320,6 +408,8 @@ export async function startDraft(
       sceneId
     )
     r.polish = !!options.polish
+    const live = useDraft.getState().live
+    if (live && run === r) useDraft.setState({ live: { ...live, target: options.targetWords ?? null } })
     if (r.cancelled) return giveUp()
     const { generationId, note } = await api.startDraft(sceneId, o.model ? { ...options, model: o.model } : options)
     draftNoteRecord(sceneId, generationId)

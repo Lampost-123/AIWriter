@@ -6,6 +6,8 @@
 // most MAX_TRIES times, once only when it is about words the AI wrote itself this run (Tries). Pure.
 
 import { createHash } from 'node:crypto'
+import { countWords } from '@shared/defaults'
+import type { Emit } from '../ai/tasks'
 
 /** Rounds in a row that find exactly the same things (found, then two tries at fixing them) before the run stops. */
 export const SAME_ROUNDS = 3
@@ -132,4 +134,36 @@ export class ProgressGuard {
     if (this.sameFor >= SAME_ROUNDS) return 'same'
     return null
   }
+}
+
+/** How often a chapter draft's words are counted for the progress card. */
+const COUNT_EVERY_MS = 500
+
+/**
+ * A chapter draft's events, kept from the window (the run puts the words in the scene itself) but heard for the progress
+ * card: its words so far (counted now and then; a retake's words taken back), and why its request is being tried again.
+ */
+export function draftEvents(o: { onWords?: (words: number) => void; onRetry?: (reason: string | null) => void }, clock: () => number = Date.now): Emit {
+  let text = ''
+  let counted = 0
+  const count = (): void => {
+    counted = clock()
+    o.onWords?.(countWords(text))
+  }
+  return ((event: string, payload: { text?: string; reason?: string }) => {
+    if (event === 'generation:chunk') {
+      text += payload.text ?? ''
+      if (clock() - counted >= COUNT_EVERY_MS) count()
+      o.onRetry?.(null)
+    } else if (event === 'generation:takeBack') {
+      const gone = payload.text ?? ''
+      const at = gone ? text.lastIndexOf(gone) : -1
+      if (at >= 0) text = text.slice(0, at)
+      count()
+    } else if (event === 'generation:retrying') {
+      o.onRetry?.(payload.reason || 'The AI didn’t answer')
+    } else if (event === 'generation:done') {
+      count()
+    }
+  }) as Emit
 }

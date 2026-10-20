@@ -24,7 +24,8 @@ import { cn } from '@/lib/cn'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
 import { InlineTitle } from '@/features/binder/InlineTitle'
 import { KeeperStatus } from '@/features/memory/KeeperStatus'
-import { ChapterWriterStatus } from '@/features/chapterWriter/ChapterWriterStatus'
+import { WritingStatus } from '@/features/progress/WritingStatus'
+import { useDraft } from '@/features/generate/draftRun'
 import { openScene } from '@/features/memory/openScene'
 import { AskButton } from '@/features/ask/AskButton'
 import { WorldFileItems } from '@/features/transfer/WorldFileItems'
@@ -354,7 +355,9 @@ export function TopBar(): React.JSX.Element {
   const askOpen = useApp((s) => s.askOpen)
   // The scene a draft is being written into: shown when it isn't the page on screen.
   const draftScene = useApp((s) => s.activeGeneration?.sceneId ?? null)
-  const draftElsewhere = !!draftScene && (view.kind !== 'write' || draftScene !== sceneId)
+  // Generate's own draft has the progress pill (WritingStatus); this is for the others (Beat by beat, say).
+  const generating = useDraft((s) => s.phase !== 'idle' && s.sceneId === draftScene)
+  const draftElsewhere = !!draftScene && !generating && (view.kind !== 'write' || draftScene !== sceneId)
   const hasWorld = useApp((s) => s.world !== null)
   const isNew = useNewLook()
   const worldButton = useRef<HTMLButtonElement>(null)
@@ -413,8 +416,8 @@ export function TopBar(): React.JSX.Element {
       {/* The New look: the sample world says so here, as a chip (Classic has a bar under the top bar). */}
       {isNew ? <SampleWorldChip /> : null}
       {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
-      {/* Write the whole chapter, while it works: what it is doing, with Stop. */}
-      {hasWorld ? <ChapterWriterStatus /> : null}
+      {/* Write the whole chapter, or Generate's draft, while it works: how far it has got; a click says more, with Stop. */}
+      {hasWorld ? <WritingStatus /> : null}
       {hasWorld ? <KeeperStatus /> : null}
       {/* The one Check: this scene, chapter or story (the calm overhaul). */}
       {hasWorld ? <CheckButton /> : null}
