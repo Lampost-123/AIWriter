@@ -249,7 +249,8 @@ const DONE_LEAD = /^(?:\*\*)?(?:done|all done|all set|sorted|finished|there you 
 
 /** "The change is ready", "2 changes are waiting for you", "ready to apply". */
 const READY = new RegExp(
-  String.raw`\b(?:changes?|edits?|fix|fixes|rewrite|rewrites|proposals?)\b[^.!?\n]{0,30}?\b(?:is|are)\s+(?:now\s+)?(?:ready|waiting)\b|\bready (?:for you )?to (?:apply|be applied)\b|\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) (?:changes?|edits?) (?:is |are )?(?:ready|waiting)\b`,
+  // Never "0 changes ready" or "no changes are waiting": that says nothing was made.
+  String.raw`(?<!\b(?:no|zero|0)\s)\b(?:changes?|edits?|fix|fixes|rewrite|rewrites|proposals?)\b[^.!?\n]{0,30}?\b(?:is|are)\s+(?:now\s+)?(?:ready|waiting)\b|\bready (?:for you )?to (?:apply|be applied)\b|\b(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten) (?:changes?|edits?) (?:is |are )?(?:ready|waiting)\b`,
   'iu'
 )
 

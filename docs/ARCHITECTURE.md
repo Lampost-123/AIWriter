@@ -5546,7 +5546,11 @@ chat" and "The chat never claims a change it didn't make" above.
   (`--scenarios plan`: scene card, chapter goal, chapter length, chapter card, move, reorder): fake/chat as expected
   4/6 → 6/6, claims-wordy 4/6 → 6/6 with false claims 6 → 0. Edit turns ending with a real proposal unchanged; requests
   only where a claim was caught (claims-wordy 88 → 98). The score's "real proposal" ignores the kind of change, so read
-  the plan set's "as expected" row.
+  the plan set's "as expected" row. **Live** (Adam's go, 2026-10-20; `deepseek-v4.1-flash` through an OpenAI-compatible
+  address, `CHAT_EVAL_DEEPSEEK_URL`; core + plan, 50 turns, about $0.28): answers claiming a change never made 0 of 50,
+  proposals that apply 26 of 26, plan set 6 of 6, false proposals on questions 0 of 8, every turn completed. A Claude
+  stand-in through the file bridge (plan + subset, 20 turns) found the crash a chapter card's own `scenes` count caused
+  in the check (fixed), and then gave 20 of 20 as expected, with 0 claims never made.
 - **Tests**: `shared/askOutcome.test.ts`, `askTruth.wider.test.ts`, `inspector/cardMerge.test.ts`,
   `planHub/hubStore.test.ts`, `ipc/ask.history.test.ts`, `ipc/ask.status.test.ts`, `planning/talkTruth.test.ts`,
   `outline/planTalk.test.ts`, `ask/open.test.ts`, the apply tests, `tests/unit/chatEvalScore.test.ts`; e2e

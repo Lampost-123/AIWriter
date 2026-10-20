@@ -493,3 +493,10 @@ describe('“is now” only for the app’s own parts', () => {
       expect(changeClaims(t), t).toHaveLength(0)
   })
 })
+
+describe('“0 changes ready” is no claim', () => {
+  it('reads none, zero or no changes as nothing claimed', () => {
+    for (const t of ['0 changes ready: I can’t reorder chapters from the chat.', 'No changes are waiting.', 'Zero edits ready.']) expect(changeClaims(t), t).toHaveLength(0)
+    expect(changeClaims('2 changes ready: tighten the opening.')).toHaveLength(1)
+  })
+})
