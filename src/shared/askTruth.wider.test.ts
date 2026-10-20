@@ -2,7 +2,7 @@
 // proposal changes, backed claims said as waiting, and claims about earlier answers checked against what Adam did.
 // Invented words only.
 import { describe, expect, it } from 'vitest'
-import { changeClaims, claimsUnmade, settleAnswer, unbackedClaims } from './askTruth'
+import { changeClaims, checkClaims, claimsUnmade, settleAnswer, unbackedClaims } from './askTruth'
 
 const claims = (s: string): boolean => changeClaims(s).length > 0
 
@@ -465,5 +465,31 @@ describe('review fixes 5: a story-told summary verb is the chat again only by it
   it('a summary naming an app thing as its object still ends the hand-over', () => {
     for (const s of ['Merged scenes 2 and 3.', 'Also updated the scene card.', 'I updated it too.'])
       expect(changeClaims(`${OPEN}\n\nThe rain fell.\n\n${s}`).length, s).toBeGreaterThan(1)
+  })
+})
+
+describe('a chapter card change (it has a count of its scenes)', () => {
+  const card = [{ kind: 'chapterCard', id: '1', chapterLabel: 'Ch 3', scenes: 2 }] as never[]
+  it('backs a claim about that chapter, and never throws', () => {
+    const said = 'I’ve changed chapter 3’s mood to cold and quiet — the 2 scenes that follow the chapter card will pick it up too.'
+    expect(() => checkClaims(said, card)).not.toThrow()
+    expect(checkClaims(said, card).every((c) => c.ok)).toBe(true)
+  })
+  it('keeps what a backed “Done — … is now …” says the change is', () => {
+    const goal = [{ kind: 'chapterCard', id: '1', chapterLabel: 'Ch 2', scenes: 3 }] as never[]
+    const out = settleAnswer('Done — chapter 2’s goal is now “Ilse learns who took the barrels.”', goal)
+    expect(out).toContain('Ilse learns who took the barrels')
+    expect(out).not.toMatch(/\bDone\b/)
+  })
+})
+
+describe('“is now” only for the app’s own parts', () => {
+  it('catches a card, plan or goal said as changed', () => {
+    for (const t of ['Chapter 3’s mood is now cold.', 'The scene card is now set for the reveal.', 'Done — chapter 2’s goal is now “X.”'])
+      expect(changeClaims(t), t).toHaveLength(1)
+  })
+  it('leaves the story alone', () => {
+    for (const t of ['The scene is now quiet, and she waits.', 'Her plan is now clear to him.', 'The chapter is now in its second act.', 'The goal is now clear to her.'])
+      expect(changeClaims(t), t).toHaveLength(0)
   })
 })

@@ -238,6 +238,14 @@ const NOW_VERBS: Record<string, string> = {
 }
 /** "The plan now reads: …", "Beat 3 now reads…", "Your scene now opens with…", "The chapter card now has…". */
 const NOW = new RegExp(String.raw`\b(?:${THINGS})\b(?:\s+\d+)?[^.!?\n]{0,40}?\b(now\s+(${Object.keys(NOW_VERBS).join('|')}))\b`, 'iu')
+/** "Chapter 2's goal is now “…”": said as what would be. */
+// Only the app's own parts: "the scene is now quiet" is the story.
+const IS_NOW = new RegExp(
+  String.raw`(?:\b(?:chapter|ch|scene|sc)\.?\s*\d+(?:['’]s)?\s+(?:goal|mood|tone|pov|point of view|length|target|card|plan|beats|notes|location|setting|title)|\b(?:the|its|this|your)\s+(?:scene card|chapter card|chapter plan|scene plan|beat list|target length|word target|length target))\b[^.!?\n]{0,20}?\b((?:is|are)\s+now)\b`,
+  'iu'
+)
+/** "Done — " before a claim on the same sentence: it goes with the claim's fix. */
+const DONE_LEAD = /^(?:\*\*)?(?:done|all done|all set|sorted|finished|there you go)(?:\*\*)?\s*[,!.]?\s*(?:[—–:]|--?)\s*/i
 
 /** "The change is ready", "2 changes are waiting for you", "ready to apply". */
 const READY = new RegExp(
@@ -441,7 +449,7 @@ export function targetOf(verb: string, after: string): ClaimTarget | null {
   if (/\b(entry|entries|memory|codex|field|fields|profile|aliases?|description|eye colou?r)\b|['’]s (eyes|hair|age|eye|colour|color|role|pronouns)\b/.test(clause)) return 'entry'
   // A chapter's own card, plan, goal or length ("chapter 3's goal", "the length of Ch 3"), never a scene in it.
   if (
-    /\b(?:chapter|ch)\.?(?:\s*\d+)?(?:['’]s)?\s+(?:card|plan|goal|length|target|outline|summary)s?\b|\b(?:length|word) target\b/.test(clause) ||
+    /\b(?:chapter|ch)\.?(?:\s*\d+)?(?:['’]s)?\s+(?:card|plan|goal|length|target|outline|summary|mood|tone|pov|point of view|location|setting|notes|characters|cast|time)s?\b|\b(?:length|word) target\b/.test(clause) ||
     /\b(?:card|plan|goal|length|target|word count)s? (?:of|for) (?:the )?(?:chapter|ch)\b(?!\.?\s*\d+\s*,?\s*(?:scene|sc)\b)/.test(clause)
   )
     return 'chapterCard'
@@ -594,10 +602,18 @@ export function changeClaims(answer: string): Claim[] {
     // "The plan now reads: …": said as what would be.
     if (!found) {
       const m = NOW.exec(s)
-      if (m && !CONDITION.test(s.slice(0, m.index))) {
-        const at = from + (m.index ?? 0) + m[0].length - m[1].length
-        const fix = { at, length: m[1].length, to: `would ${NOW_VERBS[m[2].toLowerCase()]}` }
-        found = make(targetOf('changed', s.slice(m.index)), names, true, { kind: 'reword', ...fix }, fix)
+      const isNow = m ? null : IS_NOW.exec(s)
+      const hit = m ?? isNow
+      if (hit && !CONDITION.test(s.slice(0, hit.index))) {
+        const at = from + (hit.index ?? 0) + hit[0].length - hit[1].length
+        let fix = { at, length: hit[1].length, to: m ? `would ${NOW_VERBS[m[2].toLowerCase()]}` : 'would be' }
+        // "Done — chapter 2's goal is now …": the "Done —" goes, and what follows starts the sentence.
+        const lead = DONE_LEAD.exec(s)?.[0].length ?? 0
+        if (lead) {
+          const rest = answer.slice(from + lead, at)
+          fix = { at: from, length: at + fix.length - from, to: rest.charAt(0).toUpperCase() + rest.slice(1) + fix.to }
+        }
+        found = make(targetOf('changed', s.slice(hit.index)), names, true, { kind: 'reword', ...fix }, fix)
       }
     }
     // Passive: "Mara's entry has been updated", "the beats are updated", "revised as you asked".
@@ -671,7 +687,9 @@ function chapterOfLabel(label: unknown): NonNullable<ChangeTarget['chapters']>[n
 
 /** What a proposal changes, read from its own fields and labels (a ChangeTarget is kept as it is). */
 export function changeTarget(p: Proposed | ChangeTarget): ChangeTarget {
-  if ('scenes' in p || 'chapters' in p || 'entries' in p || 'titles' in p) return p as ChangeTarget
+  // Already one: its lists are arrays (a chapter card proposal's own `scenes` is a count).
+  const t0 = p as Partial<Record<'scenes' | 'chapters' | 'entries' | 'titles', unknown>>
+  if ([t0.scenes, t0.chapters, t0.entries, t0.titles].some(Array.isArray)) return p as ChangeTarget
   const r = p as Record<string, unknown>
   const t: ChangeTarget = { kind: p.kind, ...(p.id ? { id: p.id } : {}), ...(p.how ? { how: p.how } : {}), ...(p.status ? { status: p.status } : {}) }
   const scene = sceneOfLabel(r.sceneLabel)
