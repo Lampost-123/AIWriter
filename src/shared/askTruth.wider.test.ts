@@ -433,3 +433,24 @@ describe('review fixes 3: pronoun claims and the missing summary verbs', () => {
       expect(settleAnswer(s, []), s).toBe(s)
   })
 })
+
+// Review of fix 3 (2026-10-20): the new summary verbs never reach into story words.
+describe('review fixes 4: the new summary verbs leave story words alone', () => {
+  it('a speech tag keeps any summary verb from being a claim', () => {
+    for (const s of ['Sharpened the knife, she said.', 'Softened the blow, Mara says.', 'Tweaked the dial, he admits.', 'Merged the two camps, they said.'])
+      expect(claims(s), s).toBe(false)
+  })
+
+  it('a new summary verb with story nouns does not end handed-over prose', () => {
+    const a = 'Here’s the revised paragraph:\n\nMerged the two rivers into one, and the boat drifted.\n\nThe end.'
+    expect(changeClaims(a).map((c) => c.sentence)).toEqual(['Here’s the revised paragraph:'])
+    for (const s of ['Sharpened the knife and waited.', 'Softened the blow with a smile.', 'Reordered the crates by size.'])
+      expect(changeClaims(`Here’s the revised paragraph:\n\n${s}`).map((c) => c.sentence), s).toEqual(['Here’s the revised paragraph:'])
+  })
+
+  it('a hand-over line is no claim beside which “Cut” counts', () => {
+    expect(changeClaims('Here is the revised scene:\n\nHe ran. Cut the rope.\n\nIt was over.').map((c) => c.sentence)).toEqual(['Here is the revised scene:'])
+    expect(claims('Tightened the opening. Cut the last line.')).toBe(true)
+    expect(changeClaims('Tightened the opening. Cut the last line.')).toHaveLength(2)
+  })
+})

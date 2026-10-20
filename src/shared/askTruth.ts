@@ -164,6 +164,11 @@ const BARE_VERBS =
  * beside another claim, or after "Also", "Plus" or "And" when nothing else in the answer is a suggestion.
  */
 const BOTH_FORMS = new Set(['cut', 'split'])
+/**
+ * Summary verbs a story also tells with ("Sharpened the knife and waited."): among handed-over story words they are the
+ * chat again only with a word of the app's (checked first in `chatAgain`), or "Cut"/"Split" after "Also", "Plus" or "And".
+ */
+const STORY_TOO = new Set(['cut', 'split', 'merged', 'reordered', 'tweaked', 'adjusted', 'restructured', 'retitled', 'sharpened', 'softened'])
 /** A sentence that starts with a suggestion ("Tighten the opening.", "2. Trim the ending."). */
 const SUGGESTS = new RegExp(
   String.raw`^(?:\*\*)?(?:${[...new Set(Object.values(VERBS))].filter((v) => !(v in VERBS)).join('|')}|consider|try|keep|drop|give|show)\b`,
@@ -352,7 +357,8 @@ function chatAgain(line: string): boolean {
     const t = raw.trim().replace(MARK, '')
     const plain = t.slice(LEAD_IN.exec(t)?.[0].length ?? 0)
     const bare = BARE_START.exec(plain.charAt(0).toUpperCase() + plain.slice(1))
-    const summary = !!bare && (!BOTH_FORMS.has(bare[1].toLowerCase()) || plain.length < t.length)
+    const v = bare?.[1].toLowerCase() ?? ''
+    const summary = !!bare && (!STORY_TOO.has(v) || (BOTH_FORMS.has(v) && /^(?:also|plus|and)\b/i.test(t)))
     return summary || HEAD_MADE.test(t) || DONE.test(t) || PERFECT.test(t) || PRONOUN_EDIT.test(t)
   })
 }
@@ -567,7 +573,7 @@ export function changeClaims(answer: string): Claim[] {
       const after = plain.slice(verbAt + verb.length)
       // "Cut the last line." may be a suggestion: weighed once the whole answer is read. Never one told by a speech tag.
       both = BOTH_FORMS.has(verb) ? { lead: leadIn > 0 && /^(?:also|plus|and)\b/i.test(body) } : null
-      if (follows(verb, after) && !(both && spoken('', after))) {
+      if (follows(verb, after) && !spoken('', after)) {
         // Said plainly from the lead-in to the clause's end ("Okay — tightened the opening and trimmed the ending." →
         // "Tighten the opening and trim the ending."): the suggestion kept when nothing backs it, the change when one does.
         const at = from + bodyAt
@@ -618,7 +624,9 @@ export function changeClaims(answer: string): Claim[] {
     const t = masked.slice(from, to).trim().replace(MARK, '')
     return SUGGESTS.test(t.slice(LEAD_IN.exec(t)?.[0].length ?? 0))
   })
-  const kept = maybe.filter((m) => out.length > 0 || (!suggests && m.lead)).map((m) => m.claim)
+  // Only a change said as made is "another claim": a hand-over line or "ready to apply" is none.
+  const beside = out.some((c) => c.made)
+  const kept = maybe.filter((m) => beside || (!suggests && m.lead)).map((m) => m.claim)
   return kept.length ? [...out, ...kept].sort((a, b) => a.from - b.from) : out
 }
 
