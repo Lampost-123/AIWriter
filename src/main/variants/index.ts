@@ -146,6 +146,7 @@ export async function startVariantSet(input: StartVariantsInput, deps: VariantsD
         provider: b.target,
         model: b.choice,
         thinking: b.thinking,
+        writingTemperature: b.writingTemperature,
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
         emit: deps.emit,

@@ -493,6 +493,8 @@ const textOf = (content) =>
 export async function startFakeProvider(options = {}) {
   const opts = { port: 0, delayMs: 10, words: 120, slowWords: 1500, slowDelayMs: 40, waitMs: 1500, crlf: false, ...options }
   let last = null
+  /** Every chat request's body, oldest first (the last 500), so a test can see what each job was sent. */
+  const bodies = []
   const counts = {}
   const memoryCounts = {}
   /** The marked prompt parts kept so far (see "Prompt caching" above). */
@@ -534,6 +536,8 @@ export async function startFakeProvider(options = {}) {
       if (req.method === 'POST' && path === '/chat/completions') {
         const body = JSON.parse(await readBody(req))
         last = { body, headers: req.headers }
+        bodies.push(body)
+        if (bodies.length > 500) bodies.shift()
         const model = String(body.model ?? '')
         counts[model] = (counts[model] ?? 0) + 1
         return chat(req, res, body, model, counts[model])
@@ -768,9 +772,11 @@ export async function startFakeProvider(options = {}) {
     /** Base URL to give AI Write, e.g. http://127.0.0.1:4545/v1 */
     url: `http://127.0.0.1:${port}/v1`,
     lastRequest: () => last,
+    allRequests: () => [...bodies],
     requestCounts: () => ({ ...counts }),
     reset: () => {
       last = null
+      bodies.length = 0
       for (const k of Object.keys(counts)) delete counts[k]
       for (const k of Object.keys(memoryCounts)) delete memoryCounts[k]
       cacheKept.clear()

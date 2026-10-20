@@ -92,6 +92,8 @@ export const defaultSettings = (libraryPath: string): Settings => ({
   // No thinking unless Adam asks for it: it slows every job down and can use up the room to answer.
   thinking: { writer: 'off', memory: 'off', chat: 'off', builder: 'off', speech: 'off', world: 'off', check: 'off', recipe: 'off', chapter: 'off', director: 'off', sounds: 'off', sample: 'off', polish: 'off' },
   creativity: 'balanced',
+  // Writing temperature: Auto (the creativity's own) until Adam sets one (shared/temperature.ts).
+  writingTemperature: null,
   planFirst: true,
   sceneContracts: true,
   continuityBrief: true,

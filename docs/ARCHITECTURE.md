@@ -5430,6 +5430,28 @@ migration; the progress event only gains fields.
   ("says how it goes for the progress card"), `tests/e2e/progress.spec.ts` (pictures to `PROGRESS_SHOTS`); `ai.spec.ts`
   follows the pill.
 
+## Writing temperature (Adam, 2026-10-20)
+
+Adam asked for a way to set the temperature when writing with DeepSeek (DeepSeek suggests about 1.5 for creative
+writing). Settings › Models › Writing temperature (`features/settings/WritingTemperature.tsx`, under Default creativity):
+Auto (the creativity's own temperature, as before) or Custom, a slider and a number box from 0 to 2 in steps of 0.05
+(`Settings.writingTemperature`, null for Auto; settings saved before it read as Auto).
+
+- **What uses it: writing only.** Every request that writes the story's words: Generate and Add below, Variants, Beat by
+  beat, directed stretches (they take the draft's request), Write the chapter's drafts and its fixes, Continue, Change it
+  and the other AI edits. The memory, checks, plan, critic, director's notes, interviews, outline, polish pass and sample
+  passages keep their fixed temperatures; `ai/writingTemperature.test.ts` lists the only modules that read the setting.
+- **The rule** (`shared/temperature.ts` `writingTemperatureFor`): a custom temperature takes the place of the creativity's
+  (the default or a draft's own), which still sets top_p and min_p as before. It goes in through the draft's briefing
+  (`DraftBriefing.writingTemperature` to `DraftRequest`), `edits/index.ts` and `ipc/chapterWriter.ts` (the fixes).
+- **Each provider's range.** Claude (Anthropic's API, or a Claude model anywhere) takes 0 to 1: a higher value is sent as
+  1 and the setting says so; every other model 0 to 2. A model that sets its own creativity is still sent none
+  (ai/client.ts). Under the control, in plain words: a model that sets its own temperature, a DeepSeek reasoner (always
+  thinks) or a DeepSeek model with the writer's Thinking on ignores it (`temperatureIgnored`). DeepSeek is known by its
+  API address or a model id with "deepseek" in it.
+- **What the AI saw.** The record keeps the temperature as sent and `ownTemperature: true`; the Creativity cell then
+  says "Temperature 1.5 (your setting)" (or, for an edit, "Temperature 1.5 / Your writing temperature").
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

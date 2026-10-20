@@ -299,6 +299,14 @@ function DraftRecord({
           label="Creativity"
           value={rec.params.sampling === false ? 'Set by the model' : creativityOf(rec.params)}
           title={rec.params.sampling === false ? 'This model sets its own creativity, so the preset was not sent' : undefined}
+          // Adam's own Writing temperature (Settings › Models): the temperature that was sent, beside the creativity.
+          note={
+            rec.params.sampling === false || !rec.params.ownTemperature
+              ? undefined
+              : rec.params.creativity
+                ? `Temperature ${rec.params.temperature} (your setting)`
+                : 'Your writing temperature'
+          }
         />
         <Meta
           label="Tokens sent"
