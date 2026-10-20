@@ -698,6 +698,8 @@ test('the chat looks a thing up in the story index and loads an instruction pack
     expect(names.filter((n) => n === 'get_entry')).toHaveLength(1)
     expect(sent.messages[0].content).toContain('Instruction packs')
 
+    // The answer has finished: a question asked while it still arrives waits in the box.
+    await expect(panel(win).locator('[data-turn-status]').last()).toHaveAttribute('data-turn-status', 'complete')
     await ask(win, 'How does the memory work?')
     const pack = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="load_instructions"]')
     await expect(pack).toHaveAttribute('data-status', 'done')
