@@ -13,7 +13,7 @@ import type {
   RelationshipPayload,
   SourceLink
 } from '@shared/types'
-import { howWords } from '@shared/knowWords'
+import { howWords, SAID_KIND_WORDS } from '@shared/knowWords'
 
 // ---------- Places in plain words ----------
 
@@ -522,7 +522,7 @@ export function describeChange(
       const line = said?.words.trim() ?? ''
       const words = line ? (/^["“'‘]/.test(line) ? line : `“${line}”`) : null
       const what = said
-        ? { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }[said.kind]
+        ? SAID_KIND_WORDS[said.kind]
         : c.payload.wrong
           ? c.payload.forgets
             ? 'No longer believes'

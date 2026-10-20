@@ -566,7 +566,7 @@ export function planThreads(input: ContextInput, memoryContext: number): string 
 /** The brief's lists, as the planner is asked for them. */
 const BRIEF_ASK: Record<BriefPart, string> = {
   matters: 'what matters most for this scene: the facts, things, wounds, places and ties it touches.',
-  keep: 'what must not be contradicted, each with where it was set or last changed, as you were given it ("since Ch 2, Sc 3"); never what people wore, where they were or how they lay as an earlier scene ended unless where things stand says it still holds here.',
+  keep: 'what must not be contradicted, each with where it was set or last changed, as you were given it ("since Ch 2, Sc 3"); never what people wore, where they were or how they lay as an earlier scene ended unless where things stand says it still holds here; what someone usually wears now, as what must stay true says, always holds.',
   knows:
     'who knows what among the people here: what each knows that bears on the scene, what is kept from whom, and what someone believes wrongly.',
   promises: 'the plot threads and promises due now or in play here, and what has been set up for them.',

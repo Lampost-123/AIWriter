@@ -37,7 +37,7 @@ import {
 import { indentMore } from '../ai/prompts'
 import { estimateTokens } from '../keeper/text'
 import { stateText, type SceneState } from '@shared/continuity'
-import { MUST_TITLE, mustLines, mustStayTrue, mustText, namedThere, stageFor } from '../ai/mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, namedThere, stageFor, type PlaceHere } from '../ai/mustStay'
 import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type SceneContract } from '../ai/contract'
 import { holdingsOf } from '../memory/items'
 import { freshLooks, pastProfile } from '../ai/briefingFixes'
@@ -79,6 +79,8 @@ export interface EditWorld {
     storyTitle: string
     places: Record<ID, string>
     relationships?: RelationshipState[]
+    /** Where the scene happens (ai/mustStay.ts placesHere), for an order that holds somewhere. */
+    where?: PlaceHere[]
   }
   /**
    * Continue's memory core (Adam, 2026-10-08), each part capped (CORE_MOST): the canon timeline's short form, entries

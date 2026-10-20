@@ -30,7 +30,7 @@ import { countWords } from '@shared/defaults'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
-import { stageFor, stageInScene } from '../ai/mustStay'
+import { placesHere, stageFor, stageInScene } from '../ai/mustStay'
 import { onStageIn, withoutMentioned } from '../storyIndex/there'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteContract, noteStage } from '../repair'
@@ -233,7 +233,7 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     contextLength: model.choice.contextLength ?? null,
     speakerTags,
     stand,
-    must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
+    must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships, where: placesHere([...memory.entries, ...memory.elsewhere.map((x) => x.entry)], scene.card.locationId) },
     ...(core ? { core } : {}),
     // The scene's contract (long story memory fix 13), when Settings › Models says to.
     ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {}),

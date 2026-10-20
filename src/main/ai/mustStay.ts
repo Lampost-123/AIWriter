@@ -38,12 +38,15 @@ import {
 } from '@shared/continuity'
 import { FIELD_GROUPS } from '@shared/fields'
 import { isOff, itemKey, namesItem as namesStageItem, pieceText, thingText, type StageItem } from '@shared/stageItems'
-import { holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
+import { cueOf, holdingLine, holdingsFirst, nameIn, namesItem, type Holding } from '../memory/items'
+
+export { cueOf }
 import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
 import { clearStalePlacing } from './briefingFixes'
 import { animalNotPerson } from '../keeper/kinds'
 import { namedIn } from '../keeper/presence'
+import { usualLook } from '../memory/looks'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -55,6 +58,8 @@ export const MUST_SHORT = 6
 export const MUST_KEY = 5
 /** Its smallest form, for a model with very little room (it is never left out): the first few of those, said briefly. */
 export const MUST_SMALLEST = 3
+/** The most lines saying what someone here is to follow (an order or suggestion given: memory review, 2026-10-20). */
+export const MUST_RULES = 3
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
 /**
@@ -117,6 +122,8 @@ export interface MustInput {
   holdings?: Holding[]
   /** What the scene is about (its card, beats, Adam's direction, the scene so far): the items it names come first. */
   about?: string
+  /** Where the scene happens and the places around it (placesHere), for an order that holds somewhere. Left out: not known. */
+  where?: PlaceHere[]
   /**
    * The short form, for a model with little room: at most MUST_SHORT lines, and none of who knows what or of the
    * codex's changed looks (the briefing above has those) beyond what the scene is most likely to break.
@@ -173,6 +180,7 @@ export interface MustInput {
  */
 const RANK = {
   dead: 0,
+  rule: 0.5,
   condition: 1,
   elapsed: 1.5,
   slip: 1.8,
@@ -182,6 +190,7 @@ const RANK = {
   thing: 5,
   goneNamed: 6,
   marks: 7,
+  usual: 7.5,
   wearing: 8,
   gone: 9,
   gotNamed: 10,
@@ -205,7 +214,7 @@ export type MustKind = Kind
  * alive, someone learning or thinking what is kept from them, an injury forgotten, someone acting on the truth of what
  * they believe wrongly (fix 9), and time passing unnoticed.
  */
-const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'belief', 'elapsed']
+const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'rule', 'belief', 'elapsed']
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
 const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basics' || g.id === 'looks').flatMap((g) => g.fields)
@@ -213,6 +222,53 @@ const FIELD_LABEL = new Map(FACT_FIELDS.map((f) => [f.key, f.label]))
 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 const clipTo = (s: string, most: number): string => (s.length > most ? `${s.slice(0, most - 1).trimEnd()}…` : s)
+
+/** Words that say nothing of which cue it is. */
+const CUE_STOP = new Set(
+  'that this they them their there then than with from into onto upon over under when what which while hears heard hear says said sees seen goes comes come gets told tells someone anyone anything something says again ever'.split(' ')
+)
+/** A cue's words that pick it out, four letters or more: "she hears the bell" → ["bell"]. */
+export const cueWords = (cue: string): string[] =>
+  (cue.toLowerCase().match(/[\p{L}'’-]+/gu) ?? []).filter((w) => w.length >= 4 && !CUE_STOP.has(w))
+/**
+ * The names of where a scene happens and the places it is in, for an order that holds somewhere ("whenever she is at
+ * home"): the place on its card, then each place around it, with their other names.
+ */
+export function placesHere(
+  entries: Pick<EntryState, 'id' | 'name' | 'aliases' | 'parentId' | 'fields'>[],
+  locationId: ID | null | undefined
+): PlaceHere[] {
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  const out: PlaceHere[] = []
+  const seen = new Set<ID>()
+  for (let at = locationId ? byId.get(locationId) : undefined; at && !seen.has(at.id); at = at.parentId ? byId.get(at.parentId) : undefined) {
+    seen.add(at.id)
+    out.push({ names: [at.name, ...(at.aliases ?? [])].map(clean).filter(Boolean), lives: clean(at.fields?.people) })
+  }
+  return out
+}
+/** A place the scene happens in or within: its names, and who lives there (its "Who rules or lives there"). */
+export interface PlaceHere {
+  names: string[]
+  lives: string
+}
+/** Words that say a place is someone's home. */
+const HOME_WORDS = /\b(?:home|house|flat|apartment|cottage|bedroom|room)\b/i
+/**
+ * Whether a cue of being at home is surely met here for someone: a place here they live in (its "Who rules or lives
+ * there" names them), or one whose name says whose home it is ("Mary's flat", "the Dunn house"). Never a place only
+ * called a home ("the nursing home").
+ */
+function homeHere(cue: string, where: PlaceHere[], person: Pick<EntryState, 'name' | 'aliases'>): boolean {
+  if (!/\bhome\b/i.test(cue)) return false
+  const names = [person.name, ...(person.aliases ?? []), ...person.name.split(/\s+/)].map(clean).filter((n) => n.length >= 3)
+  return where.some((p) => names.some((n) => nameIn(p.lives, n)) || p.names.some((w) => HOME_WORDS.test(w) && names.some((n) => nameIn(w, n))))
+}
+/** Whether some words name every word of a cue, each whole or with a plural ending ("bell" in "the bells rang", not "belly"). */
+export const cueIn = (text: string, cue: string): boolean => {
+  const words = cueWords(cue)
+  return words.length > 0 && words.every((w) => new RegExp(`(?<![\\p{L}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:e?s)?(?![\\p{L}])`, 'iu').test(text))
+}
 const joinAnd = (items: string[]): string =>
   items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 
@@ -357,6 +413,11 @@ export interface StageScope {
    * then is from before, under `carried`. Left out: such a value is taken as this scene's own.
    */
   began?: SceneState | null
+  /**
+   * The scenes before this one on the same day (memory/storyCalendar.ts `SceneCalendar.today`): a piece of clothing whose
+   * words are one of theirs still holds, as far as `carried` says. Left out: none known, so only the scene before's.
+   */
+  today?: ReadonlySet<ID>
 }
 
 /**
@@ -472,7 +533,10 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       const was = clothesOf(then)
       kept.clothes = clothesOf(c).filter((p) => {
         const from = pieceSource(stand.said, c.name, p.name)
-        if (ruled && !fresh(from?.sceneId)) return false
+        // What was put on in an earlier scene of the same day is on still (memory review, 2026-10-20: a jumper pulled on
+        // two scenes back was dropped, though the scenes ran on); carriesPiece says what of it holds. Not a hat from days
+        // before: the stage carries pieces on from scene to scene whatever the day.
+        if (ruled && !fresh(from?.sceneId) && !(from?.sceneId && scope.today?.has(from.sceneId) && scope.carried !== 'later')) return false
         const old = was.find((x) => itemKey(x.name) === itemKey(p.name))
         return !before(from, pieceText(p), old && pieceText(old)) || carriesPiece(p)
       })
@@ -614,13 +678,64 @@ export function mustLines(o: MustInput): MustLine[] {
       const v = clean(e.fields?.[k])
       const where = e.changedWhere?.[k]
       // What someone typically wears is never a fact of this moment: what they have on now is the stage's, piece by piece
-      // (Adam, 2026-10-16: "Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" after an undressing scene).
-      if (!label || k === 'marks' || k === 'clothing' || !v || !where) continue
+      // (Adam, 2026-10-16: "Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" after an undressing scene). But what
+      // the story set them to wear is what they usually wear now (memory review, 2026-10-20: Mary told in Ch 3, Sc 2 to
+      // wear only a green jumper, forgotten by Ch 4), told while the stage says nothing of what they have on.
+      if (k === 'clothing') {
+        const usual = usualLook(k, v)
+        if (usual && where && !clothesOf(c ?? undefined).length) add('usual', who, `${e.name} usually wears: ${usual}`, shortPlace(where, o.storyTitle), false, [e.id])
+        continue
+      }
+      if (!label || k === 'marks' || !v || !where) continue
       add('changed', who, `${e.name}, ${label.toLowerCase()}: ${v}`, shortPlace(where, o.storyTitle), false, [e.id])
     }
   })
   // Carrying on with no one on the scene card: everyone the stage has in the scene.
   if (!people.length && o.reach === 'here') o.stand?.characters.forEach((c, i) => stageLines(c, i))
+
+  // What someone here is to follow (memory review, 2026-10-20): an order or suggestion given however long ago and not yet
+  // lifted, a key kind so it is never crowded out: one whose cue comes in this scene first ("whenever she hears the bell":
+  // the card, the direction or the scene so far name the bell), then the newest. It says when they don't remember being
+  // told, so the writer shows them follow it without knowing why.
+  const where = o.where ?? []
+  const whereWords = where.flatMap((p) => p.names).join('\n')
+  // Said to be met only for being at home, at a place that is theirs: a word of any other cue in the scene's words may be
+  // chance ("sleep" for "whenever Tom says sleep"), so those only come first in the list.
+  const metFor = (f: FactState, person: EntryState): boolean => {
+    const cue = cueOf(f.fact)
+    return !!cue && /\bhome\b/i.test(cue) && homeHere(cue, where, person)
+  }
+  const likely = (f: FactState): boolean => {
+    const cue = cueOf(f.fact)
+    return !!cue && !/\bhome\b/i.test(cue) && cueIn(`${about}\n${whereWords}`, cue)
+  }
+  const cuedHere = (f: FactState): boolean => likely(f) || people.some((e) => !!f.rule?.bound.includes(e.id) && metFor(f, e))
+  const ruled = o.facts
+    .filter((f) => f.rule && clean(f.fact))
+    .sort((a, b) => Number(cuedHere(b)) - Number(cuedHere(a)) || (b.at ?? -1) - (a.at ?? -1))
+  let rules = 0
+  for (const f of ruled) {
+    const r = f.rule
+    if (!r) continue
+    const cue = cueOf(f.fact)
+    for (const id of r.bound) {
+      const who = people.findIndex((e) => e.id === id && living.has(id))
+      if (who < 0 || rules >= MUST_RULES) continue
+      const name = people[who].name
+      const met = metFor(f, people[who])
+      const notes = [
+        clean(r.byName) ? `given by ${clean(r.byName)}` : '',
+        f.knownBy.includes(id) ? '' : `${name} doesn't remember being told`,
+        met ? `${cue} in this scene: show ${name} follow it` : cue ? `if ${cue} in this scene, show ${name} follow it` : ''
+      ].filter(Boolean)
+      const tail = notes.length ? ` (${notes.join('; ')})` : ''
+      add('rule', who, `${name} is to follow: ${clean(f.fact).replace(/\.$/, '')}${tail}`, shortPlace(r.where, o.storyTitle), false, [id], {
+        words: f.fact,
+        who: [people[who].name]
+      })
+      rules++
+    }
+  }
 
   // What someone in the scene gave away, lost or got, however long ago (memory/items.ts): only how it is now, the items
   // the scene names first. "Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2, Sc 7)".
@@ -767,7 +882,9 @@ export function mustLines(o: MustInput): MustLine[] {
   // kind by kind. The short form keeps them too.
   const keyRank = (l: (typeof once)[number]): number => KEY_KINDS.findIndex((k) => RANK[k] === l.rank)
   const keyed = once.filter((l) => keyRank(l) >= 0).sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)
-  const key = KEY_KINDS.map((_, i) => keyed.find((l) => keyRank(l) === i)).filter((l): l is (typeof once)[number] => !!l)
+  const key = KEY_KINDS.map((_, i) => keyed.find((l) => keyRank(l) === i))
+    .filter((l): l is (typeof once)[number] => !!l)
+    .slice(0, MUST_KEY)
   for (const l of keyed) if (key.length < MUST_KEY && !key.includes(l)) key.push(l)
   if (o.smallest) key.splice(MUST_SMALLEST)
   key.sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)

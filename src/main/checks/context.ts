@@ -659,6 +659,8 @@ export function entryText(c: CheckEntry, short = false): string {
 
 /** The heading of the facts of who knows what the scene's words touch, the facts check's own list. */
 export const TOUCHED_TITLE = 'What people here know that this scene touches'
+/** The heading of the orders and suggestions those here are to follow (memory review, 2026-10-20); checks/prompts.ts names it. */
+export const RULES_TITLE = 'Orders and suggestions in force'
 
 /** The sections a request about these checks needs (everything but the scene's text). */
 export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short = false): Section[] {
@@ -779,6 +781,18 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       text: [known, wrong.length ? `What some of them believe that isn't true:\n${wrong.map((l) => `- ${l}`).join('\n')}` : ''].filter(Boolean).join('\n\n'),
       entryIds: []
     })
+  }
+
+  // What those here are to follow (memory review, 2026-10-20): an order or suggestion still in force, so a draft that goes
+  // against one (both shoes on) is caught.
+  if (has('facts') || has('continuity')) {
+    const rules = ctx.memory.facts.flatMap((f) =>
+      (f.rule?.bound ?? [])
+        .map((id) => people.find((e) => e.id === id))
+        .filter((e): e is EntryState => !!e)
+        .map((e) => `- ${e.name} is to follow: ${clean(f.fact).replace(/\.$/, '')}${f.knownBy.includes(e.id) ? '' : ` (${e.name} doesn't remember being told)`}`)
+    )
+    if (rules.length) out.push({ id: 'rules', title: RULES_TITLE, text: rules.join('\n'), entryIds: [] })
   }
 
   // Plot threads still open, with when each is due (the promises ledger, long story memory fix 10): a scene that pays one

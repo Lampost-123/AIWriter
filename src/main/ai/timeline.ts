@@ -42,8 +42,8 @@ export const DETAILED = { chapters: 2, scenes: 5 }
 const WORDS = { recent: 90, scene: 40, chapter: 60, story: 70, brief: 18, leads: 60 }
 /** The most marks on a scene or a chapter. */
 const MOST_MARKS = 3
-/** The most facts from an older chapter's snapshot on its line, in full form (fix 15). */
-export const RECORD_FACTS = 2
+/** The most facts from an older chapter's snapshot on its line, in full form (fix 15; with what happened, 2026-10-20). */
+export const RECORD_FACTS = 4
 
 /** What a scene with words but no summary yet says in place of one (2026-10-15), so it isn't left out without a word. */
 export const NO_SUMMARY = "no summary yet, so what happens in it isn't told here"

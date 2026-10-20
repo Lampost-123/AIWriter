@@ -311,6 +311,7 @@ export interface ContractFrom {
 const START_ORDER: Partial<Record<MustKind, number>> = { elapsed: 0, where: 1, holding: 2, wearingNamed: 3, posture: 4 }
 const KEEP_ORDER: Partial<Record<MustKind, number>> = {
   dead: 0,
+  rule: 0.5,
   gap: 1,
   condition: 2,
   belief: 3,

@@ -1,8 +1,8 @@
-<!-- version: 0.8.7 -->
-What's new in 0.8.7:
+<!-- version: 0.8.8 -->
+What's new in 0.8.8:
 
-- Sections open and close smoothly instead of jumping, on world pages, the start screen and Build with AI.
-- On the story board, a card you drop glides into its new place.
-- Cards on the start screen, recipes and the cast give a small press when clicked.
-- The floating story list slides away as it closes, and the tour glides between steps.
+- What the story says someone now wears, and orders one character gives another, are remembered in later chapters.
+- Older books: right-click a scene and choose Re-read this scene to catch these.
+- Sections open and close smoothly, and a card dropped on the story board glides into place.
+- Cards give a small press when clicked; the tour glides between steps.
 - A tick draws itself when an import or a chapter you watched being written is done.

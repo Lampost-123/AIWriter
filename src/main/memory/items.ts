@@ -50,6 +50,41 @@ export function nameIn(text: string, name: string): boolean {
   return name.trim().length >= 2 && !!text && foldApostrophes(text.toLowerCase()).includes(lastOf(name)) && namedInProse(text, name)
 }
 
+/**
+ * The words that begin what an order asks ("Mary must…", "Mary is to wear"), the strong ones first: "Tom will ring the
+ * bell and Mary must stand" is about Mary.
+ */
+const ORDER_WORDS = [/\b(?:must|is to|are to|has to|have to|is not to|may not)\b/i, /\b(?:should|shall|will|won['’]t|never|always|cannot|can['’]t)\b/i]
+
+/**
+ * Who an order or suggestion is about, as its fact says it (memory review, 2026-10-20): the clause just before its first
+ * order word, outside its cue. "Whenever Tom says sleep, Mary must kneel" is about Mary, not Tom; "Mary and Ana must
+ * wait" both. '' when it has no order word.
+ */
+export function orderAbout(fact: string): string {
+  for (const re of ORDER_WORDS) {
+    const m = re.exec(fact)
+    // The clause before it: past any cue word, and past a weaker order of someone else's ("Tom will ring the bell and").
+    if (m)
+      return (
+        fact
+          .slice(0, m.index)
+          .split(/[,;:.]|\b(?:whenever|when|if|until|after|before|should|shall|will|won['’]t|never|always|cannot|can['’]t)\b/i)
+          .pop() ?? ''
+      )
+  }
+  return ''
+}
+
+/** What sets off an order or suggestion, as its fact says it: "whenever she hears the bell" is "she hears the bell". */
+const CUE = /\b(?:whenever|when|every time|each time|as soon as|the moment|if ever)\s+([^,;.]+)/i
+/** A place said as where it holds, with no "when": "no top at home", "barefoot indoors". */
+const PLACE_CUE = /\b(?:at home|indoors|in (?:the|her|his|their) (?:house|home|flat))\b/i
+/** The cue of an order or suggestion ('' for none): "whenever she hears the bell, Mary sits" → "she hears the bell". */
+export function cueOf(fact: string): string {
+  return (CUE.exec(fact)?.[1] ?? PLACE_CUE.exec(fact)?.[0] ?? '').replace(/\s+/g, ' ').trim()
+}
+
 // ---------- An item's main word ----------
 
 /**
