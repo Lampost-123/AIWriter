@@ -6,6 +6,7 @@ import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { pageTransition, type Flip } from '@/features/look/viewTransition'
 import { areaOf } from '@/layout/areas'
+import type { HubScopeId } from '@/features/planHub/hubLogic'
 import { api } from './api'
 
 export type SettingsTab = 'models' | 'preferences' | 'appearance' | 'speech' | 'editor' | 'backups' | 'trash' | 'usage' | 'about'
@@ -66,6 +67,12 @@ export type View =
    * recipe), the cast and world (the codex), the outline, done. `step`: the step to show (left out: where it stands).
    */
   | { kind: 'storyBuilder'; storyId: ID; step?: 'idea' | 'codex' | 'outline' | 'done' }
+  /**
+   * The Plan hub (2026-10-20): the one place to plan a story with the AI, from its first idea or from wherever the
+   * writing has got to (features/planHub/). `at`: the part to plan, chosen when it opens ("the next scene"); `back`: the
+   * page it was opened from, when that isn't one of the Plan room's own (the Story builder's steps), for its Back link.
+   */
+  | { kind: 'planHub'; storyId: ID; at?: HubScopeId; back?: { view: View; label: string } }
   // The desk (UI overhaul, phase 5)
   /** A story's home: its book, where Adam left off, its chapters on a shelf, its threads, cast and this week's writing. */
   | { kind: 'storyHome'; storyId: ID }
@@ -267,7 +274,10 @@ const pageKey = (v: View): string =>
     : v.kind === 'entries' || v.kind === 'builder'
       ? `${v.kind}:${v.entryKind}`
       : v.kind === 'outline'
-        ? `outline:${v.chapterId ? 'chapter' : 'helper'}`
+        ? // The outline helper is the Plan hub now (2026-10-20): the same page.
+          v.chapterId
+          ? 'outline:chapter'
+          : 'planHub'
         : v.kind
 
 /**

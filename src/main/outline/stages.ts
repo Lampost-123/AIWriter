@@ -117,8 +117,9 @@ export function sceneLabelIn(plan: PlanAct[], sceneId: ID): string {
 }
 
 /**
- * The Plan hub's "carry on from the last scene written" (2026-10-20): the scene in the chapter being planned that the new
- * scenes come after, in words for the ask ("“The ferry” (Ch 4, Sc 2), the last scene written"), and the end of its words.
+ * The Plan hub's "carry on from where the story has got to" (2026-10-20): the scene in the chapter being planned that the
+ * new scenes come after, in words for the ask ("“The ferry” (Ch 4, Sc 2), the last scene written"; for the rest of a
+ * chapter planned past it, "the last scene planned so far"), and the end of its words when it has any.
  */
 function afterScene(db: JobDeps['db'], plan: PlanAct[], chapter: PlanChapter, sceneId: ID | null | undefined): { words: string; tail: string } | null {
   const sc = sceneId ? chapter.scenes.find((s) => s.id === sceneId) : undefined
@@ -131,8 +132,31 @@ function afterScene(db: JobDeps['db'], plan: PlanAct[], chapter: PlanChapter, sc
   } catch {
     // Gone since: the ask still names it.
   }
-  return { words: `${named}${label ? ` (${label})` : ''}, the last scene written`, tail: text.trim() }
+  // The story's last scene with words is "the last scene written"; any other is the chapter's last scene so far (adding
+  // scenes to a chapter earlier in the story, or the rest of a chapter planned past what is written).
+  const lastWritten = plan
+    .flatMap((a) => a.chapters)
+    .flatMap((c) => c.scenes)
+    .filter((s) => s.words > 0)
+    .at(-1)?.id
+  const what = sc.id === lastWritten ? 'the last scene written' : 'the chapter’s last scene so far'
+  return { words: `${named}${label ? ` (${label})` : ''}, ${what}`, tail: text.trim() }
 }
+
+/** The When of the last scene up to and including this one that has one ('' when none has). */
+export function latestUpTo(plan: PlanAct[], sceneId: ID | null | undefined): string {
+  const scenes = plan.flatMap((a) => a.chapters).flatMap((c) => c.scenes)
+  const at = scenes.findIndex((s) => s.id === sceneId)
+  for (let i = (at < 0 ? scenes.length : at + 1) - 1; i >= 0; i--) {
+    const when = (scenes[i].when ?? '').replace(/\s+/g, ' ').trim()
+    if (when) return when
+  }
+  return ''
+}
+
+/** A chapter's last scene (null for one with none, or not found). */
+const lastSceneOf = (plan: PlanAct[], chapterId: ID | null | undefined): ID | null =>
+  plan.flatMap((a) => a.chapters).find((c) => c.id === chapterId)?.scenes.at(-1)?.id ?? null
 
 /** The chapter the new chapters come after, in words ("“The Ford” (Ch 4), the chapter being written"). */
 function afterChapter(plan: PlanAct[], chapterId: ID | null | undefined): string {
@@ -169,6 +193,9 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
   const after = keptChapter ? afterScene(deps.db, facts.plan, keptChapter, input.afterSceneId) : null
   const afterChapterWords = keptAct ? afterChapter(facts.plan, input.afterChapterId) : ''
   const exactly = level === 'scenes' ? count(input.count, 1, STAGE_LIMITS.scenes) : null
+  // Carrying on from where the writing has got to: the days carry on from there, not from a plan further on.
+  const upTo = after ? input.afterSceneId : afterChapterWords ? lastSceneOf(facts.plan, input.afterChapterId) : null
+  const latest = upTo ? latestUpTo(facts.plan, upTo) : facts.latestWhen
 
   let n: number
   let ask: string
@@ -180,11 +207,11 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
     const inAct = !!target || !!keptAct
     n = count(input.chapters, 1, inAct ? STAGE_LIMITS.actChapters : STAGE_LIMITS.chapters) ?? 3
     ask = inAct
-      ? stageAsk('chapters', { chapters: n, title, kept: !!keptAct, latestWhen: facts.latestWhen, after: afterChapterWords })
+      ? stageAsk('chapters', { chapters: n, title, kept: !!keptAct, latestWhen: latest, after: afterChapterWords })
       : stageAsk('chapters', { chapters: n, start: stageStart({ chapters: facts.chapterCount, lastAct: facts.lastAct, newActs: false }), latestWhen: facts.latestWhen })
   } else {
     n = exactly ?? STAGE_LIMITS.scenes
-    ask = stageAsk('scenes', { title, kept: !!keptChapter, latestWhen: facts.latestWhen, after: after?.words, count: exactly ?? undefined })
+    ask = stageAsk('scenes', { title, kept: !!keptChapter, latestWhen: latest, after: after?.words, count: exactly ?? undefined })
   }
   const reply = level === 'scenes' && exactly ? 300 + exactly * 170 : stageReplyTokens(level, n)
   checkReplyRoom(deps.model, reply, 'That is', 'Pick a model that writes longer answers in Settings › Models.')

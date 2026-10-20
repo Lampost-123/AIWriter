@@ -400,7 +400,7 @@ function BuildStatus({ storyId }: { storyId: ID }): React.JSX.Element {
               Open the codex
             </Button>
             <Button size="sm" variant="primary" onClick={() => openStoryBuilder(storyId, 'outline')}>
-              Next: the outline
+              Next: plan it
             </Button>
             {build?.runId || b.brief?.built?.runId ? (
               <Button size="sm" variant="ghost" icon={<Undo2 size={13} />} onClick={() => void undoCodexBuild(storyId)} title="Take back everything this build made">

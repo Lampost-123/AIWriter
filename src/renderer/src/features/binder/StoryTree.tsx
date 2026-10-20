@@ -41,7 +41,7 @@ import { undoLastDelete } from '@/lib/undoDelete'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { requestChapterCardFocus } from '@/features/chapterCard/chapterCardEvents'
-import { openChapterInterview, openOutlineHelper } from '@/features/outline/open'
+import { openChapterInterview, openPlanHub } from '@/features/outline/open'
 import { useIssueCounts } from '@/features/consistency/checkStore'
 import { runCheck } from '@/features/check/runCheck'
 import { rereadScene } from '@/features/memory/reread'
@@ -513,8 +513,8 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         <Button size="sm" className="mt-3" icon={<Plus size={14} />} onClick={() => addChapter()}>
           Add chapter
         </Button>
-        <Button variant="ghost" size="sm" className="mt-1.5" icon={<ListTree size={14} />} onClick={() => openOutlineHelper(outline.story.id)}>
-          Plan it with the outline helper
+        <Button variant="ghost" size="sm" className="mt-1.5" icon={<ListTree size={14} />} onClick={() => openPlanHub(outline.story.id)}>
+          Plan it with AI
         </Button>
       </div>
     )
@@ -630,17 +630,15 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         <Plus size={14} />
         Add chapter
       </button>
-      {storyWords === 0 ? (
-        // Nothing written yet: the outline helper can plan the story from its premise.
-        <button
-          type="button"
-          onClick={() => openOutlineHelper(outline.story.id)}
-          className="flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint animate-fade-in hover:bg-surface-2 hover:text-muted"
-        >
-          <ListTree size={14} />
-          Plan it with the outline helper
-        </button>
-      ) : null}
+      {/* The Plan hub (2026-10-20): plan the story from its idea, or what happens next once some of it is written. */}
+      <button
+        type="button"
+        onClick={() => openPlanHub(outline.story.id, storyWords === 0 ? {} : { at: 'next-scene' })}
+        className="flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint animate-fade-in hover:bg-surface-2 hover:text-muted"
+      >
+        <ListTree size={14} />
+        {storyWords === 0 ? 'Plan it with AI' : 'Plan what happens next with AI'}
+      </button>
 
       <RowMenu
         at={menu}

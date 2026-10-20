@@ -14,7 +14,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { helperKey, openHelper, treeOf, useOutlineHelper } from '@/features/outline/helperStore'
 import { countNodes, totalOf } from '@/features/outline/tree'
-import { OutlineHelper } from '@/features/outline/OutlineHelper'
+import { PlanHub } from '@/features/planHub/PlanHub'
 import { RecipePlan } from '@/features/recipes/RecipePlan'
 import { briefOf, builderKey, followRecipe, loadBrief, useBuilders, type Step } from './store'
 import { IdeaStep } from './IdeaStep'
@@ -25,12 +25,19 @@ import '@/features/planning/planning.css'
 const STEPS: { id: Step; label: string; icon: typeof Feather }[] = [
   { id: 'idea', label: 'Your idea', icon: Feather },
   { id: 'codex', label: 'Cast and world', icon: Users },
-  { id: 'outline', label: 'Outline', icon: ListTree },
+  { id: 'outline', label: 'Plan', icon: ListTree },
   { id: 'done', label: 'Done', icon: Check }
 ]
 
 export function openStoryBuilder(storyId: ID, step?: Step): void {
-  useApp.getState().navigate({ kind: 'storyBuilder', storyId, ...(step ? { step } : {}) })
+  const app = useApp.getState()
+  // Its Outline step is the Plan hub (2026-10-20), with a way back to the step Adam came from.
+  if (step === 'outline') {
+    const from = app.view.kind === 'storyBuilder' ? app.view : null
+    app.navigate({ kind: 'planHub', storyId, ...(from ? { back: { view: from, label: 'Back to the Story builder' } } : {}) })
+    return
+  }
+  app.navigate({ kind: 'storyBuilder', storyId, ...(step ? { step } : {}) })
 }
 
 export function StoryBuilderView({ storyId, step, recipeId }: { storyId: ID; step?: Step; recipeId?: ID }): React.JSX.Element {
@@ -58,18 +65,8 @@ export function StoryBuilderView({ storyId, step, recipeId }: { storyId: ID; ste
   }
   if (!b?.brief) return <div className="h-full" />
   const shown = step ?? whereItStands(storyId)
-  // The outline step is the outline helper's own page, under the steps.
-  if (shown === 'outline') {
-    return (
-      <div className="flex h-full flex-col" data-story-builder="outline">
-        <StepBar storyId={storyId} shown="outline" />
-        {/* relative: the desk's plan page fills the box it sits in, so it stays under the step bar instead of over it. */}
-        <div className="relative min-h-0 flex-1">
-          <OutlineHelper storyId={storyId} nav={<StepNav storyId={storyId} shown="outline" />} />
-        </div>
-      </div>
-    )
-  }
+  // The outline step is the Plan hub (2026-10-20): the one place to plan with AI.
+  if (shown === 'outline') return <PlanHub storyId={storyId} back={{ view: { kind: 'storyBuilder', storyId, step: 'codex' }, label: 'Back to the cast and world' }} />
   return <Builder storyId={storyId} title={story.title} shown={shown} />
 }
 

@@ -44,6 +44,7 @@ export function TalkPanel({
   onApply,
   onDecline,
   canApplyStraightAway = false,
+  applyLabel = 'Apply',
   className
 }: {
   scope: string
@@ -62,6 +63,8 @@ export function TalkPanel({
   onDecline: () => void
   /** Applying can be undone here, so Adam may have changes applied as they come. */
   canApplyStraightAway?: boolean
+  /** The words on the button that makes the change (the Plan hub: "Make this change"). */
+  applyLabel?: string
   className?: string
 }): React.JSX.Element {
   const talk = useTalks((s) => s.talks[scope]) ?? EMPTY
@@ -232,7 +235,7 @@ export function TalkPanel({
               Decline
             </Button>
             <Button size="sm" variant="primary" icon={<Check size={13} />} onClick={onApply} data-apply>
-              Apply
+              {applyLabel}
             </Button>
           </div>
         </div>
@@ -292,8 +295,8 @@ export function TalkPanel({
             </Button>
           )}
         </div>
-        <div className="mt-1.5 flex items-center gap-3 text-[11px] text-faint">
-          <span className="flex-1">Enter to send, Shift+Enter for a new line</span>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
+          <span className="min-w-0 flex-[1_1_14em]">Enter to send, Shift+Enter for a new line</span>
           {canApplyStraightAway ? (
             <label className="flex cursor-pointer items-center gap-1.5 hover:text-muted">
               <input type="checkbox" className="h-3.5 w-3.5" checked={auto} onChange={(e) => toggleAuto(e.target.checked)} />

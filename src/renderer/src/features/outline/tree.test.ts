@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseOutline } from './parse'
 import {
+  anchorItems,
   countLine,
   countNodes,
   describeCounts,
@@ -286,5 +287,43 @@ describe('the words for what happened', () => {
     expect(describeCounts({ acts: 0, chapters: 1, scenes: 0 })).toBe('a chapter')
     expect(describeCounts({ acts: 0, chapters: 0, scenes: 0 })).toBe('')
     expect(countLine({ acts: 1, chapters: 0, scenes: 4 })).toBe('1 act and 4 scenes')
+  })
+})
+
+describe('keeping where a Plan hub batch belongs (2026-10-20)', () => {
+  // Scenes for Ch 4, read under its heading with the chapter kept already (as the hub asks for them).
+  const lead = outlineTree(parseOutline('## Chapter: The Linn\n### Scene: Across\nSummary: a\n### Scene: The gate\nSummary: b', true))
+  const [chapter] = lead
+  const [first, second] = chapter.children
+  const decisions: Decisions = { [chapter.key]: { status: 'kept', id: 'c4' } }
+  const here = { at: 'here' as const, chapterId: 'c4', afterSceneId: 's5', actId: 'a2', afterChapterId: 'c4' }
+
+  it('puts the first scene kept right after the last scene written, and the next after it', () => {
+    const items = anchorItems(keepPlan(lead, decisions, {}, 'all'), here)
+    expect(items.map((i) => [i.key, i.parent, i.after])).toEqual([
+      [first.key, { id: 'c4' }, { id: 's5' }],
+      [second.key, { id: 'c4' }, { key: first.key }]
+    ])
+    // Kept on its own first, the second goes right after the last scene written; the first then goes before it.
+    expect(anchorItems(keepPlan(lead, decisions, {}, [second.key]), here)[0].after).toEqual({ id: 's5' })
+    const later = anchorItems(keepPlan(lead, { ...decisions, [second.key]: { status: 'kept', id: 'n2' } }, {}, [first.key]), here)
+    expect(later[0]).toMatchObject({ before: { id: 'n2' } })
+    expect(later[0].after).toBeUndefined()
+  })
+
+  it('puts a new chapter in the act being written, after the chapter being written', () => {
+    const tree = outlineTree(parseOutline('## Chapter: The gate\nGoal: g\n### Scene: Grey coats\nSummary: s', true))
+    const items = anchorItems(keepPlan(tree, {}, {}, 'all'), { ...here, chapterId: null, afterSceneId: null })
+    expect(items[0]).toMatchObject({ kind: 'chapter', parent: { id: 'a2' }, after: { id: 'c4' } })
+    // Its scene goes into it, as always.
+    expect(items[1]).toMatchObject({ kind: 'scene', parent: { key: tree[0].key } })
+    // Chapters for an act with none yet go into it.
+    expect(anchorItems(keepPlan(tree, {}, {}, 'all'), { at: 'act', actId: 'a3' })[0]).toMatchObject({ parent: { id: 'a3' } })
+  })
+
+  it('leaves the outline helper’s own batches where they always went', () => {
+    const items = keepPlan(lead, decisions, {}, 'all')
+    expect(anchorItems(items, { at: 'end' })).toBe(items)
+    expect(anchorItems(items, undefined)).toBe(items)
   })
 })

@@ -352,14 +352,21 @@ export const ACTIONS: ActionDef[] = [
     when: (c) => hasScene(c) && !c.drafting && !!c.desk
   },
   { id: 'ask-world', label: 'Ask the world', keywords: 'chat brainstorm question ai ideas memory', away: toWriting },
+  // The Plan hub (2026-10-20): the one place to plan with AI; the outline helper and the Story builder open it.
   {
-    id: 'story-builder',
-    label: 'Story builder',
-    keywords: 'ai plot idea cast characters places outline',
+    id: 'outline-helper',
+    label: 'Plan with AI',
+    keywords: 'outline helper story builder ai plan premise plot idea acts chapters scenes suggest next what happens',
     away: true,
     when: hasStory
   },
-  { id: 'outline-helper', label: 'Outline helper', keywords: 'ai plan premise acts chapters scenes suggest', away: true, when: hasStory },
+  {
+    id: 'story-builder',
+    label: 'The idea, cast and world',
+    keywords: 'story builder ai plot idea cast characters places world codex plan',
+    away: true,
+    when: hasStory
+  },
   { id: 'scene-ideas', label: 'Ideas for this scene', keywords: 'ai next scene directions suggest card', away: toWriting, when: hasScene },
   { id: 'scene-interview', label: 'Interview me about this scene', keywords: 'ai questions plan card fill', away: toWriting, when: hasScene },
   { id: 'chapter-interview', label: 'Interview me about this chapter', keywords: 'ai questions plan goal scenes suggest', away: true, when: hasScene },

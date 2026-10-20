@@ -11,7 +11,7 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { estimateTokens } from '../keeper/text'
 import { MARKER, stageAsk, stageStart, stageSystem } from './prompts'
-import { headingsOnly, headingTitle, stageReplyTokens, startStageJob } from './stages'
+import { headingsOnly, headingTitle, latestUpTo, stageReplyTokens, startStageJob } from './stages'
 import { UserError } from '../util'
 
 let fake: FakeProvider
@@ -212,6 +212,24 @@ describe('the Plan hub’s requests (2026-10-20)', () => {
     expect(stageAsk('scenes', { title: 'Rain', kept: true, after: 'the scene (Ch 2, Sc 3), the last scene written' })).toBe(
       'Suggest the scenes of the chapter “Rain” (it is in the story already) that come after the scene (Ch 2, Sc 3), the last scene written: as many as it still needs to do what it is for, each a scene card. They carry on from how that scene ends and never retell it.'
     )
+  })
+
+  it('carries the days on from the last scene written, not from a plan further on', () => {
+    const scene = (id: string, when: string) => ({ id, title: id, summary: '', goal: '', beats: [], when, words: 0 })
+    const plan = [
+      {
+        id: null,
+        title: '',
+        purpose: '',
+        chapters: [
+          { id: 'c1', title: 'One', goal: '', summary: '', scenes: [scene('s1', 'Day 3, morning'), scene('s2', '')] },
+          { id: 'c2', title: 'Two', goal: '', summary: '', scenes: [scene('s3', 'Day 1, morning')] }
+        ]
+      }
+    ]
+    expect(latestUpTo(plan, 's2')).toBe('Day 3, morning')
+    expect(latestUpTo(plan, 's3')).toBe('Day 1, morning')
+    expect(latestUpTo(plan, 'gone')).toBe('Day 1, morning')
   })
 
   it('leaves the request as it was when nothing of the hub’s is given', async () => {

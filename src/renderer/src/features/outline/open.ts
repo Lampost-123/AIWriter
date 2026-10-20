@@ -1,21 +1,29 @@
-// Opening the outline helper for a story. Owned by the Outline part.
+// Opening the places to plan a story. Owned by the Outline part.
+// 2026-10-20: the Plan hub (features/planHub) is the one place to plan with AI; the outline helper, the Story builder's
+// Outline step, the palette's and the story menu's entries and the binder's buttons all open it.
 import type { ID } from '@shared/types'
-import { useApp } from '@/lib/store'
+import { useApp, type View } from '@/lib/store'
+import type { HubScopeId } from '@/features/planHub/hubLogic'
 import { checkBlank } from './helperStore'
 import { noteChapterStory, startPlanInterview } from './planInterviewStore'
 
 /**
- * Opens the outline helper for a story (2026-10-17: the Story builder's outline step), opening the story in the binder
- * first if another one is open. Whether the story has anything planned yet is asked first (a moment), so the page's
- * first frame says the right thing.
+ * Opens the Plan hub for a story, opening the story in the binder first if another one is open. Whether the story has
+ * anything planned yet is asked first (a moment), so the page's first frame says the right thing. `at`: the part to plan
+ * ("the next scene"); `back`: the page it was opened from, for its Back link (the Story builder's steps).
  */
-export function openOutlineHelper(storyId: ID): void {
+export function openPlanHub(storyId: ID, o: { at?: HubScopeId; back?: { view: View; label: string } } = {}): void {
   const app = useApp.getState()
   if (app.storyId !== storyId) app.selectStory(storyId)
-  void checkBlank(storyId).then(() => useApp.getState().navigate({ kind: 'outline', storyId }))
+  void checkBlank(storyId).then(() =>
+    useApp.getState().navigate({ kind: 'planHub', storyId, ...(o.at ? { at: o.at } : {}), ...(o.back ? { back: o.back } : {}) })
+  )
 }
 
-/** Opens the Story builder for a story, at the step it stands at. */
+/** The outline helper: the Plan hub now (2026-10-20). */
+export const openOutlineHelper = (storyId: ID): void => openPlanHub(storyId)
+
+/** Opens the Story builder for a story, at its first steps (the idea, then the cast and world). */
 export function openStoryBuilderFor(storyId: ID): void {
   const app = useApp.getState()
   if (app.storyId !== storyId) app.selectStory(storyId)

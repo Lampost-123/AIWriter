@@ -441,9 +441,12 @@ function stageReply(level, system, user) {
     // The Plan hub: "Suggest exactly 1 scene" (the next scene) gives that many; else as many as its place says.
     const exactly = Number(user.match(/Suggest exactly (\d+) scenes?/)?.[1] ?? 0)
     const count = exactly || 2 + (k % 3)
+    // Days carry on from the briefing's last dated scene when it names one (the day after), else its place in the list.
+    const latest = Number(user.match(/last scene with a When is set at “Day (\d+)/)?.[1] ?? 0)
+    const day = latest ? latest + 1 : k + 1
     const items = Array.from({ length: count }, (_, s) => {
       const [opener, summary, beats] = SCENES[s % SCENES.length]
-      return { kind: 'scene', title: `${opener} ${place}`, when: `Day ${k + 1}, ${TIMES[s % TIMES.length]}`, summary: summary.replace('{place}', place), beats }
+      return { kind: 'scene', title: `${opener} ${place}`, when: `Day ${day}, ${TIMES[s % TIMES.length]}`, summary: summary.replace('{place}', place), beats }
     })
     return tidy(items)
   }

@@ -3,8 +3,7 @@
 // index's, else the memory's), and where the planned scenes after it no longer fit what has been written. That last is the
 // free card check before writing (plan/cardCheck.ts) run on each planned scene card after the last written scene, against
 // the memory as the story stands: a planned scene that has someone use what they gave up, someone who has died, a When
-// earlier than the scenes written... Only findings that name a written scene, or none at all, count (a clash between two
-// planned scenes is the plan's own business). Reads the database; no Electron imports.
+// earlier than the scenes written... Reads the database; no Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { HubDrift, HubThread, PlanHubFacts } from '@shared/contracts/planHub'
@@ -13,6 +12,7 @@ import { emptySceneCard } from '@shared/defaults'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as sidx from '../db/storyIndex'
+import { storyCards } from '../db/acts'
 import { buildStoryIndex, openThreads } from '../storyIndex'
 import { memoryAt } from '../memory/asOf'
 import { cardCheck } from '../plan/cardCheck'
@@ -64,17 +64,6 @@ export function cardSaysSomething(card: Partial<SceneCard>): boolean {
   return !!(c.povId || c.presentIds.length || c.locationId || [c.when, c.goal, c.outcome, c.conflict, ...c.beats].some((v) => String(v ?? '').trim()))
 }
 
-const LABEL = /\bCh \d+, Sc \d+\b/g
-
-/**
- * Whether a finding is about the story moving on from the plan: it names a written scene, or no scene at all (a clash
- * only between planned scenes is left to the plan).
- */
-export function aboutWhatIsWritten(text: string, written: ReadonlySet<string>): boolean {
-  const named = text.match(LABEL) ?? []
-  return !named.length || named.some((l) => written.has(l))
-}
-
 /** What happens in a scene, in a line or two: the story index's gist, else its summary, else ''. */
 function gistOf(db: DB, storyId: ID, sceneId: ID): string {
   const fromIndex = sidx.indexScene(db, sceneId)?.gist?.trim()
@@ -100,11 +89,14 @@ function threadsAt(db: DB, storyId: ID, sceneId: ID | null, quietly: <T>(fn: () 
   // The memory's own open threads as the story ends (a story with nothing written, or an index with no thread events).
   return quietly(() => {
     const at = memoryAt(db, { kind: 'end', storyId })
+    const title = repo.getStory(db, storyId).title
+    // "Since Ch 2" only for a thread opened in this story (one from a story before it says no chapter).
+    const sinceHere = (setUp: string): string => (setUp.startsWith(`${title}, `) ? chapterOf(setUp.slice(title.length + 2)) : '')
     return at.state.threads
       .filter((t) => t.status === 'open' && !t.planned)
       .flatMap((t): HubThread[] => {
         const e = at.state.entries.get(t.entryId)
-        return e?.name.trim() ? [{ id: e.id, name: e.name.trim(), since: chapterOf(t.setUp.replace(/^.*?(Ch \d+)/, '$1')), quiet: t.quiet ?? 0 }] : []
+        return e?.name.trim() ? [{ id: e.id, name: e.name.trim(), since: sinceHere(t.setUp), quiet: t.quiet ?? 0 }] : []
       })
       .sort((a, b) => b.quiet - a.quiet || a.name.localeCompare(b.name))
       .slice(0, THREADS_MOST)
@@ -119,7 +111,6 @@ export function planDrift(db: DB, storyId: ID, order: readonly OrderedScene[], l
   if (last < 0) return []
   const planned = order.slice(last + 1).filter((s) => s.words === 0)
   if (!planned.length) return []
-  const written = new Set(order.filter((s) => s.words > 0).map((s) => s.label))
   let memory: { entries: EntryState[]; relationships: RelationshipState[] } | null = null
   try {
     const at = memoryAt(db, { kind: 'end', storyId })
@@ -150,10 +141,21 @@ export function planDrift(db: DB, storyId: ID, order: readonly OrderedScene[], l
       present: [card.povId, ...card.presentIds].filter((id): id is ID => !!id),
       asItBegins: true,
       storyTitle: title
-    }).filter((f) => aboutWhatIsWritten(f.text, written))
+    })
     if (!found.length) continue
     out.push({ sceneId: s.id, chapterId: s.chapterId, label: s.label, title: plainTitle(s.title), text: found[0].text })
   }
+  return out
+}
+
+/** A scene card with nothing to go on: no goal and no beats (a title, perhaps a When or who is in it, at most). */
+export const emptyCard = (c: { goal?: string; beats?: string[] } | undefined): boolean => !c || (!String(c.goal ?? '').trim() && !(c.beats ?? []).some((b) => String(b).trim()))
+
+/** The scenes whose cards are empty, by chapter, in story order (see PlanHubFacts.emptyCards). */
+export function emptyCards(db: DB, storyId: ID, order: readonly OrderedScene[]): Record<ID, ID[]> {
+  const cards = storyCards(db, storyId)
+  const out: Record<ID, ID[]> = {}
+  for (const s of order) if (emptyCard(cards.get(s.id))) (out[s.chapterId] ??= []).push(s.id)
   return out
 }
 
@@ -181,6 +183,7 @@ export function planHubFacts(db: DB, storyId: ID): PlanHubFacts {
     lastSceneId: lastScene?.id ?? null,
     lastGist: lastScene ? quietly(() => gistOf(db, storyId, lastScene.id), '') : '',
     threads: threadsAt(db, storyId, lastScene?.id ?? null, quietly),
-    drift: quietly(() => planDrift(db, storyId, order, last), [])
+    drift: quietly(() => planDrift(db, storyId, order, last), []),
+    emptyCards: quietly(() => emptyCards(db, storyId, order), {})
   }
 }

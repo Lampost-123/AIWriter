@@ -19,7 +19,7 @@ import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
-import { openStoryBuilderFor } from '@/features/outline/open'
+import { openPlanHub } from '@/features/outline/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLogic'
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
@@ -596,7 +596,7 @@ function NextChapter({ layout, outline, storyId }: { layout: BoardLayout; outlin
   const n = outline.chapters.length + 1
   const blank = !outline.scenes.some((s) => s.wordCount > 0) && outline.scenes.length <= 1
   const plan = async (): Promise<void> => {
-    if (blank) return openStoryBuilderFor(storyId)
+    if (blank) return openPlanHub(storyId)
     const id = await actions.addChapter(storyId)
     if (id) useApp.getState().navigate({ kind: 'outline', storyId, chapterId: id })
   }

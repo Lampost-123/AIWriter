@@ -333,3 +333,50 @@ Goal: The debt comes due.`
     expect(treeOf(session().run!)[1].children).toEqual([])
   })
 })
+
+describe('the Plan hub’s batches (2026-10-20)', () => {
+  /** Scenes for a chapter the story has, read under its heading (the chapter kept already), as the hub asks for them. */
+  async function hubScenes(text: string): Promise<string> {
+    let id = ''
+    // The chapter is in the story (so it is never taken for deleted and made anew).
+    main.present.add('c4')
+    const lead = '## Chapter: The Linn\n'
+    const chapterKey = treeOf({ text: '', lead, status: 'complete' } as Parameters<typeof treeOf>[0])[0].key
+    await suggestOutlineWith(
+      's',
+      { acts: 0, chapters: 1, scenes: 0 },
+      async (taskId) => {
+        id = taskId
+        return { generationId: `g-${taskId}` }
+      },
+      { lead, decisions: { [chapterKey]: { status: 'kept', id: 'c4' } }, place: { at: 'here', chapterId: 'c4', afterSceneId: 's5', actId: 'a2', afterChapterId: 'c4' } }
+    )
+    main.listeners.get('task:done')!({ job: 'outline', taskId: id, text, generationId: `g-${id}`, status: 'complete', cutOff: false })
+    return id
+  }
+
+  it('keeps the next scene right after the last scene written, in the chapter being written', async () => {
+    await hubScenes('### Scene: Across the Linn\nSummary: Oskar takes them over.\n- Fog\n\n### Scene: The salt house gate\nSummary: Men in grey wait.\n- Grey coats')
+    const run = session().run!
+    expect(run.place).toMatchObject({ at: 'here', afterSceneId: 's5' })
+    const scenes = treeOf(run)[0].children
+    expect(scenes.map((s) => s.title)).toEqual(['Across the Linn', 'The salt house gate'])
+    await keepSuggestions('s', [scenes[0].key])
+    expect(main.kept.at(-1)).toEqual([expect.objectContaining({ key: scenes[0].key, kind: 'scene', parent: { id: 'c4' }, after: { id: 's5' } })])
+    expect(main.toasts.at(-1)!.message).toBe('Added “Across the Linn” to the story.')
+    // The next follows the one kept before it.
+    await keepSuggestions('s', [scenes[1].key])
+    expect(main.kept.at(-1)![0]).toMatchObject({ after: { id: expect.stringMatching(/^id-c0s0-/) } })
+  })
+
+  it('makes suggestions from a talk’s change when there were none, to keep, change or discard', () => {
+    expect(session()).toBeUndefined()
+    expect(applyRevision('s', { text: '## Chapter: The Betrayal\nGoal: g\n\n### Scene: Grey coats\nSummary: s' })).toBe(true)
+    const run = session().run!
+    expect(run).toMatchObject({ status: 'complete', place: { at: 'end' }, decisions: {} })
+    expect(treeOf(run)[0].title).toBe('The Betrayal')
+    // Nothing that isn't a plan is made into suggestions.
+    useOutlineHelper.setState({ sessions: {} })
+    expect(applyRevision('s', { text: 'Just words.' })).toBe(false)
+  })
+})

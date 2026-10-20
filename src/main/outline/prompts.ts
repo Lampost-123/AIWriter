@@ -220,6 +220,28 @@ ${SCENE_RULES}
 ${STAGE_SHARED}`
 }
 
+/**
+ * The Plan hub's "Fill in the empty cards" (Adam, 2026-10-20): scenes he has named (a title, perhaps a When or who is in
+ * it) with nothing on their cards about what happens, planned from the story so far. One card for each, in order; the
+ * window puts each only in its card's empty parts.
+ */
+export function planFillSystem(): string {
+  return `${MARKER} update fill
+You help a novelist plan scenes they have named but not planned yet: each has a title (and perhaps a When, or who is in it) but nothing on its card about what happens. Plan each one's card from the story so far and the scenes around it. You plan; you never write the story itself.
+
+Answer in exactly this form and nothing else: no introduction, no notes at the end, no bold or other formatting. One card for each scene given, in the same order:
+
+${SCENE_FORM}
+
+Rules:
+- Exactly one scene card for each scene given, in the order given, each under its own "### Scene:" heading with the scene's own title.
+- Keep to what each card already says (its When, who is in it, where), and fit each scene between the scene before it and the scene after it.
+- Add "Point of view:", "Characters:", "Location:" or "Mood:" lines after its When for what its card doesn't say yet.
+${SCENE_RULES}
+${THREAD_RULES}
+${STAGE_SHARED}`
+}
+
 /** Where the story stands, for the first stage: carrying on from it, or starting from the premise. */
 export function stageStart(o: { chapters: number; lastAct: string | null; newActs: boolean }): string {
   if (o.chapters <= 0) return 'The story has nothing written or planned yet: start it from the premise.'

@@ -39,14 +39,26 @@ export interface PlanHubFacts {
   threads: HubThread[]
   /** Planned scenes after the last one written whose cards no longer fit what has been written (at most a few). */
   drift: HubDrift[]
+  /**
+   * Scenes whose cards are empty (a title, but no goal and no beats), by chapter, in story order: the hub offers to fill
+   * them in from the story so far (Adam, 2026-10-20), never touching what a card already says.
+   */
+  emptyCards: Record<ID, ID[]>
 }
 
 export interface PlanUpdateRequest {
   /** Made by the interface, so every task event can be matched to it. */
   taskId: ID
   storyId: ID
-  /** The planned scenes to write again, in story order (the drift card's). */
+  /** The planned scenes to write again, in story order (the drift card's), or the scenes whose empty cards to fill in. */
   sceneIds: ID[]
+  /**
+   * 'update' (left out): the drifting cards written again so they fit. 'fill': the cards of scenes with nothing on them
+   * (a title only) planned from the story so far, for the window to put only in their empty parts.
+   */
+  mode?: 'update' | 'fill'
+  /** Adam's own words and the plot threads he ticked (the hub's box), as his direction. */
+  direction?: string
 }
 
 /** What the main process says each scene's card is now, for showing Adam what changes before he keeps it. */

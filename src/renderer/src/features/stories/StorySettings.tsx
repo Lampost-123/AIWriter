@@ -18,6 +18,7 @@ import { SaveNote } from '@/features/world/parts/SaveNote'
 import { Switch } from '@/features/world/parts/Switch'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { useSlow } from '@/features/world/parts/useSlow'
+import { builderKey, loadBrief, useBuilders } from '@/features/storyBuilder/store'
 import { canRetry, flowRunning, loadFlows, retryFlow, runFlow, stopFlow, useFlowAbout, useFlows } from './flows'
 import { usePreview } from './hooks'
 import { PlacementEditor, Warnings } from './PlacementEditor'
@@ -168,6 +169,12 @@ interface AboutDraft {
 }
 
 function AboutStory({ story, summary }: { story: Story; summary: string }): React.JSX.Element {
+  // The story's whole idea is the Story builder's plot, written in the Plan hub (2026-10-20): never asked for again
+  // here. The premise is its short form, which the AI keeps in mind for every scene; a link goes to the idea.
+  const plot = useBuilders((s) => s.builders[builderKey(story.id)]?.brief?.plot.trim() ?? '')
+  useEffect(() => {
+    void loadBrief(story.id)
+  }, [story.id])
   const [draft, setDraft] = useState<AboutDraft>({ title: story.title, premise: story.premise, themes: story.themes, tone: story.tone })
   const ref = useRef(draft)
   const autosave = useAutosave<AboutDraft>(
@@ -203,7 +210,14 @@ function AboutStory({ story, summary }: { story: Story; summary: string }): Reac
       <Field label="Title">
         {(id) => <Input id={id} value={draft.title} placeholder="Untitled story" onChange={(e) => update({ title: e.target.value })} />}
       </Field>
-      <Field label="Premise" hint="What this story is about, in a few sentences. The AI keeps it in mind for every scene.">
+      <Field
+        label="Premise"
+        hint={
+          plot
+            ? 'The short version of your idea: the AI keeps it in mind for every scene. Your whole idea is in Plan, under “The idea, cast and world”.'
+            : 'What this story is about, in a few sentences. The AI keeps it in mind for every scene.'
+        }
+      >
         {(id) => (
           <AutoTextarea
             id={id}
@@ -215,6 +229,16 @@ function AboutStory({ story, summary }: { story: Story; summary: string }): Reac
           />
         )}
       </Field>
+      {plot ? (
+        <button
+          type="button"
+          className="-mt-3 self-start text-[12.5px] font-medium text-accent hover:underline"
+          onClick={() => useApp.getState().navigate({ kind: 'storyBuilder', storyId: story.id, step: 'idea' })}
+          data-open-idea
+        >
+          Open the whole idea
+        </button>
+      ) : null}
       <Field label="Themes">
         {(id) => (
           <AutoTextarea

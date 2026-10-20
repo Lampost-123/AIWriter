@@ -66,3 +66,41 @@ describe('Update the plan', () => {
     )
   })
 })
+
+describe('Fill in the empty cards (2026-10-20)', () => {
+  it('plans only the cards still empty, wherever they are, with Adam’s words; nothing changes by itself', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const o = repo.getOutline(db, story.id)
+    const s1 = o.scenes[0].id
+    const s2 = repo.createScene(db, o.chapters[0].id, { title: 'The keeper’s vigil' }).id
+    const s3 = repo.createScene(db, o.chapters[0].id, { title: 'Planned already' }).id
+    repo.saveSceneText(db, s1, null, 'Wren crossed on the late ferry, and the fog came down behind her.')
+    setCard(db, s1, { goal: 'Wren crosses.' })
+    setCard(db, s2, { when: 'Day 5, dusk' })
+    setCard(db, s3, { goal: 'Already has a goal.' })
+    const events: { name: keyof AppEvents }[] = []
+    const { generationId } = startPlanUpdate(
+      { db, model: model(), emit: (name) => void events.push({ name }) },
+      { taskId: 'f1', storyId: story.id, sceneIds: [s3, s2, s1], mode: 'fill', direction: 'Wren keeps watch alone.' }
+    )
+    const t0 = Date.now()
+    while (!events.some((e) => e.name === 'task:done')) {
+      if (Date.now() - t0 > 10_000) throw new Error('The job never finished')
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    const record = gens.getGeneration(db, generationId)
+    expect(record.messages[0].content.startsWith(`${MARKER} update fill`)).toBe(true)
+    expect(record.messages[0].content).toContain('What the author wants comes first')
+    const user = record.messages[1].content
+    expect(user).toContain('## The scenes to plan\nScene 1 of 1: Ch 1, Sc 2\n### Scene: The keeper’s vigil\nWhen: Day 5, dusk\nWhat its card needs:')
+    expect(user).toContain('## What the author wants (make it happen)\nWren keeps watch alone.')
+    expect(user).not.toContain('Planned already\nWhen')
+    expect(record.direction).toBe('Wren keeps watch alone.')
+    expect(record.response).toContain('### Scene: The keeper’s vigil')
+    expect(repo.getScene(db, s2).card.goal).toBe('')
+    expect(() => startPlanUpdate({ db, model: model(), emit: () => undefined }, { taskId: 'f2', storyId: story.id, sceneIds: [s3], mode: 'fill' })).toThrow(
+      'Those scene cards aren’t empty any more'
+    )
+  })
+})

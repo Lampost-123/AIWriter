@@ -6,7 +6,7 @@ import { memoryWorld } from '../../../tests/unit/helpers'
 import { setCard } from '../../../tests/unit/storyIndexWorld'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
-import { aboutWhatIsWritten, cardSaysSomething, chapterOf, lastWrittenAt, planHubFacts, sceneOrder } from './facts'
+import { cardSaysSomething, chapterOf, lastWrittenAt, planHubFacts, sceneOrder } from './facts'
 import { planUpdateScenes } from './update'
 
 /**
@@ -84,17 +84,21 @@ describe('where the plan has drifted from what is written', () => {
     expect(cardSaysSomething({ goal: 'Wren climbs.' })).toBe(true)
   })
 
-  it('counts a finding only when it names a written scene, or none', () => {
-    const written = new Set(['Ch 1, Sc 1', 'Ch 1, Sc 2'])
-    expect(aboutWhatIsWritten('This card’s When is earlier than Ch 1, Sc 2 (Day 3).', written)).toBe(true)
-    expect(aboutWhatIsWritten('This card’s When is earlier than Ch 2, Sc 1 (Day 3).', written)).toBe(false)
-    expect(aboutWhatIsWritten('This card says Wren is 40, but Wren’s entry says 19.', written)).toBe(true)
-  })
-
   it('shows each card as it is before an update', () => {
     const w = world()
     expect(planUpdateScenes(w.db, [w.s3, 'gone'])).toEqual([
       { sceneId: w.s3, label: 'Ch 2, Sc 1', title: 'Up the steps', goal: 'Wren climbs the tower.', when: 'Day 1, morning', beats: [] }
     ])
+  })
+})
+
+describe('empty scene cards (2026-10-20)', () => {
+  it('lists, by chapter, the scenes with no goal and no beats, written or not', () => {
+    const w = world()
+    const empty = repo.createScene(w.db, w.ch2, { title: 'The keeper’s vigil' }).id
+    setCard(w.db, empty, { when: 'Day 5, dusk' })
+    const facts = planHubFacts(w.db, w.storyId)
+    // Ch 1's written scenes have no goal or beats either: their cards are empty too.
+    expect(facts.emptyCards).toEqual({ [w.ch1]: [w.s1, w.s2], [w.ch2]: [empty] })
   })
 })

@@ -103,7 +103,7 @@ function WholePlan({ storyId, text, intro }: { storyId: ID; text: string; intro:
       {intro ? (
         <p className="mb-2 text-[12.5px] text-muted">
           {changed ? `${changed} ${changed === 1 ? 'part is' : 'parts are'} new or changed, marked below.` : 'The same plan, worded a little differently.'}{' '}
-          Apply puts this in place of the suggestions you haven’t decided on; Undo brings them back.
+          Made, it takes the place of the suggestions you haven’t decided on; Undo brings them back.
         </p>
       ) : null}
       <div className="flex flex-col gap-1.5">
@@ -209,8 +209,8 @@ export function PlanPreview({ storyId, revision }: { storyId: ID; revision: Plan
   return (
     <div>
       <p className="mb-2 text-[12.5px] text-muted">
-        {n ? `${n} ${n === 1 ? 'part changes' : 'parts change'}; everything else stays as it is.` : 'Nothing in the plan changes.'} Undo brings the old
-        version back after you apply.
+        {n ? `${n} ${n === 1 ? 'part changes' : 'parts change'}; everything else stays as it is.` : 'Nothing in the plan changes.'} Once it is made, Undo
+        brings the old version back.
       </p>
       {revision.lost ? (
         <p className="mb-2 text-[12px] text-danger">
@@ -240,23 +240,44 @@ export function PlanPreview({ storyId, revision }: { storyId: ID; revision: Plan
   )
 }
 
-/** The talk panel for a story's suggestions. */
-export function PlanTalk({ storyId, running, className }: { storyId: ID; running: boolean; className?: string }): React.JSX.Element {
+/**
+ * The talk panel for a story's suggestions. The Plan hub (2026-10-20) gives it its own words (`intro`, `quick`) and calls
+ * its button "Make this change"; the change is still shown first, and only that button makes it.
+ */
+export function PlanTalk({
+  storyId,
+  running,
+  className,
+  intro,
+  quick,
+  applyLabel
+}: {
+  storyId: ID
+  running: boolean
+  className?: string
+  intro?: string
+  quick?: string[]
+  applyLabel?: string
+}): React.JSX.Element {
   const scope = planScope(storyId)
   const preview = useTalks((s) => s.talks[scope]?.preview)
   return (
     <TalkPanel
       scope={scope}
       className={className}
-      intro="Tell the AI what to change: “make chapter 3 a betrayal”, “move the health check to the kitchen”, “give Mara a bigger part”. It changes only what your request reaches, everywhere it shows up, and shows you the change first."
+      intro={
+        intro ??
+        'Tell the AI what to change: “make chapter 3 a betrayal”, “move the health check to the kitchen”, “give Mara a bigger part”. It changes only what your request reaches, everywhere it shows up, and shows you the change first.'
+      }
       placeholder="What would you like changed?"
-      quick={['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
+      quick={quick ?? ['Rework the rest to fit my changes', 'Add a twist in the middle', 'Raise the stakes', 'Tighten the pacing', 'Closer to the recipe']}
       disabled={running ? 'Wait for the plan to finish arriving.' : null}
       onSay={(m) => void talkPlan(storyId, m)}
       preview={isPlanRevision(preview) ? <PlanPreview storyId={storyId} revision={preview} /> : null}
       onApply={() => applyPlanTalk(storyId)}
       onDecline={() => declinePlanTalk(storyId)}
       canApplyStraightAway
+      applyLabel={applyLabel}
     />
   )
 }

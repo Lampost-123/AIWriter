@@ -1,0 +1,973 @@
+/*
+  The Plan hub (features/planHub/, 2026-10-20): one page, the same in both arrangements, built to the mid-story mock-up.
+  Colours come only from the theme's tokens: amber (--ai) is the AI's alone (its suggestions, YOU ARE HERE, Plan it),
+  the accent the choice made (a scope chip pressed) and links, green what is done. On the desk the cards lie on the sheet's
+  paper (--card); in the panels on the page (--surface). Motion at the New look's speeds; with less motion nothing moves.
+*/
+
+.plan-hub {
+  --hub-card: var(--surface);
+  --hub-sunk: var(--bg);
+  --hub-row: var(--surface);
+  position: absolute;
+  inset: 0;
+  color: var(--fg);
+}
+[data-arrangement='desk'] .plan-hub {
+  --hub-card: var(--card);
+  --hub-sunk: color-mix(in oklab, var(--surface) 55%, var(--page));
+  --hub-row: var(--card);
+}
+.hub-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  /* Its height is the window onto the page: the talk beside the plan is never taller than it (cqh, below). */
+  container: hub / size;
+}
+
+/* ---------- The header ---------- */
+.hub-head {
+  padding: 16px 28px 14px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in oklab, var(--hub-card) 70%, transparent);
+}
+.hub-head-row {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.hub-back {
+  max-width: 1240px;
+  margin: 0 auto 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-radius: 6px;
+  transition: color var(--dur-quick) ease-out;
+}
+.hub-back:hover {
+  color: var(--fg);
+}
+.hub-head-t {
+  margin-right: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hub-head-k {
+  font-size: 12px;
+  color: var(--muted);
+}
+.hub-title {
+  font: 600 24px/1.2 var(--heading-font);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.hub-written {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- The body: the plan, and the talk beside it ---------- */
+.hub-body {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 24px 28px 160px;
+}
+.hub-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.hub-side {
+  flex: 1 1 280px;
+  max-width: 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+  /* Never taller than the page's window, so nothing of it is out of reach while it stays in view. */
+  max-height: calc(100cqh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.hub-side .hub-talk > div[aria-live='polite'] {
+  max-height: min(44cqh, 520px);
+}
+.hub-talk {
+  background: var(--hub-card);
+}
+.hub-side-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--hub-card);
+}
+
+/* ---------- Cards ---------- */
+.hub-card {
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--hub-card);
+  padding: 20px;
+}
+.hub-next {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-color: color-mix(in oklab, var(--ai) 42%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 30%, var(--hub-card));
+}
+.hub-next-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hub-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--ai) 78%, var(--fg));
+}
+.hub-h1 {
+  font: 600 22px/1.25 var(--heading-font);
+  letter-spacing: -0.01em;
+}
+.hub-h2 {
+  font: 600 18px/1.3 var(--heading-font);
+}
+.hub-h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.hub-last {
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 14px;
+}
+.hub-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.hub-box {
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--hub-sunk);
+}
+.hub-box.is-idea {
+  font-family: var(--serif-font);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.hub-box.is-idea::placeholder {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+}
+
+/* What to plan, and the threads waiting. */
+.hub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.hub-chips-l {
+  margin-right: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hub-chip {
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--fg);
+  transition:
+    border-color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out,
+    color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--motion-glide);
+}
+.hub-chip:hover {
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line-strong));
+}
+.hub-chip:active {
+  scale: 0.97;
+}
+.hub-chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.hub-chip:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.hub-thread {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--fg);
+  background: var(--surface-2);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] .hub-thread {
+  background: color-mix(in oklab, var(--surface-2) 70%, var(--card));
+}
+.hub-thread:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.hub-thread.is-on {
+  background: var(--ai-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ai) 55%, transparent);
+}
+
+/* Plan it. */
+.hub-go {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  min-height: 42px;
+}
+.hub-plan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ai-fg);
+  background: var(--ai);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--motion-glide);
+}
+.hub-plan-btn:hover {
+  filter: brightness(1.06);
+}
+.hub-plan-btn:active {
+  scale: 0.97;
+}
+.hub-go-s {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The cast and world, on a new story's card. */
+.hub-cast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: var(--hub-sunk);
+}
+.hub-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  border-radius: 4px;
+}
+.hub-link:hover {
+  text-decoration: underline;
+}
+.hub-size-auto {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* ---------- The story has moved on from the plan ---------- */
+.hub-drift {
+  padding: 16px;
+  border-radius: 14px;
+}
+.hub-drift-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.hub-drift-text {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.hub-drift-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.hub-update {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hub-update-t {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.hub-update-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-update-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--ai) 40%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 40%, var(--hub-card));
+}
+.hub-update-was {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--faint) 60%, transparent);
+}
+
+/* ---------- The story line ---------- */
+.hub-line {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hub-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 42px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  background: var(--hub-row);
+}
+.hub-row.is-written {
+  color: var(--muted);
+}
+.hub-row.is-dashed {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+}
+.hub-row.is-faint {
+  color: var(--muted);
+}
+.hub-row-mark {
+  flex: none;
+  width: 16px;
+  display: grid;
+  place-items: center;
+}
+.hub-row-mark.is-done {
+  color: var(--success);
+}
+.hub-row-mark.is-planned::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+}
+.hub-row-mark.is-small {
+  width: 14px;
+}
+.hub-row-words {
+  flex: 1 1 240px;
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.hub-row-ch {
+  font-weight: 600;
+}
+.hub-dot {
+  color: var(--faint);
+}
+.hub-row-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+.hub-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--accent);
+  transition: background-color var(--dur-quick) ease-out;
+}
+.hub-row-btn:hover {
+  background: var(--accent-soft);
+}
+.hub-row-btn.is-quiet {
+  color: var(--muted);
+}
+.hub-row-btn.is-quiet:hover {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+.hub-row-btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.hub-scene-link {
+  border-radius: 4px;
+  text-align: left;
+  color: inherit;
+}
+.hub-scene-link:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--faint);
+}
+
+/* YOU ARE HERE. */
+.hub-here {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+}
+.hub-here > span[aria-hidden] {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ai);
+}
+.hub-here-t {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: color-mix(in oklab, var(--ai) 78%, var(--fg));
+}
+
+/* Inside an opened row: chapters written, or planned chapter by chapter. */
+.hub-row-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 6px 22px;
+}
+.hub-kid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 34px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 8px;
+}
+.hub-kid-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--fg);
+  border-radius: 4px;
+}
+button.hub-kid-name:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--faint);
+}
+.hub-kid-meta {
+  font-size: 12px;
+  color: var(--faint);
+}
+.hub-kid-drift {
+  color: var(--accent);
+}
+.hub-kid-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.hub-kid-toggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--muted);
+}
+.hub-kid-toggle:hover {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+.hub-kid-goal {
+  padding: 0 10px 4px 34px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.hub-kid-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 8px 8px 34px;
+  font-size: 13px;
+}
+.hub-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 6px;
+}
+.hub-chap-act {
+  padding: 10px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.hub-chap-batch {
+  padding: 4px 0 8px 22px;
+}
+.hub-chev {
+  transition: transform var(--dur-quick) var(--motion-glide);
+}
+.hub-chev.is-open {
+  transform: rotate(90deg);
+}
+
+/* What a planned scene no longer fits, and Show me's light on it. */
+.hub-drift-note {
+  margin: 2px 0 4px 8px;
+  padding: 5px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--accent-soft) 55%, transparent);
+}
+.hub-drift-note.is-inline {
+  margin-left: 0;
+}
+.hub-drift-label {
+  font-weight: 600;
+  color: var(--fg);
+}
+.is-lit {
+  animation: hub-lit 2.4s var(--motion-glide) 2;
+}
+@keyframes hub-lit {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  30% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+}
+
+/* An empty story line (a new story, before anything is planned). */
+.hub-line-empty {
+  padding: 26px 22px;
+  border-radius: 14px;
+  border: 1px dashed var(--line-strong);
+  text-align: center;
+}
+.hub-line-empty-rows {
+  margin: 0 auto 14px;
+  width: min(320px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-line-empty-rows > span {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+.hub-line-empty-rows > span:nth-child(2) {
+  width: 80%;
+  margin-left: 10%;
+  background: color-mix(in oklab, var(--ai-soft) 70%, var(--surface-2));
+}
+.hub-line-empty-rows > span:nth-child(3) {
+  width: 60%;
+  margin-left: 20%;
+}
+.hub-line-empty-t {
+  font: 600 15px/1.3 var(--heading-font);
+}
+.hub-line-empty-s {
+  margin: 6px auto 0;
+  max-width: 52ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---------- The AI's suggestions in the line ---------- */
+.hub-line-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+.hub-batch-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 32px;
+}
+.hub-batch-t {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+.hub-sugs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-sugs-in {
+  margin: 6px 0 0 14px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-sug {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+  padding: 11px 12px 11px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--ai) 42%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 40%, var(--hub-card));
+  transition:
+    background-color var(--dur-base) ease-out,
+    border-color var(--dur-base) ease-out,
+    opacity 140ms ease-in;
+}
+.hub-sug.is-kept {
+  border-color: var(--line);
+  background: var(--hub-row);
+}
+.hub-sug.is-leaving {
+  opacity: 0;
+}
+.hub-sug.is-back {
+  animation: hub-back 1.1s var(--motion-glide);
+}
+@keyframes hub-back {
+  0% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ai) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.hub-sug-mark {
+  flex: none;
+  width: 14px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  color: var(--success);
+}
+.hub-sug-mark:not(.is-kept)::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  border-radius: 1.5px;
+  background: var(--ai);
+}
+.hub-sug-body {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.hub-sug-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  line-height: 1.4;
+}
+.hub-sug-toggle {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  margin-left: -4px;
+  margin-right: -4px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--faint);
+}
+.hub-sug-toggle:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 8%, transparent);
+}
+.hub-sug-toggle-gap {
+  display: none;
+}
+.hub-sug-label {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.hub-sug-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.hub-sug.is-act .hub-sug-title,
+.hub-sug.is-chapter .hub-sug-title {
+  font-family: var(--heading-font);
+  font-size: 15px;
+}
+.hub-sug-when,
+.hub-sug-edited {
+  font-size: 12px;
+  color: var(--faint);
+}
+.hub-sug-edited {
+  font-style: italic;
+}
+.hub-sug-text {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.hub-sug-more {
+  margin-top: 6px;
+}
+.hub-sug-beats {
+  list-style: decimal;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.hub-sug-actions {
+  flex: none;
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hub-keep {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ai-fg);
+  background: var(--ai);
+  transition:
+    filter var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--motion-glide);
+}
+.hub-keep:hover {
+  filter: brightness(1.06);
+}
+.hub-keep:active,
+.hub-change:active {
+  scale: 0.97;
+}
+.hub-change {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  transition:
+    background-color var(--dur-quick) ease-out,
+    scale var(--dur-press) var(--motion-glide);
+}
+.hub-change:hover {
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.hub-txt {
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  transition:
+    color var(--dur-quick) ease-out,
+    background-color var(--dur-quick) ease-out;
+}
+.hub-txt:hover {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.hub-kept {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--success);
+}
+.hub-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--ai);
+}
+.hub-edit {
+  background: var(--hub-card);
+}
+
+/* Faint rows where the suggestions will lie, while the first is on its way. */
+.hub-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-waiting > span {
+  height: 58px;
+  border-radius: 10px;
+  border: 1px dashed color-mix(in oklab, var(--ai) 40%, var(--line));
+  background: color-mix(in oklab, var(--ai-soft) 25%, transparent);
+  animation: hub-wait 1.8s ease-in-out infinite;
+}
+.hub-waiting > span:nth-child(2) {
+  animation-delay: 0.3s;
+}
+@keyframes hub-wait {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- Earlier suggestions ---------- */
+.hub-earlier {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.hub-earlier-t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.hub-earlier-t:hover {
+  color: var(--fg);
+}
+.hub-earlier-n {
+  margin-left: 4px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+}
+.hub-earlier-s {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.hub-earlier-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Less motion: nothing moves or glows. */
+@media (prefers-reduced-motion: reduce) {
+  .is-lit,
+  .hub-sug.is-back,
+  .hub-waiting > span {
+    animation: none;
+  }
+  .is-lit {
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+}
+
+/* On the desk the room's own heading already says Plan, over the sheet. */
+[data-arrangement='desk'] .hub-head-k {
+  display: none;
+}
+
+/* How to plan and how much, on a new story's card: no room of its own above it (the card spaces its parts). */
+.hub-size > fieldset {
+  margin-top: 0;
+}

@@ -35,6 +35,7 @@ import { HistoryView } from '@/features/history/HistoryView'
 import { VariantsView } from '@/features/variants/VariantsView'
 import { ChapterPlanner } from '@/features/outline/ChapterPlanner'
 import { RecipeStoryPlan, StoryBuilderView } from '@/features/storyBuilder/StoryBuilderView'
+import { PlanHub } from '@/features/planHub/PlanHub'
 import { WorldBuilderView } from '@/features/worldBuilder/WorldBuilderView'
 import { ConsistencyView } from '@/features/consistency/ConsistencyView'
 import { DictationLayer } from '@/features/dictation/DictationLayer'
@@ -246,12 +247,13 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
       {view.kind === 'variants' && <VariantsView key={view.sceneId} sceneId={view.sceneId} />}
-      {/* The outline helper and a recipe's plan are the Story builder's outline and idea steps now (one place to build). */}
+      {/* The Plan hub (2026-10-20): the one place to plan with AI. The outline helper is the hub now; a chapter's own plan stays. */}
+      {view.kind === 'planHub' && <PlanHub key={view.storyId} storyId={view.storyId} at={view.at} back={view.back} />}
       {view.kind === 'outline' &&
         (view.chapterId ? (
           <ChapterPlanner key={view.chapterId} storyId={view.storyId} chapterId={view.chapterId} />
         ) : (
-          <StoryBuilderView key={view.storyId} storyId={view.storyId} step="outline" />
+          <PlanHub key={view.storyId} storyId={view.storyId} />
         ))}
       {view.kind === 'storyBuilder' && <StoryBuilderView key={view.storyId} storyId={view.storyId} step={view.step} />}
       {view.kind === 'worldBuilder' && <WorldBuilderView />}

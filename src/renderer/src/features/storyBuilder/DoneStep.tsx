@@ -84,11 +84,11 @@ export function DoneStep({ storyId }: { storyId: ID }): React.JSX.Element {
         ) : null}
         {openCount ? (
           <Button variant="ghost" onClick={() => openStoryBuilder(storyId, 'outline')}>
-            Decide on the rest of the outline
+            Decide on the rest of the plan
           </Button>
         ) : !outlineDone ? (
           <Button variant="ghost" icon={<ListTree size={14} />} onClick={() => openStoryBuilder(storyId, 'outline')}>
-            Plan the outline
+            Plan it with AI
           </Button>
         ) : null}
       </div>

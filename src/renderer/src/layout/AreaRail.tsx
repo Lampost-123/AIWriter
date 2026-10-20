@@ -1,7 +1,7 @@
 // The New look's area rail: a narrow column down the left edge with the four areas (Write, Plan, World, Check),
 // and Ask the world and Settings at its foot. The area of the screen showing is a raised pill (areas.ts says which
 // screen is in which), so opening a screen from anywhere lights its area here. Choosing an area opens its main
-// screen: the page, the outline helper, the codex, the story's consistency.
+// screen: the page, the Plan hub, the codex, the story's consistency.
 import { GlidePill } from '@/components/ui/GlidePill'
 import { Eye, Globe2, List, MessagesSquare, Pencil, Settings as SettingsIcon, type IconType } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
@@ -9,7 +9,7 @@ import { withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
 import { closeAsk, openAsk } from '@/features/ask/open'
 import { openConsistency } from '@/features/consistency/checkStore'
-import { openOutlineHelper } from '@/features/outline/open'
+import { openPlanHub } from '@/features/outline/open'
 import { AREAS, areaOf, type Area } from './areas'
 
 const ICONS: Record<Area, IconType> = { write: Pencil, plan: List, world: Globe2, check: Eye }
@@ -19,7 +19,7 @@ export function openArea(area: Area): void {
   const app = useApp.getState()
   if (area === 'write') app.navigate({ kind: 'write' })
   else if (area === 'plan') {
-    if (app.storyId) openOutlineHelper(app.storyId)
+    if (app.storyId) openPlanHub(app.storyId)
     else app.navigate({ kind: 'threads' })
   } else if (area === 'world') app.navigate({ kind: 'codex' })
   else if (app.storyId) openConsistency(app.storyId)
