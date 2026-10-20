@@ -4225,7 +4225,8 @@ everything again with the failed reply on top. No migration, no new call; what t
   room left by the largest task); the contract is left out, never the check, when it doesn't fit.
 - **Two requests still**: a live run found one request for all six spread the model thin and missed plain contradictions;
   the fake run can't tell (it answers by rule, whatever it is asked: merged, the book's planted slips came out the same),
-  so merging waits for a real A/B. Write the whole chapter keeps its one request (`together`).
+  so merging waits for a real A/B. Write the whole chapter keeps its one request (`together`). Since checkfix (2026-10-20)
+  both requests ask facts and who knows what too ("Check this scene catches again", below).
 - **Asking again** (`repair/retry.ts` `withCorrection`, as the memory keeper's own): a reply that can't be used is asked for
   with the same request and a short line at the end of its last message ("Your last reply to this couldn't be used: ..."),
   never the reply itself, in the checks, story comparisons (`checks/stories.ts`), the story flows (`storyFlows/call.ts`),
@@ -5043,6 +5044,59 @@ in the scene (19,600 characters), everyone and everything in it with all their h
   RECORD_MOST, a chapter told in short counted as given, the scene's words kept as notes, a retry counted under a cent),
   `plan/withBrief.test.ts` (never the book from the world, the covered chapters), `plan/plan.test.ts` ("Also in the world"
   capped, the look-up rule, a brief line backed by a look-up kept), `plan/index.test.ts`, `ai/brief.test.ts`.
+
+## Check this scene catches again (checkfix, 2026-10-20)
+
+A live DeepSeek Flash run of the trap harness's book (61,000 words, 1 sample, 19 planted passages checked after the book
+ends) caught **10 of 12** planted slips on the released app (0.8.1) and **6 of 13** on the overhaul (1 false alarm each).
+Missed by the overhaul only: X4 (Pim reads), X5 (how her father died), X6 (what Kit could know), X9 (how long the road is)
+and X13 (a made-up month). Four causes, each fixed; no migration, no new kind of call.
+
+- **Issues found, then dropped (X6)** (`checks/run.ts` `findingsRuling`). Both requests flagged Kit's "I heard her" (facts
+  and who knows what), and the second opinion ruled both not real ("the memory lists Kit as knowing it, so it is
+  consistent": how he learned it was the slip). Since the requests share their opening (2026-10-19) the second opinion also
+  runs under the checks' own instructions ("when unsure, leave it out"). Now **what two requests find on their own is kept
+  without asking** (`corroborated`): a fact or who-knows-what finding whose words overlap such a finding of the other
+  request (`BOTH_KINDS`; never two of one request, never continuity or the timeline, asked once). Measured on the live
+  replies: 8 such pairs over both runs' 37 checked passages, every one a planted slip, none on a control. The second opinion
+  still rules on everything else (on X6 it rightly dropped the continuity note), and its task now says how someone learned
+  something is a fact like any other and that "leave it out when unsure" is for finding issues, not ruling on them
+  (unmeasured offline). Fewer notes to rule on, and no call when none is left.
+- **Half the checking** (`checks/context.ts` `checkRequests`, `ASKED_IN_BOTH`). The released app's two requests each
+  answered all six checks (its instructions said "one item for each check above" right under the line naming all six), so
+  every slip had two looks. Since the shared opening each request asked its own three. Now both ask **facts and who knows
+  what** too, each its own checks first ("facts, timeline, continuity, knowledge" and "knowledge, voice, style, facts";
+  `checkTask` keeps the order given). One request (one group's checks alone, or `together`) asks each check once. The same
+  slip found twice is one issue (`saveFound`'s `sameThing`); what the scene's contract found comes first, so the request
+  without the contract finding the same words plainly adds nothing.
+- **What the facts check is given** (`checkSections`, `entryText`). Released, the facts request had its own short list
+  "What people here know that this scene touches" (`factsTheWordsTouch`, 10); since 2026-10-19 those were only added to the
+  end of who knows what, or left among its 40 lines. On the released world's memory the decisive fact sat 9th, 5th, 9th and
+  10th in that short list for X4, X5, X6, X9 (released code), but 33rd, 36th, 11th and 38th of 42 in who knows what
+  (overhaul code). The list is its own section again (`TOUCHED_TITLE`, before who knows what, which no longer repeats it): with
+  the fix they are back at 9th, 5th, 9th and 10th. And an entry told in full now shows its **backstory** (key past events,
+  origin, secrets; a place's geography and history), which the check never saw (`formatProfile` short form since milestone
+  5), never the arc's planned start and end (`PLAN_FIELDS`): on the overhaul's own world Tamsin's "her father drowned
+  eleven winters ago below Corran Weir" (X5) and on the released one Hollin's "four days north of Callowmere" (X9) were
+  only there.
+- **X13, the made-up month** (`checks/freeContext.ts` `fromThisScene`). Caught offline, passed live: reading the scene before
+  its check, the memory keeper makes its events in the scene's words ("Frost again: on a raw March morning…"), and the
+  time rule then read March as a month the codex names. An entry the memory made from this scene's own words no longer
+  counts (one from an earlier scene, or Adam's, still does).
+- **Not the checker**: on the overhaul's live world the memory never recorded that Pim can't read (only "Orla will read to
+  Pim anything that comes to the loft") nor how long the road to Hollin is; no check can catch X4 or X9 from that memory.
+  The released run's memory had both. Reading earlier passages for the facts check (the planner's `findInStory`) would
+  cover such gaps; not done here.
+- **Measured offline** (fake provider, `--fake --story book --probes X4,X5,X6,X9,X13,N1-N6`, from the live runs' worlds
+  as the book left them; the fake answers by rule, so catches aren't measured): 22 check requests either way, two a scene;
+  the overhaul's world 350,948 tokens in before, 358,766 after (+2.2%, 16,308 a request: the touched list moves facts, it
+  doesn't add them; the backstory adds about 380 tokens); every request about a scene still opens alike, byte for byte, so
+  the second is read from the cache. Replies grow by one "checked" note (live, about 210 characters) and a slip found
+  twice; second opinions fall when both requests agree. A live re-run is what shows the catch rate.
+- **Tests**: `checks/bothRequests.test.ts` (X6's live replies word for word: kept now, and dropped as before without
+  `corroborated`; which requests ask what; what counts as found by both; the touched list and the backstory),
+  `checks/freeRules.test.ts` (the month in an entry made from the scene itself), and the request shapes in
+  `checks/run.test.ts` and `checks/checks.test.ts`.
 
 ## Milestone 1 scope
 

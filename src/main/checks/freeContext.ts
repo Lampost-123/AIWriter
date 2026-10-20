@@ -82,6 +82,9 @@ function namedDates(text: string, months: Set<number>, years: Set<number>): void
   for (const m of text.matchAll(YEAR_RE)) years.add(Number(m[1]))
 }
 
+/** True when the memory made the entry from this scene's own words (never one of Adam's). */
+export const fromThisScene = (e: Pick<Entry, 'origin' | 'originSceneId'>, sceneId: ID): boolean => e.origin !== 'adam' && e.originSceneId === sceneId
+
 /** All of an entry's own words. */
 const entryText = (e: Entry): string => [e.name, ...(e.aliases ?? []), e.summary, e.description, e.notes, ...Object.values(e.fields ?? {})].filter(Boolean).join('\n')
 
@@ -133,10 +136,13 @@ export function freeContext(db: DB, sceneId: ID, entries: Entry[] = repo.listEnt
     })
   }
 
-  // Months and years the codex and the story's cards name: never made up.
+  // Months and years the codex and the story's cards name: never made up. Not an entry the memory made from this scene's
+  // own words (checkfix, 2026-10-20): reading the scene before its check, the memory keeper makes its events ("Frost on a
+  // raw March morning"), and the month made up in the words then read as one the codex names (the book's X13, caught
+  // offline, passed on DeepSeek).
   const knownMonths = new Set<number>()
   const knownYears = new Set<number>()
-  for (const e of entries) namedDates(entryText(e), knownMonths, knownYears)
+  for (const e of entries) if (!fromThisScene(e, sceneId)) namedDates(entryText(e), knownMonths, knownYears)
   namedDates([card.when, card.notes, card.goal, card.conflict, card.outcome, ...(card.beats ?? [])].join('\n'), knownMonths, knownYears)
   if (cal && storyId) {
     cards ??= calendarCards(db)
