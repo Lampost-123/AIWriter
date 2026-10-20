@@ -18,7 +18,9 @@ const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk', AIWRITE_KEEPER_
 const rooms = (win: Page) => win.getByRole('navigation', { name: 'Rooms' })
 const room = (win: Page, name: string) => rooms(win).getByRole('button', { name: new RegExp(`^${name}`) })
 const links = (win: Page, name: string) => win.locator('[data-desk-room]').getByRole('navigation', { name })
-const outline = (win: Page) => win.locator('[data-plan-page="outline"]')
+// The Plan hub (the outline helper since 2026-10-20), and its newest batch's head.
+const outline = (win: Page) => win.locator('[data-plan-hub]')
+const batchHead = (win: Page) => outline(win).locator('[data-batch-head]').first()
 const toastWith = (win: Page, text: string) => win.locator('div.fixed[aria-live="polite"] > div', { hasText: text })
 const group = (win: Page, kind: string, title: string) => outline(win).getByRole('group', { name: `${kind}: ${title}`, exact: true })
 const spineScene = (win: Page, title: string) => win.locator('[data-desk-spine] [data-row="scene"]', { hasText: title }).first()
@@ -66,10 +68,11 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
     const before = await invoke(win, 'getOutline', story.id)
     const firstChapter = before.chapters[0]
     await room(win, 'Plan').click()
-    await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
+    await links(win, 'Plan').getByRole('button', { name: 'Plan with AI' }).click()
     await expect(outline(win)).toBeVisible()
 
-    // ----- How to plan: in stages, the acts first -----
+    // ----- More of the story; how to plan: in stages, the acts first -----
+    await outline(win).getByRole('group', { name: 'What to plan' }).getByRole('button', { name: 'more of the story' }).click()
     await outline(win).getByRole('radio', { name: 'In stages' }).click()
     await expect(outline(win).getByRole('radio', { name: 'In stages' })).toHaveAttribute('aria-checked', 'true')
     await expect(outline(win).getByRole('combobox', { name: 'Scenes in each chapter', exact: true })).toHaveCount(0)
@@ -77,8 +80,8 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
     await choose(win, 'Chapters', '5 chapters')
     await expect(outline(win).locator('[data-plan-mode="stages"]')).toContainText('First the acts')
     fake.reset()
-    await outline(win).getByRole('button', { name: /^Suggest the acts/ }).click()
-    await expect(outline(win).getByText('Here are the acts: 2 acts. Keep what you like, and plan each act’s chapters when you’re ready.')).toBeVisible()
+    await outline(win).locator('[data-plan-it]').click()
+    await expect(batchHead(win)).toContainText('2 suggestions to keep, change or discard')
     let asked = lastAsked(fake)
     expect(asked.system.startsWith('[AIWRITE-OUTLINE v1] stage acts')).toBe(true)
     expect(asked.user).toContain('Suggest 2 acts, with about 5 chapters in all')
@@ -89,7 +92,8 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
 
     // ----- One act's chapters only, arriving under it -----
     await outline(win).getByRole('button', { name: 'Plan its chapters: “The Arrival”' }).click()
-    await expect(outline(win).getByText('Here are 3 chapters for “The Arrival”. Keep what you like.')).toBeVisible()
+    await expect(group(win, 'Act', 'The Arrival').locator('[data-suggestion="chapter"]')).toHaveCount(3)
+    await expect(batchHead(win)).toContainText('5 suggestions to keep, change or discard')
     asked = lastAsked(fake)
     expect(asked.system.startsWith('[AIWRITE-OUTLINE v1] stage chapters')).toBe(true)
     expect(asked.user).toContain('Suggest the chapters of the act “The Arrival”: about 3 chapters')
@@ -101,12 +105,14 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
 
     // ----- One chapter's scenes, as many as each needs -----
     await outline(win).getByRole('button', { name: 'Plan its scenes: “Rain on the Narrows”' }).click()
-    await expect(outline(win).getByText('Here are 2 scenes for “Rain on the Narrows”. Keep what you like.')).toBeVisible()
+    await expect(group(win, 'Chapter', 'Rain on the Narrows').locator('[data-suggestion="scene"]')).toHaveCount(2)
+    await expect(batchHead(win)).toContainText('7 suggestions to keep, change or discard')
     asked = lastAsked(fake)
     expect(asked.system.startsWith('[AIWRITE-OUTLINE v1] stage scenes')).toBe(true)
     expect(asked.user).toContain('Suggest the scenes of the chapter “Rain on the Narrows”: as many as it needs')
     await outline(win).getByRole('button', { name: "Plan its scenes: “The Ferryman's Price”" }).click()
-    await expect(outline(win).getByText("Here are 3 scenes for “The Ferryman's Price”. Keep what you like.")).toBeVisible()
+    await expect(group(win, 'Chapter', "The Ferryman's Price").locator('[data-suggestion="scene"]')).toHaveCount(3)
+    await expect(batchHead(win)).toContainText('10 suggestions to keep, change or discard')
     await expect(group(win, 'Chapter', 'Rain on the Narrows').locator('[data-suggestion="scene"]')).toHaveCount(2)
     await expect(group(win, 'Chapter', "The Ferryman's Price").locator('[data-suggestion="scene"]')).toHaveCount(3)
 

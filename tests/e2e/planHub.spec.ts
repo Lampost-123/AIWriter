@@ -117,7 +117,7 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     const threads = next.getByRole('group', { name: 'Threads waiting' })
     await expect(threads).toContainText('Will the light go dark at midwinter? (since Ch 2)')
     // Only what makes sense here: Ch 3 is planned already, so no "next chapter"; the sample has no acts to finish.
-    await expect(next.getByRole('group', { name: 'What to plan' }).getByRole('button')).toHaveText(['the next scene', 'the rest of Ch 2'])
+    await expect(next.getByRole('group', { name: 'What to plan' }).getByRole('button')).toHaveText(['the next scene', 'the rest of Ch 2', 'more of the story'])
 
     // The story line: the chapter before folded away, this one's scenes, the marker, the plan ahead, the empty act.
     const rows = line(win).locator('[data-row]')
@@ -126,7 +126,7 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     await expect(line(win).locator('[data-row="current"]')).toContainText('Ch 2 · Sc 1 What the Letter Said · Sc 2 Low Tide')
     await expect(line(win).locator('[data-row="here"]')).toHaveText('YOU ARE HERE')
     await expect(line(win).locator('[data-row="planned"]')).toContainText('Ch 3 to Ch 4 · planned, not written')
-    await expect(line(win).locator('[data-row="acts-only"]')).toContainText('Act 1 · acts only')
+    await expect(line(win).locator('[data-row="acts-only"]')).toContainText('Act 1 · Midwinter · acts only')
 
     // The story has moved on from the plan: no AI call to find it.
     const drift = hub(win).locator('[data-drift-card]')
@@ -297,8 +297,13 @@ test('the panels: the hub mid-story, then a new story from its idea to its plan 
     await expect(start.locator('[data-size]')).toContainText('About 27 scenes.')
     await expect(start.locator('[data-size]')).toContainText('Sized for a story with no length chosen yet.')
     await expect(line(win).locator('[data-line-empty]')).toContainText('Your story line will lie here')
-    // The one idea box is the Story builder's plot.
+    // With no idea yet, Plan it says what to write first, quietly: nothing has gone wrong.
     const idea = start.getByLabel(/^Your idea, in your own words/)
+    await start.locator('[data-plan-it]').click()
+    await expect(start.getByText('Write your idea first: a line or two on what the story is about is enough.')).toBeVisible()
+    await expect(hub(win).getByRole('alert')).toHaveCount(0)
+    await expect(idea).toBeFocused()
+    // The one idea box is the Story builder's plot.
     await idea.fill('A ferryman who owes the Duke money is paid to smuggle the heir out of Varn before the river freezes.')
     await expect.poll(async () => (await invoke(win, 'getStoryBrief', made.id)).plot).toBe(
       'A ferryman who owes the Duke money is paid to smuggle the heir out of Varn before the river freezes.'

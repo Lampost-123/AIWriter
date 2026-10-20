@@ -205,7 +205,7 @@ test('the palette opens the chapter card; a scene restored from Recently deleted
   expect([restored.inherits?.location, restored.inherits?.mood]).toEqual([true, true])
 })
 
-test('the outline helper fills each chapter card, and a scene somewhere else keeps that as its own', async ({ launch }) => {
+test('the Plan hub fills each chapter card, and a scene somewhere else keeps that as its own', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 2 })
   try {
@@ -219,7 +219,8 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     await useFakeModel(win, fake)
 
     await binder(win).locator('[data-story-menu]').click()
-    await win.getByRole('menuitem', { name: 'Outline helper' }).click()
+    await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+    await expect(main(win).locator('[data-plan-hub]')).toBeVisible()
     for (const [label, option] of [
       ['Acts', 'No acts'],
       ['Chapters', '2 chapters'],
@@ -228,8 +229,8 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
       await main(win).getByRole('combobox', { name: label, exact: true }).click()
       await win.getByRole('option', { name: option, exact: true }).click()
     }
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText('Here is the outline: 2 chapters and 6 scenes. Keep what you like.')).toBeVisible()
+    await main(win).locator('[data-plan-it]').click()
+    await expect(main(win).locator('[data-batch-head]')).toContainText('8 suggestions to keep, change or discard')
     const sent = fake.lastRequest()!.body.messages
     expect(sent[0].content).toContain('Point of view: <the character whose eyes most of the chapter is seen through>')
     // The fake gives the first character and place the briefing lists, and the second place to the third scene.
@@ -239,12 +240,13 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     const [place, elsewhere] = listed('place')
     expect([pov, place, elsewhere].every(Boolean)).toBe(true)
 
-    // Each suggestion shows its card, and Edit changes any part of it: the second chapter moves to the other place,
-    // with a mood of Adam's, picked from the codex as on a scene card.
+    // Each suggestion shows its card a click away, and Change changes any part of it: the second chapter moves to the
+    // other place, with a mood of Adam's, picked from the codex as on a scene card.
     const second = main(win).getByRole('group', { name: "Chapter: The Ferryman's Price", exact: true })
+    await main(win).getByRole('button', { name: "Show the details of “The Ferryman's Price”" }).click()
     await expect(second.locator('[data-card-parts]').first()).toContainText(`Point of view: ${pov}`)
     await expect(second.locator('[data-card-parts]').first()).toContainText(`Location: ${place}`)
-    await main(win).getByRole('button', { name: 'Edit “The Ferryman\'s Price”' }).click()
+    await main(win).getByRole('button', { name: 'Change “The Ferryman\'s Price”' }).click()
     const form = main(win).getByRole('form', { name: 'Edit the chapter' })
     await expect(form.getByRole('button', { name: `Remove ${place}` })).toBeVisible()
     await form.getByLabel('Location', { exact: true }).fill(elsewhere)
@@ -258,8 +260,8 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     await expect(second.locator('[data-card-parts]').first()).toContainText('Mood: Grim and cold')
     await expect(second).toContainText('Changed by you')
 
-    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
-    // The outline helper is in the Plan area: the story's tree is in the Write area's list.
+    await main(win).locator('[data-batch-head]').getByRole('button', { name: 'Keep all' }).click()
+    // The Plan hub is in the Plan area: the story's tree is in the Write area's list.
     await openWrite(win)
     await expect(chapterRow(win, 'Rain on the Narrows')).toBeVisible()
 

@@ -29,12 +29,13 @@ test('keeping an outline gives the story its cast and places before anything is 
     await useFakeModel(win, fake)
 
     await binder(win).locator('[data-story-menu]').click()
-    await win.getByRole('menuitem', { name: 'Outline helper' }).click()
+    await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+    await expect(main(win).locator('[data-plan-hub]')).toBeVisible()
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')
     await choose(win, 'Scenes in each chapter', '3 scenes in each')
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText('Here is the outline: 2 acts, 3 chapters and 9 scenes. Keep what you like.')).toBeVisible()
+    await main(win).locator('[data-plan-it]').click()
+    await expect(main(win).locator('[data-batch-head]')).toContainText('14 suggestions to keep, change or discard')
     // Nothing is in the codex until Adam keeps something.
     expect(await invoke(win, 'listEntries', 'character')).toEqual([])
 
@@ -65,8 +66,8 @@ test('keeping an outline gives the story its cast and places before anything is 
     expect((await invoke(win, 'getWorldBuilder')).summary).toBe('')
 
     // A room the cards name ("the kitchen, Venn House") is a kitchen page inside the house.
-    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
-    await expect(main(win).getByText(/^Everything is decided/)).toBeVisible()
+    await main(win).locator('[data-batch-head]').getByRole('button', { name: 'Keep all' }).click()
+    await expect(main(win).locator('[data-batch-head]')).toContainText('All decided')
     const places = await invoke(win, 'listEntries', 'place')
     const house = places.find((e) => e.name === 'Venn House')
     expect(house?.origin).toBe('ai')

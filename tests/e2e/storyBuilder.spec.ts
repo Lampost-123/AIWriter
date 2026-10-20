@@ -18,9 +18,11 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     const [story] = await invoke(win, 'listStories')
     await useFakeModel(win, fake)
 
-    // ----- From the story menu, at its first step -----
+    // ----- From the story menu: Plan with AI (the Plan hub), then the idea, cast and world, at its first step -----
     await binder(win).locator('[data-story-menu]').click()
-    await win.getByRole('menuitem', { name: 'Story builder' }).click()
+    await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+    await expect(main(win).locator('[data-plan-hub]')).toHaveAttribute('data-plan-hub', 'start')
+    await main(win).getByRole('button', { name: 'The idea, cast and world' }).click()
     await expect(main(win).getByRole('heading', { level: 1 })).toHaveText('Build “Book 1” with the AI')
     await expect(main(win).locator('[data-step="idea"]')).toHaveAttribute('aria-current', 'step')
 
@@ -77,11 +79,15 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     // The brief is saved a moment after the build ends (patchBrief waits 400 ms for more changes).
     await expect.poll(async () => (await invoke(win, 'getStoryBrief', story.id)).built).not.toBeNull()
 
-    // ----- The outline: planned from the idea and the codex, with a premise written for it -----
+    // ----- The outline: the Plan hub, planned from the idea and the codex, with a premise written for it -----
     await main(win).locator('[data-step-bar] [data-step="outline"]').first().click()
-    await expect(main(win).getByLabel('Premise', { exact: true })).toHaveAttribute('placeholder', /^Optional: the AI writes it from your plot/)
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText(/^Here is the outline: /)).toBeVisible()
+    const hub = main(win).locator('[data-plan-hub]')
+    await expect(hub).toHaveAttribute('data-plan-hub', 'start')
+    // The one idea box is the plot from Your idea (never asked for again).
+    await expect(hub.getByLabel(/^Your idea, in your own words/)).toHaveValue('A lighthouse keeper’s daughter has one winter to find out who is wrecking ships on purpose.')
+    await expect(hub.getByLabel('Premise', { exact: true })).toHaveCount(0)
+    await hub.locator('[data-plan-it]').click()
+    await expect(hub.locator('[data-batch-head]')).toContainText('to keep, change or discard')
     const sent = fake.lastRequest()!.body.messages
     expect(sent[0].content.startsWith('[AIWRITE-STORY v1] outline')).toBe(true)
     expect(sent[1].content).toContain('Ida Marr')
@@ -93,19 +99,20 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     const group = (kind: string, title: string) => main(win).getByRole('group', { name: `${kind}: ${title}`, exact: true })
     await main(win).getByRole('button', { name: 'Keep “The Wreck”' }).click()
     await expect(group('Scene', 'The Wreck')).toHaveAttribute('data-state', 'kept')
-    await main(win).getByRole('button', { name: 'Edit “Salvage Rights”' }).click()
+    await main(win).getByRole('button', { name: 'Change “Salvage Rights”' }).click()
     const form = main(win).getByRole('form', { name: 'Edit the scene' })
     await form.getByLabel('What happens', { exact: true }).fill('Bram claims the cargo before dawn.')
     await form.getByRole('button', { name: 'Save changes' }).click()
     await expect(group('Scene', 'Salvage Rights')).toContainText('Changed by you')
 
-    // Talked over: the revised plan is a preview until Apply.
+    // Talked over: the revised plan is a preview until "Make this change".
     const planTalk = talk(win, 'Talk it over')
     await planTalk.getByLabel('What would you like changed?').fill('Make the first chapter a betrayal')
     await planTalk.getByRole('button', { name: 'Send' }).click()
     await expect(planTalk.locator('[data-talk-preview]')).toContainText('The Betrayal')
     await expect(main(win).locator('[data-suggestion="chapter"]').first()).toHaveAttribute('aria-label', 'Chapter: Grey Water')
     await expect(planTalk.locator('[data-talk-preview]')).toContainText('1 part changes')
+    await expect(planTalk.locator('[data-apply]')).toHaveText('Make this change')
     await planTalk.locator('[data-apply]').click()
     await expect(main(win).locator('[data-suggestion="chapter"]').first()).toHaveAttribute('aria-label', 'Chapter: The Betrayal')
     // What was kept is still kept, in its place, and Adam's words are still his.
@@ -124,8 +131,8 @@ test('a plot becomes a whole cast and world, then an outline, each part talked o
     await expect(main(win).locator('[data-suggestion="scene"]', { hasText: 'The Dark Lamp' })).toBeVisible()
 
     // Kept: it is in the story, and the codex was not built again for it.
-    await main(win).getByRole('button', { name: /^Keep all that/ }).click()
-    await expect(main(win).getByText(/^Everything is decided/)).toBeVisible()
+    await hub.locator('[data-batch-head]').getByRole('button', { name: 'Keep all' }).click()
+    await expect(hub.locator('[data-batch-head]')).toContainText(/^All decided · \d+ kept/)
     const outline = await invoke(win, 'getOutline', story.id)
     expect(outline.chapters.map((c) => c.title)).toEqual(['The Betrayal', 'The Long Night'])
     expect(outline.scenes.map((s) => s.title)).toContain('A Different Night')

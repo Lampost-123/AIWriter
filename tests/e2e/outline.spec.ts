@@ -3,8 +3,8 @@
 // Arrival", "The Turning"...; chapters "Rain on the Narrows", "The Ferryman's Price", "Lanterns at Low
 // Tide"...; scenes "Arrival at the docks", "A bargain at the docks"...; and three scene ideas).
 //
-//  1. The outline helper suggests acts, chapters and scene cards from the story's premise (an empty
-//     premise gets a quiet word, not an error), and nothing is added until Adam clicks. He changes a
+//  1. The outline helper (the Plan hub since 2026-10-20) suggests acts, chapters and scene cards from the story's premise
+//     (shown in its one idea box while the story has no plot of its own), and nothing is added until Adam clicks. He changes a
 //     scene, discards a chapter (Undo brings it back), keeps one scene (its chapter and act come with
 //     it; Undo takes them out again), then keeps all that's left. What he kept is in the binder under
 //     its acts, in order, each scene's card filled in. The first Keep takes the place of the empty
@@ -34,14 +34,13 @@ const PREMISE =
 // ---------- Finding things on screen ----------
 
 const main = (win: Page) => win.locator('main')
-const heading = (win: Page) => main(win).getByRole('heading', { level: 1 })
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
 /** The toast saying this (there may be others). */
 const toastWith = (win: Page, text: string) => toasts(win).locator(':scope > div', { hasText: text })
 const undoIn = (win: Page, text: string) => toastWith(win, text).getByRole('button', { name: 'Undo' })
 const palette = (win: Page) => win.getByRole('dialog', { name: 'Search' })
 
-/** One of the outline helper's suggestions, with what is inside it. */
+/** One of the Plan hub's suggestions, with what is inside it. */
 const suggestion = (win: Page, kind: 'Act' | 'Chapter' | 'Scene', title: string) =>
   main(win).getByRole('group', { name: `${kind}: ${title}`, exact: true })
 const keepButton = (win: Page, title: string) => main(win).getByRole('button', { name: `Keep “${title}”`, exact: true })
@@ -63,13 +62,20 @@ async function choose(win: Page, label: string, option: string): Promise<void> {
   await expect(main(win).getByRole('combobox', { name: label, exact: true })).toHaveText(option)
 }
 
-/** Opens the outline helper from the story menu (at the head of Write's list, which also says what the story holds). */
+/** The Plan hub (the outline helper since 2026-10-20). */
+const hub = (win: Page) => main(win).locator('[data-plan-hub]')
+/** The newest batch's head: what it is doing, how many are left, Keep all, What the AI saw. */
+const batchHead = (win: Page) => hub(win).locator('[data-batch-head]').first()
+/** The story's idea, in the hub's one idea box (its premise while it has no plot of its own). */
+const ideaBox = (win: Page) => hub(win).getByLabel(/^Your idea, in your own words/)
+
+/** Opens the Plan hub from the story menu (at the head of Write's list, which also says what the story holds). */
 async function openHelper(win: Page, story = 'Book 1'): Promise<void> {
   const menu = binder(win).locator('[data-story-menu]')
   await expect(menu).toContainText(story)
   await menu.click()
-  await win.getByRole('menuitem', { name: 'Outline helper' }).click()
-  await expect(main(win).getByLabel('Premise', { exact: true })).toBeVisible()
+  await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+  await expect(hub(win)).toBeVisible()
 }
 
 /** Opens Earlier suggestions on the helper (folded away each time the helper opens). */
@@ -107,19 +113,9 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
 
     // ----- From the story menu, with the story's premise; a new story is planned from the start -----
     await openHelper(win)
-    await expect(heading(win)).toHaveText('Plan the story from its premise')
-    const premiseBox = main(win).getByLabel('Premise', { exact: true })
-    await expect(premiseBox).toHaveValue(PREMISE)
-
-    // With no premise, a quiet word on what to write first: nothing has gone wrong.
-    await premiseBox.fill('')
-    await expect(premiseBox).toHaveAttribute('placeholder', /^For example: /)
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText('Write the premise first: a line or two on what the story is about is enough.')).toBeVisible()
-    await expect(main(win).getByRole('alert')).toHaveCount(0)
-    await expect(premiseBox).toBeFocused()
-    await premiseBox.fill(PREMISE)
-    await expect(main(win).getByText('Write the premise first', { exact: false })).toHaveCount(0)
+    await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
+    // The story's premise, in the one idea box (it has no plot in the Story builder).
+    await expect(ideaBox(win)).toHaveValue(PREMISE)
     await expect(main(win).getByRole('combobox', { name: 'Acts', exact: true })).toHaveText('3 acts')
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')
@@ -127,8 +123,8 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(main(win).getByText('About 6 scenes.')).toBeVisible()
 
     fake.reset()
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(main(win).getByText('Here is the outline: 2 acts, 3 chapters and 6 scenes. Keep what you like.')).toBeVisible()
+    await hub(win).locator('[data-plan-it]').click()
+    await expect(batchHead(win)).toContainText('11 suggestions to keep, change or discard')
     expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
     const sent = fake.lastRequest()!.body.messages
     expect(sent[0].content.startsWith('[AIWRITE-OUTLINE v1] outline')).toBe(true)
@@ -158,14 +154,14 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(suggestion(win, 'Chapter', 'Rain on the Narrows')).toContainText('“Who burned the mill?” comes back to haunt her')
     // Each scene says quietly when it happens, in the story's days, from Day 1.
     expect(sent[1].content).toContain('It opens on Day 1.')
-    await expect(suggestion(win, 'Scene', 'Arrival at the docks').locator('[data-when]').first()).toHaveText('· Day 1, morning')
-    await expect(suggestion(win, 'Scene', 'A bargain at the market').locator('[data-when]').first()).toHaveText('· Day 3, midday')
+    await expect(suggestion(win, 'Scene', 'Arrival at the docks').locator('[data-when]').first()).toHaveText('Day 1, morning')
+    await expect(suggestion(win, 'Scene', 'A bargain at the market').locator('[data-when]').first()).toHaveText('Day 3, midday')
     await expect(main(win).locator('[data-suggestion][data-state="open"]')).toHaveCount(11)
     await expect(actRows(win)).toHaveCount(0)
     expect((await invoke(win, 'getOutline', story.id)).chapters.map((c) => c.title)).toEqual(['Chapter 1'])
 
     // ----- Change a scene: its title, what happens and its beats -----
-    await main(win).getByRole('button', { name: 'Edit “Arrival at the docks”' }).click()
+    await main(win).getByRole('button', { name: 'Change “Arrival at the docks”' }).click()
     const form = main(win).getByRole('form', { name: 'Edit the scene' })
     await expect(form.getByLabel('Title', { exact: true })).toBeFocused()
     await form.getByLabel('Title', { exact: true }).fill('Arrival in the rain')
@@ -177,8 +173,10 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(form).toHaveCount(0)
     const changed = suggestion(win, 'Scene', 'Arrival in the rain')
     await expect(changed).toContainText('Changed by you')
+    // Its beats and card a click away.
+    await changed.getByRole('button', { name: /^Show the details of/ }).click()
     await expect(changed.locator('li')).toHaveText(['Mara lands in the rain', 'She spots the watcher', 'She slips away'])
-    await expect(changed.locator('[data-when]').first()).toHaveText('· Day 1, before dawn')
+    await expect(changed.locator('[data-when]').first()).toHaveText('Day 1, before dawn')
 
     // ----- Discard a chapter: its scenes go with it, and Undo brings them back -----
     await main(win).getByRole('button', { name: "Discard “The Ferryman's Price”" }).click()
@@ -224,12 +222,11 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     // ----- Keep it again, then everything that's left -----
     await keepButton(win, 'A bargain at the docks').click()
     await toastWith(win, keptOne).getByRole('button', { name: 'Dismiss' }).click()
-    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
+    await batchHead(win).getByRole('button', { name: 'Keep all' }).click()
     await expect(toastWith(win, 'Added an act, a chapter and 3 scenes to the story.')).toBeVisible()
-    await expect(
-      main(win).getByText('Everything is decided. What you kept is in the binder, with each scene’s card filled in.')
-    ).toBeVisible()
-    await expect(main(win).getByRole('button', { name: 'Keep all that’s left' })).toHaveCount(0)
+    // All decided: the batch folds to its head, and what was kept is in the story line.
+    await expect(batchHead(win)).toContainText('All decided · 8 kept')
+    await expect(batchHead(win).getByRole('button', { name: 'Keep all' })).toHaveCount(0)
 
     // In the binder (Write's list): each act with its chapters and scenes, in the order suggested.
     await openWrite(win)
@@ -278,13 +275,13 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await openHelper(win)
     await main(win).getByRole('button', { name: 'What the AI saw' }).click()
     await expect(main(win).getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
-    await expect(main(win).getByText(/^The exact briefing for this outline, written /)).toBeVisible()
-    await main(win).getByRole('button', { name: 'Back to the outline helper' }).click()
-    await expect(main(win).getByText('Everything is decided.', { exact: false })).toBeVisible()
-    await expect(suggestion(win, 'Scene', 'Arrival in the rain')).toHaveAttribute('data-state', 'kept')
+    await expect(main(win).getByText(/^The exact briefing for this plan, written /)).toBeVisible()
+    await main(win).getByRole('button', { name: 'Back to the plan' }).click()
+    await expect(batchHead(win)).toContainText('All decided · 8 kept')
+    await expect(hub(win).locator('[data-planned-chapters]')).toContainText('Ch 1 · Rain on the Narrows')
 
     // ----- Start writing: the first scene kept, its card filled in, offers no ideas -----
-    await main(win).getByRole('button', { name: 'Start writing' }).click()
+    await batchHead(win).getByRole('button', { name: 'Start writing' }).click()
     await expect(sceneTitle(win, 'Arrival in the rain')).toBeVisible()
     await win.getByRole('tab', { name: 'Scene card' }).click()
     await expect(sceneCard(win).getByRole('textbox', { name: 'Beats', exact: true })).toHaveValue('Mara lands in the rain')
@@ -309,9 +306,11 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
 
     // ----- From the palette, asked again: it carries on from what the story has, in its last act -----
     await win.keyboard.press('Control+K')
-    await win.keyboard.type('Outline helper')
-    await palette(win).getByRole('option', { name: 'Outline helper' }).click()
-    await expect(heading(win)).toHaveText('Plan what comes next')
+    await win.keyboard.type('Plan with AI')
+    await palette(win).getByRole('option', { name: 'Plan with AI' }).click()
+    // Planned, nothing written yet: what to plan, in Adam's words.
+    await expect(hub(win)).toHaveAttribute('data-plan-hub', 'planned')
+    await expect(hub(win).getByRole('heading', { name: 'What do you want to plan?' })).toBeVisible()
     await expect(suggestion(win, 'Scene', 'A bargain at the market')).toHaveAttribute('data-state', 'open')
     await expect(suggestion(win, 'Scene', 'Arrival at the market')).toHaveAttribute('data-state', 'kept')
     expect(await win.evaluate('window.sawKept')).toBe(false)
@@ -321,8 +320,8 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await choose(win, 'Chapters', '1 chapter')
     await choose(win, 'Scenes in each chapter', '1 scene in each')
     fake.reset()
-    await main(win).getByRole('button', { name: 'Suggest again' }).click()
-    await expect(main(win).getByText('Here is the outline: 1 chapter and 1 scene. Keep what you like.')).toBeVisible()
+    await hub(win).locator('[data-plan-it]').click()
+    await expect(batchHead(win)).toContainText('2 suggestions to keep, change or discard')
     const again = fake.lastRequest()!.body.messages[1].content
     expect(again).toContain('## What the story has so far\nAct: The Arrival')
     expect(again).toContain('  Chapter: Lanterns at Low Tide')
@@ -368,9 +367,9 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await useFakeModel(win, fake, 'fake/slow')
 
     // A story with nothing written offers its plan in the binder.
-    await binder(win).getByRole('button', { name: 'Plan it with the outline helper' }).click()
-    await expect(heading(win)).toHaveText('Plan the story from its premise')
-    await main(win).getByRole('button', { name: 'Suggest an outline' }).click()
+    await binder(win).getByRole('button', { name: 'Plan it with AI' }).click()
+    await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
+    await hub(win).locator('[data-plan-it]').click()
     await expect(main(win).getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toBeVisible()
     // While it arrives, the suggestions can't be kept yet.
@@ -382,13 +381,13 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(sceneTitle(win, 'Scene 1')).toBeVisible()
     await openHelper(win)
     await expect(main(win).getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
-    await expect(main(win).getByText(/^Suggesting… .+ so far$/)).toBeVisible()
+    await expect(batchHead(win).getByText(/^Suggesting… .+ so far$/)).toBeVisible()
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toBeVisible()
     // Stopped once the next scene has started arriving, so there is something still to decide after one Keep.
     await expect(suggestion(win, 'Scene', 'A bargain at the docks')).toBeVisible({ timeout: 30_000 })
 
     await main(win).getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(main(win).getByText(/^Stopped\. What had arrived is below: /)).toBeVisible()
+    await expect(batchHead(win)).toContainText(/^Stopped\. \d+ suggestions to keep, change or discard/)
     await keepButton(win, 'Arrival at the docks').click()
     await expect(toastWith(win, 'Added “Arrival at the docks” to the story, in a new chapter and act.')).toBeVisible()
     // The binder (Write's list) has it; then back to the helper.
@@ -399,7 +398,7 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     // A request that fails says why in plain words. The suggestions not decided on stay, as they were, under Earlier
     // suggestions: folded away until opened.
     await setModel(win, 'fake/credit')
-    await main(win).getByRole('button', { name: 'Suggest again' }).click()
+    await hub(win).locator('[data-plan-it]').click()
     await expect(main(win).getByText(/says your account is out of credit\. Top up there/)).toBeVisible()
     await expect(toastWith(win, 'Your earlier suggestions are still here, under “Earlier suggestions”.')).toBeVisible()
     const earlier = main(win).getByRole('region', { name: 'Earlier suggestions', exact: true })
@@ -417,8 +416,8 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await expect(toastWith(win, '“The Arrival” and its chapter deleted.')).toBeVisible()
     await expect(actRows(win)).toHaveCount(0)
     await openHelper(win)
-    await expect(heading(win)).toHaveText('Plan the story from its premise')
-    // Back on the helper, the earlier ones are folded away again.
+    await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
+    // Back on the hub, the earlier ones are folded away again.
     await openEarlier(win)
     await expect(suggestion(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     await expect(suggestion(win, 'Scene', 'Arrival at the docks')).toHaveAttribute('data-state', 'open')
@@ -433,8 +432,8 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     // Asked again, the new ones come in at the top, and the earlier ones stay there as long as Adam likes, even after
     // he keeps one of the new ones; they can be kept from, or put away with Undo.
     await setModel(win, 'fake/writer')
-    await main(win).getByRole('button', { name: 'Suggest again' }).click()
-    await expect(main(win).getByText(/^Here is the outline: /)).toBeVisible()
+    await hub(win).locator('[data-plan-it]').click()
+    await expect(batchHead(win)).toContainText('to keep, change or discard')
     const newest = main(win).getByRole('region', { name: 'Suggestions', exact: true })
     await newest.locator('[data-suggestion="scene"][data-state="open"]').first().getByRole('button', { name: /^Keep/ }).click()
     await expect(newest.locator('[data-suggestion="scene"][data-state="kept"]')).toHaveCount(1)
