@@ -4,7 +4,8 @@
 // (tools/install.py). Skipped on a computer without Python 3.10 or newer.
 //
 // The sound effects' shaping (app/sound_audio.py) and the graphics card sharing (app/engines/base.py) need numpy
-// as well: those run with a Python that has it (AIWRITE_TEST_PYTHON names one), and are skipped without.
+// as well (the word check in app/workers/breeze.py needs soundfile too): those run with a Python that has them
+// (AIWRITE_TEST_PYTHON names one), and are skipped without.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -26,17 +27,19 @@ function findPython(): string | null {
 
 const python = findPython()
 
-/** A Python 3.10 or newer with numpy: AIWRITE_TEST_PYTHON first, then the one on the PATH. */
-function findNumpyPython(): string | null {
+/** A Python 3.10 or newer with these modules: AIWRITE_TEST_PYTHON first, then the one on the PATH. */
+function findPythonWith(modules: string): string | null {
   for (const p of [process.env.AIWRITE_TEST_PYTHON, 'python3', 'python']) {
     if (!p) continue
-    const r = spawnSync(p, ['-c', 'import sys, numpy; print(sys.version_info >= (3, 10))'], { encoding: 'utf8' })
+    const r = spawnSync(p, ['-c', `import sys, ${modules}; print(sys.version_info >= (3, 10))`], { encoding: 'utf8' })
     if (r.status === 0 && r.stdout.trim() === 'True') return p
   }
   return null
 }
 
-const numpyPython = findNumpyPython()
+const numpyPython = findPythonWith('numpy')
+// breeze.py reads sound through app/audio.py, which needs soundfile too.
+const breezePython = findPythonWith('numpy, soundfile')
 
 function clean(texts: string[]): string[] {
   const code = 'import json, sys; from app.stt import clean; print(json.dumps([clean(t) for t in json.loads(sys.stdin.read())]))'
@@ -307,7 +310,7 @@ print(json.dumps(out))
   })
 })
 
-describe.skipIf(!numpyPython)('the word check and the voice’s notes (app/workers/breeze.py)', () => {
+describe.skipIf(!breezePython)('the word check and the voice’s notes (app/workers/breeze.py)', () => {
   it('counts a line wrong only past one word, and reads a hurried line a touch quicker', () => {
     const code = `
 import json
@@ -323,7 +326,7 @@ print(file=_common._OUT, end=json.dumps({
   'mood': b.MOOD_CLIPS['sad'],
 }))
 `
-    const out = py<Record<string, unknown>>(code, null, numpyPython)
+    const out = py<Record<string, unknown>>(code, null, breezePython)
     expect(out.same).toBe(0)
     expect(out['one word']).toBe(0)
     expect(out.skipped as number).toBeGreaterThan(0.15)
