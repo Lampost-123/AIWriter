@@ -72,7 +72,7 @@ test('mid-story on the desk: how each part stands, a chapter planned on its page
     await links.getByRole('button', { name: 'Build with AI' }).click()
     await expect(area(win)).toHaveAttribute('data-plan-hub', 'writing')
     // A story under way opens at the story line's What happens next?
-    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
     await expect(area(win).locator('[data-next-card]').getByRole('heading', { name: 'What happens next?' })).toBeInViewport()
 
     // ----- How each part stands -----
@@ -81,10 +81,17 @@ test('mid-story on the desk: how each part stands, a chapter planned on its page
     await expect(area(win).locator('[data-nav="line"]')).toContainText('Ch 1–2 written, Ch 3 planned')
     await expect(area(win).locator('[data-nav="threads"]')).toContainText('1 open')
     await expect(area(win).locator('[data-section-status="line"]')).toHaveText('Ch 1–2 written, Ch 3 planned')
+    // The planned chapter in plain sight: no row around it to open first.
+    await expect(area(win).locator('[data-row="planned"]')).toHaveCount(0)
+    await expect(area(win).locator(`[data-planned-chapters] [data-chapter="${ch3}"]`)).toBeVisible()
+
+    // ----- Nothing locked behind another section: How it all connects opens on the people and places the world has -----
+    await area(win).locator('[data-nav="cast"]').click()
+    await expect(area(win).locator('[data-topic="connections"]')).toBeEnabled()
+    await area(win).locator('[data-nav="line"]').click()
 
     // ----- Plan it, on the chapter's own page: the interview, then scene cards kept into the chapter -----
     const line = area(win).locator('[data-story-line]')
-    await line.locator('[data-row="planned"]').getByRole('button', { name: 'Pick up from here' }).click()
     await line.locator(`[data-step-for="${ch3}"]`).click()
     const row = area(win).locator(`[data-chapter-page="${ch3}"]`)
     const panel = row.locator(`[data-chapter-plan="${ch3}"]`)
@@ -127,8 +134,13 @@ test('mid-story on the desk: how each part stands, a chapter planned on its page
     expect(lastAsked(fake).system).toContain('[AIWRITE-OUTLINE v1] stage scene')
     expect((await invoke(win, 'getScene', hung)).card.goal).toBe('The Board’s men hang the bell buoy off Bell Rock.')
 
+    // ----- The tabs stay on a chapter's page: Story line goes back to the whole story, the chapter's row in view -----
+    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
+    await area(win).locator('[data-nav="line"]').click()
+    await expect(area(win).locator(`[data-chapter-page="${ch3}"]`)).toHaveCount(0)
+    await expect(area(win).locator(`[data-chapter="${ch3}"]`).first()).toBeInViewport()
+
     // ----- Threads: Plan its payoff puts the thread in the story line's box, ticked -----
-    await area(win).getByRole('navigation', { name: 'Trail' }).getByRole('button', { name: 'Whole story' }).click()
     await area(win).locator('[data-nav="threads"]').click()
     const thread = area(win).locator('[data-thread-row="Will the light go dark at midwinter?"]')
     await expect(thread).toBeVisible()
@@ -138,7 +150,7 @@ test('mid-story on the desk: how each part stands, a chapter planned on its page
       'Move toward paying off the plot thread “Will the light go dark at midwinter?” (Can Wren save the Gullhaven Light before midwinter).'
     )
     await expect(next.getByRole('group', { name: 'Threads waiting' }).getByRole('button', { name: /Will the light go dark at midwinter/ })).toHaveAttribute('aria-pressed', 'true')
-    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+    await expect(area(win).locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
 
     // ----- Write it: the scene on the writing page, its draft started the usual way -----
     await line.locator(`[data-chapter-zoom="${ch3}"]`).click()
@@ -155,7 +167,7 @@ test('every older way in lands in its section of Build with AI (the panels)', as
   const fake = await fakeServer()
   try {
     const { win, storyId, ch3, unlit } = await sample(launch, fake, PANELS)
-    const inView = (s: string) => expect(area(win).locator(`[data-nav="${s}"]`)).toHaveAttribute('aria-current', 'true')
+    const inView = (s: string) => expect(area(win).locator(`[data-nav="${s}"]`)).toHaveAttribute('aria-selected', 'true')
 
     // The story menu: the area, at the story line (the story is under way).
     await binder(win).locator('[data-story-menu]').click()

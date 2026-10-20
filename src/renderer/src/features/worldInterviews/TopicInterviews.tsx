@@ -15,6 +15,7 @@ import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp, type RecordBack } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { useEntryCounts } from '@/features/binder/WorldSection'
 import { ProblemNotice } from '@/features/builder/parts'
 import { LampStatus } from '@/features/planning/LampThinking'
 import {
@@ -75,7 +76,7 @@ export function TopicInterviews({ storyId, back, className }: TopicInterviewsPro
   }, [storyId, key, entriesRev, memoryRev])
   const progress = scope?.progress ?? null
   const open = scope?.open ?? null
-  const linkable = connectionsOpen(progress)
+  const linkable = connectionsOpen(progress, useEntryCounts())
   return (
     <section aria-label="Questions by topic" className={cn('wi', className)} data-topic-interviews>
       <div className="wi-head">
@@ -100,7 +101,7 @@ export function TopicInterviews({ storyId, back, className }: TopicInterviewsPro
               className={cn('wi-topic', open === t && 'is-open', status.done && 'is-done')}
               aria-pressed={open === t}
               disabled={locked}
-              title={locked ? 'Keep a character, place or piece of lore first: this interview links what you have kept.' : undefined}
+              title={locked ? 'Add a character, place or lore first: this interview links what your world already has.' : undefined}
               onClick={() => (open === t ? closeTopic(storyId) : openTopic(storyId, t))}
               data-topic={t}
             >
@@ -111,7 +112,7 @@ export function TopicInterviews({ storyId, back, className }: TopicInterviewsPro
               <span className="wi-topic-l">{TOPIC_TEXT[t].line}</span>
               <span className={cn('wi-topic-s', status.done && 'is-done')} data-topic-status>
                 {status.done ? <CircleCheck size={12} aria-hidden /> : null}
-                {locked ? 'After you keep something' : status.words}
+                {locked ? 'Add a character, place or lore first' : status.words}
               </span>
             </button>
           )

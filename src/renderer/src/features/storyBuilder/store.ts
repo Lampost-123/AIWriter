@@ -54,9 +54,11 @@ export interface Builder {
   codexError: string | null
   redos: Record<string, ItemRedo>
   build: CodexBuild | null
+  /** Something was typed in an idea box while the app runs: an emptied box no longer shows the premise. */
+  ideaTyped: boolean
 }
 
-const fresh = (): Builder => ({ brief: null, recipe: null, question: null, codexTask: null, codexError: null, redos: {}, build: null })
+const fresh = (): Builder => ({ brief: null, recipe: null, question: null, codexTask: null, codexError: null, redos: {}, build: null, ideaTyped: false })
 
 export const useBuilders = create<{ builders: Record<string, Builder> }>(() => ({ builders: {} }))
 
@@ -101,6 +103,12 @@ export async function loadBrief(storyId: ID): Promise<void> {
   } catch {
     put(storyId, { brief: emptyBrief() })
   }
+}
+
+/** The idea as typed in either of its boxes (Your idea, Plan your story): the brief's plot. */
+export function writeIdea(storyId: ID, plot: string): void {
+  put(storyId, { ideaTyped: true })
+  patchBrief(storyId, { plot })
 }
 
 export function patchBrief(storyId: ID, patch: Partial<StoryBrief> | ((b: StoryBrief) => Partial<StoryBrief>)): void {

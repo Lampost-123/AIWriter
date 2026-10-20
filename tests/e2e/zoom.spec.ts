@@ -88,7 +88,6 @@ test('zooming in from the story line: a chapter’s page and a scene’s page, a
     await expect(area(win)).toHaveAttribute('data-plan-hub', 'writing')
 
     // ----- The whole story, quiet: no scene tools; each chapter one next step -----
-    await line(win).locator('[data-row="planned"]').getByRole('button', { name: 'Pick up from here' }).click()
     const row = line(win).locator(`[data-chapter="${ch3}"]`)
     await expect(row.locator(`[data-step-for="${ch3}"]`)).toHaveText('Plan it')
     await row.getByRole('button', { name: /Show the scenes of Ch 3/ }).click()

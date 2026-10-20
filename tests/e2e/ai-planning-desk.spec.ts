@@ -134,7 +134,7 @@ test('the world builder on the desk, with a story open: Build with AI’s Cast a
     await room(win, 'World').click()
     await links(win, 'World').getByRole('button', { name: 'Build from a summary' }).click()
     const world = win.locator('[data-plan-hub] [data-summary-builder]')
-    await expect(win.locator('[data-plan-hub] [data-nav="cast"]')).toHaveAttribute('aria-current', 'true')
+    await expect(win.locator('[data-plan-hub] [data-nav="cast"]')).toHaveAttribute('aria-selected', 'true')
     await world
       .getByRole('textbox', { name: 'Your summary' })
       .fill('Maud Fenner is a net-mender who owes the Pilots Guild a winter of wages. Skerry Hythe is a fishing village in the Saltings. Who cut the bell rope?')
@@ -350,7 +350,7 @@ test('a window that isn’t full screen: Build with AI keeps its talk beside the
   await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
   const hub = win.locator('[data-plan-hub]')
   await expect(hub).toBeVisible()
-  const main = (await hub.locator('.hub-main').boundingBox())!
+  const main = (await hub.locator('.hub-main:not([hidden])').boundingBox())!
   const side = (await hub.locator('.hub-side').boundingBox())!
   expect(side.x).toBeGreaterThanOrEqual(main.x + main.width - 1)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
@@ -363,7 +363,7 @@ test('a window that isn’t full screen: Build with AI keeps its talk beside the
   await expect.poll(async () => (await win.evaluate('innerWidth')) as number).toBeLessThanOrEqual(800)
   await expect
     .poll(async () => {
-      const m = (await hub.locator('.hub-main').boundingBox())!
+      const m = (await hub.locator('.hub-main:not([hidden])').boundingBox())!
       const s = (await hub.locator('.hub-side').boundingBox())!
       return s.y >= m.y + m.height - 1
     })
@@ -375,22 +375,40 @@ test('a window that isn’t full screen: Build with AI keeps its talk beside the
   expect(plan.x + plan.width).toBeLessThanOrEqual(card.x + card.width)
 })
 
-// Build with AI (2026-10-20): its sections listed beside them on the desk at full screen and along the top at 1366, the
-// one in view lit, a click going to another; the Story builder's way in (the palette's "Your idea, cast and world") lands
-// at Your idea.
-test('Build with AI on the desk: its sections listed beside or along the top, the one in view lit, the Story builder’s way in', async ({ launch }) => {
+// Build with AI (2026-10-20, tabs since the cleanup): its sections as tabs along the top at full screen and at 1366, one
+// section shown at a time, a click or the keyboard going to another; the Story builder's way in (the palette's "Your
+// idea, cast and world") lands at Your idea.
+test('Build with AI on the desk: its sections as tabs along the top, one at a time, the Story builder’s way in', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch, null, [1920, 1080])
   await room(win, 'Plan').click()
   await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
   const hub = win.locator('[data-plan-hub]')
   const nav = hub.locator('[data-build-nav]')
-  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
-  // Full screen: beside the sections, on the left.
+  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
+  // Full screen: along the top, above the section; only the chosen section shows (the others kept in the page, hidden,
+  // so what is half typed in them survives a look at another).
   let n = (await nav.boundingBox())!
-  let m = (await hub.locator('.build-main').boundingBox())!
-  expect(n.x + n.width).toBeLessThanOrEqual(m.x)
+  let m = (await hub.locator('.build-main:not([hidden])').boundingBox())!
+  expect(n.y + n.height).toBeLessThanOrEqual(m.y)
+  await expect(hub.locator('[data-build-section]')).toHaveCount(4)
+  await expect(hub.locator('[data-build-section]:not([hidden])')).toHaveCount(1)
+  await expect(hub.locator('[data-build-section="line"]')).toBeVisible()
+  await expect(hub.locator('[data-build-section="idea"]')).toBeHidden()
   await nav.locator('[data-nav="threads"]').click()
-  await expect(nav.locator('[data-nav="threads"]')).toHaveAttribute('aria-current', 'true')
+  await expect(nav.locator('[data-nav="threads"]')).toHaveAttribute('aria-selected', 'true')
+  await expect(hub.locator('[data-build-section]:not([hidden])')).toHaveCount(1)
+  await expect(hub.locator('[data-build-section="threads"]')).toBeVisible()
+  // Plan before writing is a writing setting: only beside the story line.
+  await expect(hub.locator('[data-plan-first]')).toHaveCount(0)
+  // The keyboard: arrows move between the tabs, Enter picks one.
+  await nav.locator('[data-nav="threads"]').focus()
+  await win.keyboard.press('ArrowLeft')
+  await expect(nav.locator('[data-nav="line"]')).toBeFocused()
+  await win.keyboard.press('Home')
+  await expect(nav.locator('[data-nav="idea"]')).toBeFocused()
+  await win.keyboard.press('Enter')
+  await expect(nav.locator('[data-nav="idea"]')).toHaveAttribute('aria-selected', 'true')
+  await nav.locator('[data-nav="threads"]').click()
   await expect(hub.locator('[data-talk-about]')).toContainText('Threads')
   // At 1366: along the top, above them.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1366, 768))
@@ -399,17 +417,17 @@ test('Build with AI on the desk: its sections listed beside or along the top, th
   await expect
     .poll(async () => {
       n = (await nav.boundingBox())!
-      m = (await hub.locator('.build-main').boundingBox())!
+      m = (await hub.locator('.build-main:not([hidden])').boundingBox())!
       return n.width > m.width
     })
     .toBe(true)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
   // The Story builder's way in: Your idea (from the palette, the keyboard on the page first).
   await nav.locator('[data-nav="line"]').click()
-  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-selected', 'true')
   await win.keyboard.press('Control+K')
   await win.keyboard.type('Your idea, cast')
   await win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: 'Your idea, cast and world' }).click()
-  await expect(nav.locator('[data-nav="idea"]')).toHaveAttribute('aria-current', 'true')
+  await expect(nav.locator('[data-nav="idea"]')).toHaveAttribute('aria-selected', 'true')
   await expect(hub.locator('[data-build-section="idea"]').getByLabel(/^Your idea, in your own words/)).toBeInViewport()
 })

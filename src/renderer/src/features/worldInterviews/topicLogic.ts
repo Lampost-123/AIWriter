@@ -42,8 +42,12 @@ export function topicStatus(kept: number, started: boolean): { words: string; do
   return { words: started ? 'Under way' : 'Not started', done: false }
 }
 
-/** How It all connects is offered once a topic has kept something here. */
-export const connectionsOpen = (progress: InterviewProgress | null): boolean => !!progress && PAGE_TOPICS.some((t) => progress[t] > 0)
+/**
+ * How It all connects is offered once a topic has kept something here, or (2026-10-20, "stuff locked behind other
+ * sections") as soon as the world has a character, a place or lore to link, however it got there.
+ */
+export const connectionsOpen = (progress: InterviewProgress | null, has?: Partial<Record<EntryKind, number>> | null): boolean =>
+  (!!progress && PAGE_TOPICS.some((t) => progress[t] > 0)) || (['character', 'place', 'lore'] as const).some((k) => (has?.[k] ?? 0) > 0)
 
 /** A round as the interview records it: every question, its answer in Adam's words, or skipped when its box is empty. */
 export function roundAsked(questions: string[], answers: string[]): TopicAsked[] {

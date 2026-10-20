@@ -27,6 +27,7 @@ import { settlePreview } from '@/features/planning/talkStore'
 import { defaultMode } from '@/features/outline/stages'
 import { openRecipes } from '@/features/recipes/recipeStore'
 import { SaveNote } from '@/features/world/parts/SaveNote'
+import { shownIdea } from '@/features/planHub/buildLogic'
 import {
   answerQuestion,
   applyRecipeTalk,
@@ -42,7 +43,8 @@ import {
   setRecipePart,
   sizeForLength,
   stopQuestion,
-  useBuilders
+  useBuilders,
+  writeIdea
 } from './store'
 
 // "Not sure yet" (2026-10-19: it was "Let the AI choose", but nothing chose: the outline just started at its usual
@@ -65,6 +67,7 @@ const KINDS: { value: EntryKind; label: string }[] = [
 
 export function IdeaStep({ storyId, premise = '' }: { storyId: ID; premise?: string }): React.JSX.Element {
   const brief = useBuilders((s) => s.builders[builderKey(storyId)]?.brief)!
+  const ideaTyped = useBuilders((s) => !!s.builders[builderKey(storyId)]?.ideaTyped)
   const plotId = useId()
   // Saved a moment after he stops typing (the brief saves itself): said quietly beside the box.
   const [typed, setTyped] = useState(0)
@@ -75,8 +78,8 @@ export function IdeaStep({ storyId, premise = '' }: { storyId: ID; premise?: str
     const t = setTimeout(() => setSaved('saved'), 600)
     return () => clearTimeout(t)
   }, [typed])
-  // The one idea field: the plot, or the story's premise while there is no plot.
-  const idea = brief.plot.trim() || typed ? brief.plot : premise
+  // The one idea field: the plot, or the story's premise while there is no plot (the same as Plan your story's box).
+  const idea = shownIdea(brief.plot, ideaTyped, premise)
   return (
     <div className="@container">
       <div className="grid gap-6 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @4xl:gap-8">
@@ -97,7 +100,7 @@ export function IdeaStep({ storyId, premise = '' }: { storyId: ID; premise?: str
             placeholder="A lighthouse keeper’s daughter has one winter to prove the town still needs its light, while someone is wrecking ships on purpose…"
             className="hub-box is-idea mt-2"
             onChange={(e) => {
-              patchBrief(storyId, { plot: e.target.value })
+              writeIdea(storyId, e.target.value)
               setTyped((n) => n + 1)
             }}
             data-plot
