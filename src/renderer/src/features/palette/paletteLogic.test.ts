@@ -198,6 +198,8 @@ describe('finding actions by typing', () => {
       'Switch to another world',
       'Rename this world',
       'Ask the world',
+      // The Story builder's first steps (the Plan hub, 2026-10-20).
+      'Your idea, cast and world',
       'Build the world from a summary',
       // Milestone 6
       'Export world',

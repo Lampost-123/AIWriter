@@ -9,9 +9,9 @@ import type { ID } from '@shared/types'
 const listeners = new Set<(s: DraftStep) => void>()
 
 /** Says that the draft of a scene is now on this step. Never throws. */
-export function draftStep(sceneId: ID, step: DraftStepKind, count?: number): void {
+export function draftStep(sceneId: ID, step: DraftStepKind, count?: number, about?: string[]): void {
   if (!sceneId) return
-  const s: DraftStep = { sceneId, step, ...(count !== undefined ? { count } : {}) }
+  const s: DraftStep = { sceneId, step, ...(count !== undefined ? { count } : {}), ...(about?.length ? { about: [...new Set(about)] } : {}) }
   for (const fn of listeners) {
     try {
       fn(s)

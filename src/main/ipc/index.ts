@@ -53,6 +53,7 @@ import { directionHandlers } from './direction'
 import { directorHandlers } from './director'
 import { calmHandlers } from './calm'
 import { planReviewHandlers } from './planReview'
+import { planHubHandlers } from './planHub'
 import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
@@ -129,7 +130,9 @@ const all: Handlers<ApiMethod> = {
   // The calm overhaul: a scene the memory model turned down, and a check that goes ahead without waiting
   ...calmHandlers,
   // Show me the plan first: Adam's answer to a scene plan waiting for him
-  ...planReviewHandlers
+  ...planReviewHandlers,
+  // The Plan hub: where the story stands, its threads and where the plan has drifted; Update the plan
+  ...planHubHandlers
 }
 
 function plainMessage(err: unknown): { message: string; code?: string } {

@@ -45,16 +45,18 @@ test('a story planned from a recipe starts with its characters built, each with 
     await main(win).getByRole('button', { name: 'Make the recipe' }).click()
     await expect(main(win).getByLabel('The recipe’s name')).toHaveValue('A quiet coastal mystery', { timeout: 60_000 })
 
-    // A new story from it, planned on the plan page, and everything kept.
+    // A new story from it, planned in Build with AI, and everything kept.
     await main(win).getByRole('button', { name: 'Start a new story from it' }).click()
     const dialog = win.getByRole('dialog', { name: 'New story' })
     await dialog.getByLabel('Title').fill('The Old Light')
     await dialog.getByLabel('Your own ideas for it').fill('a lighthouse town [[fake: named cast]]')
     await dialog.getByRole('button', { name: 'Create' }).click()
+    // Planned in Build with AI's story line (2026-10-20; the recipe's plan page before).
     const premise = main(win).getByRole('region', { name: 'Suggested premise' })
-    await expect(main(win).getByText(/Here is the plan:/)).toBeVisible({ timeout: 30_000 })
-    await premise.getByRole('button', { name: 'Keep' }).click()
-    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
+    const head = main(win).locator('[data-plan-hub] [data-batch-head]')
+    await expect(head).toContainText('to keep, change or discard', { timeout: 30_000 })
+    await premise.getByRole('button', { name: 'Keep as the premise' }).click()
+    await head.getByRole('button', { name: 'Keep all' }).click()
     expect(await invoke(win, 'listEntries', 'character')).toEqual([])
 
     // The World builder lays out the story's cast in the background, and says when it is done.

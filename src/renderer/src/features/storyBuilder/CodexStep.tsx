@@ -1,8 +1,9 @@
-// The Story builder's second step: the cast and world. The AI plans everything the story needs from the idea (and its
-// recipe): characters (with the recipe role each plays), places, groups, items, lore, events, plot threads and
-// glossary words. Adam's own are marked; what the world has already is marked too (the build adds to that page).
-// Each can be unticked, edited, redone with a note or taken off; the whole list can be talked over. Then "Build it"
-// lays out every ticked one in full with the World builder, live on the page, and one Undo takes the build back.
+// Build with AI's Cast and world (the Story builder's second step before, 2026-10-20). The AI plans everything the story
+// needs from the idea (and its recipe): characters (with the recipe role each plays), places, groups, items, lore,
+// events, plot threads and glossary words. Adam's own are marked; what the world has already is marked too (the build
+// adds to that page). Each can be unticked, edited, redone with a note or taken off; the whole list can be talked over
+// (CodexTalk, beside the area). Then "Build it" lays out every ticked one in full with the World builder, live on the
+// page, and one Undo takes the build back.
 
 import { useMemo, useState } from 'react'
 import { Check, ChevronDown, Plus, RotateCcw, Sparkles, Square, Trash2, Undo2, Users, WandSparkles } from '@/components/ui/icons'
@@ -25,6 +26,7 @@ import {
   codexScope,
   dismissCodexError,
   openItemRedo,
+  patchBrief,
   patchItem,
   patchItemRedo,
   planCodex,
@@ -38,12 +40,20 @@ import {
   undoCodexBuild,
   useBuilders
 } from './store'
-import { openStoryBuilder } from './StoryBuilderView'
-import { openSummaryBuilder } from '@/features/worldBuilder/open'
 
 const ORDER: EntryKind[] = ['character', 'place', 'group', 'item', 'lore', 'event', 'thread', 'glossary']
 
-export function CodexStep({ storyId }: { storyId: ID }): React.JSX.Element {
+export interface CodexStepProps {
+  storyId: ID
+  /** Goes to another section of Build with AI (Your idea, the story line). */
+  onGo: (section: 'idea' | 'line') => void
+  /** Shows "From a summary" in place of this. */
+  onSummary: () => void
+  /** The story's premise: the idea while there is no plot (Your idea shows it in the idea field). */
+  premise?: string
+}
+
+export function CodexStep({ storyId, onGo, onSummary, premise = '' }: CodexStepProps): React.JSX.Element {
   const b = useBuilders((s) => s.builders[builderKey(storyId)])!
   const brief = b.brief!
   const items = brief.codex
@@ -52,10 +62,15 @@ export function CodexStep({ storyId }: { storyId: ID }): React.JSX.Element {
   const building = build?.status === 'running'
   const built = !!brief.built || build?.status === 'complete'
   const ticked = (items ?? []).filter((it) => it.on && it.name.trim()).length
-  const noIdea = !brief.plot.trim() && !brief.mine.length
+  const noIdea = !brief.plot.trim() && !brief.mine.length && !premise.trim()
+  // The premise stands for the idea while there is no plot: it becomes the plot the AI plans from.
+  const plan = (): void => {
+    if (!brief.plot.trim() && premise.trim()) patchBrief(storyId, { plot: premise })
+    void planCodex(storyId)
+  }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+    <div className="flex min-w-0 flex-col gap-4">
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           {planning ? (
@@ -66,14 +81,14 @@ export function CodexStep({ storyId }: { storyId: ID }): React.JSX.Element {
               </Button>
             </>
           ) : (
-            <Button variant={items ? 'secondary' : 'ai'} size={items ? 'md' : 'lg'} icon={<Sparkles size={15} />} disabled={noIdea || building} onClick={() => void planCodex(storyId)} data-plan-codex>
+            <Button variant={items ? 'secondary' : 'ai'} size={items ? 'md' : 'lg'} icon={<Sparkles size={15} />} disabled={noIdea || building} onClick={plan} data-plan-codex>
               {items ? 'Plan it again' : 'Plan the cast and world'}
             </Button>
           )}
           {noIdea ? (
             <span className="text-[12.5px] text-faint">
-              Write your plot first, in{' '}
-              <button type="button" className="text-accent hover:underline" onClick={() => openStoryBuilder(storyId, 'idea')}>
+              Write your idea first, in{' '}
+              <button type="button" className="text-accent hover:underline" onClick={() => onGo('idea')}>
                 Your idea
               </button>
               .
@@ -93,8 +108,8 @@ export function CodexStep({ storyId }: { storyId: ID }): React.JSX.Element {
               The AI lists the characters, places, groups, objects, lore, events, plot threads and words your story needs, building on your idea.
               Tick what you want, change anything, then build it all into your codex.
             </p>
-            <button type="button" className="mt-3 text-[12px] text-muted hover:text-fg hover:underline" onClick={() => openSummaryBuilder()}>
-              Or build the world from a summary, apart from any story
+            <button type="button" className="mt-3 text-[12px] text-muted hover:text-fg hover:underline" onClick={onSummary}>
+              Or build it from a summary you write
             </button>
           </div>
         ) : (
@@ -108,12 +123,15 @@ export function CodexStep({ storyId }: { storyId: ID }): React.JSX.Element {
           </>
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-4">
-        {items ? <CodexTalk storyId={storyId} locked={planning || building} /> : null}
-        {build || built ? <BuildStatus storyId={storyId} /> : null}
-      </div>
+      {build || built ? <BuildStatus storyId={storyId} onNext={() => onGo('line')} /> : null}
     </div>
   )
+}
+
+/** Whether the cast and world list can be talked over now (the talk beside the area says why not). */
+export function useCodexLocked(storyId: ID): boolean {
+  const b = useBuilders((s) => s.builders[builderKey(storyId)])
+  return !!b?.codexTask || b?.build?.status === 'running'
 }
 
 function KindGroup({ storyId, kind, items, locked }: { storyId: ID; kind: EntryKind; items: CodexItem[]; locked: boolean }): React.JSX.Element | null {
@@ -328,14 +346,17 @@ function CodexPreview({ items, before }: { items: CodexItem[]; before: CodexItem
   )
 }
 
-function CodexTalk({ storyId, locked }: { storyId: ID; locked: boolean }): React.JSX.Element {
+/** Talking the cast and world list over (beside Build with AI while Cast and world is in view). */
+export function CodexTalk({ storyId, locked, className, title = 'Talk the cast and world over', about }: { storyId: ID; locked: boolean; className?: string; title?: string; about?: string }): React.JSX.Element {
   const scope = codexScope(storyId)
   const preview = useTalks((s) => s.talks[scope]?.preview) as CodexItem[] | null | undefined
   const before = useBuilders((s) => s.builders[builderKey(storyId)]?.brief?.codex) ?? []
   return (
     <TalkPanel
       scope={scope}
-      title="Talk the cast and world over"
+      title={title}
+      about={about}
+      className={className}
       intro="Tell the AI what to change: “make the villain her brother”, “add a rival smuggler crew”, “fewer side characters”. You see the new list first."
       placeholder="What would you like changed?"
       quick={['Add a strong antagonist', 'Give the lead a family', 'More places to explore', 'Add secrets and plot threads']}
@@ -373,7 +394,7 @@ function BuildBar({ storyId, ticked, built }: { storyId: ID; ticked: number; bui
   )
 }
 
-function BuildStatus({ storyId }: { storyId: ID }): React.JSX.Element {
+function BuildStatus({ storyId, onNext }: { storyId: ID; onNext: () => void }): React.JSX.Element {
   const b = useBuilders((s) => s.builders[builderKey(storyId)])!
   const build = b.build
   const running = build?.status === 'running'
@@ -399,8 +420,8 @@ function BuildStatus({ storyId }: { storyId: ID }): React.JSX.Element {
             <Button size="sm" onClick={() => useApp.getState().navigate({ kind: 'codex' })}>
               Open the codex
             </Button>
-            <Button size="sm" variant="primary" onClick={() => openStoryBuilder(storyId, 'outline')}>
-              Next: the outline
+            <Button size="sm" variant="primary" onClick={onNext}>
+              Next: the story line
             </Button>
             {build?.runId || b.brief?.built?.runId ? (
               <Button size="sm" variant="ghost" icon={<Undo2 size={13} />} onClick={() => void undoCodexBuild(storyId)} title="Take back everything this build made">

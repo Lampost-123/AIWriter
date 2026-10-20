@@ -629,7 +629,8 @@ test("milestone 4, check 5: a world typed as a one-paragraph summary comes out a
 
     await test.step('5. Adam types one paragraph and clicks Build the world once', async () => {
       await openPage(win, 'Build from a summary')
-      await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
+      // With a story open, Build with AI's Cast and world, from a summary (2026-10-20).
+      await expect(main(win).locator('[data-summary-builder]')).toBeVisible()
       const summary = main(win).getByRole('textbox', { name: 'Your summary' })
       await expect(summary).toBeFocused()
       await win.keyboard.insertText(WORLD_SUMMARY)

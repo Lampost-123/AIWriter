@@ -91,7 +91,9 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'startPlanChat',
   'startPlanRedo',
   'recipeChat',
-  'redoRecipePart'
+  'redoRecipePart',
+  // The Plan hub
+  'startPlanUpdate'
 ])
 
 let library: UsageLibrary | null = null

@@ -21,7 +21,7 @@ import { useApp } from '@/lib/store'
 import { installFlowEvents } from '@/features/stories/flows'
 import { useStoryLabels, useStoryLabelsLoader } from '@/features/stories/labels'
 import { openStory, openStorySettings } from '@/features/stories/storyActions'
-import { openOutlineHelper, openStoryBuilderFor } from '@/features/outline/open'
+import { openPlanHub } from '@/features/outline/open'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { inShelfOrder } from '@/features/stories/storiesLogic'
 import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/importing/importStore'
@@ -192,17 +192,12 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                     </span>
                     Rename this story
                   </M.Item>
-                  <M.Item onSelect={() => openStoryBuilderFor(story.id)} className={cn(item, 'shrink-0')}>
+                  {/* Build with AI (2026-10-20): every AI building tool for the story in one area. */}
+                  <M.Item onSelect={() => openPlanHub(story.id)} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">
                       <ListTree size={14} />
                     </span>
-                    Story builder
-                  </M.Item>
-                  <M.Item onSelect={() => openOutlineHelper(story.id)} className={cn(item, 'shrink-0')}>
-                    <span className="flex w-4 justify-center text-muted">
-                      <ListTree size={14} />
-                    </span>
-                    Outline helper
+                    Build with AI
                   </M.Item>
                   <M.Item onSelect={() => openExportStory(story.id, currentChapterId())} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">

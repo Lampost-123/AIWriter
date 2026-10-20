@@ -45,9 +45,14 @@ The tools answer from the story so far, as it stands when this chapter begins: s
 
 The plan
 - overview: what the chapter does, in two or three sentences.
+- lead: whose chapter it is, by name (usually the point of view).
+- wants: what they want in this chapter, in one sentence.
+- against: what stands in their way, in one sentence.
+- turn: how the chapter turns, in one sentence.
 - scenes: one item for each scene, in order:
   - scene: which scene ("Sc 1").
   - does: what the scene must do in the chapter, in one or two sentences, from its card.
+  - ends: how the scene ends, in one short line: where it leaves the people in it ("Wren soaked to the knee, boots off by the fire"). The next scene starts from there.
   - threads: the plot threads it moves on, and how ("The forged letter: Mara learns who wrote it"). Only threads its card calls for, or open ones that fit what it is asked to do. At most ${PLAN_PART_MOST.threads}.
   - changes: what changes for each person in it by the scene's end: where they end up, what they learn, what they gain or lose, as {"who": "Mara", "change": "ends up at the inn; learns Tobin lied"}. Only what the cards call for, and the moves they need. At most ${PLAN_PART_MOST.changes}.
   - keep: facts the scene must keep to that its card doesn't say, from what you were given or looked up, each with where it comes from ("Mara's left arm is in a sling (since Ch 2, Sc 3)"). At most ${PLAN_PART_MOST.keep}.
@@ -65,11 +70,15 @@ ${packList(PLAN_PACKS)}`
 export const WRITE_CHAPTER_PLAN: ToolSpec = {
   name: 'write_chapter_plan',
   description:
-    'Write the chapter plan, once, when you have what you need. `overview`: what the chapter does. `scenes`: one item per scene, in order, each with `scene` ("Sc 1"), `does`, `threads`, `changes` ({who, change}) and `keep`. `questions`: what in the cards does not fit the story so far, for the author.',
+    'Write the chapter plan, once, when you have what you need. `overview`: what the chapter does; `lead`, `wants`, `against` and `turn`: whose chapter it is, what they want, what is against them and how it turns. `scenes`: one item per scene, in order, each with `scene` ("Sc 1"), `does`, `ends`, `threads`, `changes` ({who, change}) and `keep`. `questions`: what in the cards does not fit the story so far, for the author.',
   parameters: {
     type: 'object',
     properties: {
       overview: str,
+      lead: str,
+      wants: str,
+      against: str,
+      turn: str,
       scenes: {
         type: 'array',
         items: {
@@ -77,6 +86,7 @@ export const WRITE_CHAPTER_PLAN: ToolSpec = {
           properties: {
             scene: { type: 'string', description: 'Which scene: "Sc 2".' },
             does: str,
+            ends: str,
             threads: { type: 'array', items: str },
             changes: { type: 'array', items: { type: 'object', properties: { who: str, change: str }, required: ['who', 'change'] } },
             keep: { type: 'array', items: str }
@@ -92,7 +102,7 @@ export const WRITE_CHAPTER_PLAN: ToolSpec = {
 
 /** The plan's JSON, as the last request (without tools) is asked for it. */
 const PLAN_SHAPE =
-  '{"overview": "", "scenes": [{"scene": "Sc 1", "does": "", "threads": [""], "changes": [{"who": "", "change": ""}], "keep": [""]}], "questions": [""]}'
+  '{"overview": "", "lead": "", "wants": "", "against": "", "turn": "", "scenes": [{"scene": "Sc 1", "does": "", "ends": "", "threads": [""], "changes": [{"who": "", "change": ""}], "keep": [""]}], "questions": [""]}'
 
 /** Said before the planner's last request, which has no tools. */
 export const PLAN_LAST_WORDS = `[AI Write] No more look-ups. Write the chapter plan now, every scene in order, as one JSON object and nothing else:\n${PLAN_SHAPE}`

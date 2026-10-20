@@ -29,7 +29,7 @@ import { openAsk } from '@/features/ask/open'
 import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
 import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
-import { openChapterInterview, openOutlineHelper, openStoryBuilderFor } from '@/features/outline/open'
+import { openChapterInterview, openPlanHub } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { openCastSettings, stopReading, toggleListen } from '@/features/readAloud/control'
 import { openEntryVoice } from '@/features/readAloud/voiceReveal'
@@ -299,11 +299,14 @@ export async function runAction(id: ActionId): Promise<void> {
         openAsk()
         return
       case 'outline-helper':
-        if (a.storyId) openOutlineHelper(a.storyId)
+        if (a.storyId) openPlanHub(a.storyId)
         return
       case 'story-builder':
-        if (a.storyId) openStoryBuilderFor(a.storyId)
+        // Your idea, then the cast and world: Build with AI's first sections (the Story builder's first steps before).
+        if (a.storyId) openPlanHub(a.storyId, { section: 'idea' })
         return
+      // On the writing page, the scene's own card (its ideas and interview); the Plan area's Next scene ideas and Interview
+      // me open them in Build with AI's story line.
       case 'scene-ideas':
         if (!a.sceneId) return
         backToWriting()

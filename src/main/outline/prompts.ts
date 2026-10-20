@@ -191,6 +191,57 @@ ${THREAD_RULES}
 ${STAGE_SHARED}`)}`
 }
 
+/**
+ * The Plan hub (2026-10-20): the title of the block that carries Adam's own words for what happens next (and the plot
+ * threads he asked to bring back), sent just before what is asked.
+ */
+export const DIRECTION_TITLE = 'What the author wants (make it happen)'
+
+/** The rule every Plan hub request adds when it carries Adam's words: they win. */
+export const DIRECTION_RULE = 'What the author wants comes first: make every part of it happen in what you plan, in the order they give.'
+
+/**
+ * "Update the plan" (the Plan hub, 2026-10-20): planned scene cards the story has moved on from, written again so they fit
+ * what has been written. One card for each scene given, in order, in the scene form.
+ */
+export function planUpdateSystem(): string {
+  return `${MARKER} update
+You help a novelist keep the plan of their story in step with what they have written. Some planned scene cards, not written yet, no longer fit the story as written; for each one you are told what no longer fits. Write each of those scene cards again so it fits, keeping as much of its plan as still works. You plan; you never write the story itself.
+
+Answer in exactly this form and nothing else: no introduction, no notes at the end, no bold or other formatting. One card for each scene given, in the same order:
+
+${SCENE_FORM}
+
+Rules:
+- Exactly one scene card for each scene given, in the order given, each under its own "### Scene:" heading.
+- Put right what each note says no longer fits, and whatever has to change with it. Keep everything else as it was, word for word where you can, and keep its title unless the note makes it wrong.
+- Each scene keeps its place in the story: it follows what has been written and leads into what comes after it.
+${SCENE_RULES}
+${STAGE_SHARED}`
+}
+
+/**
+ * The Plan hub's "Fill in the empty cards" (Adam, 2026-10-20): scenes he has named (a title, perhaps a When or who is in
+ * it) with nothing on their cards about what happens, planned from the story so far. One card for each, in order; the
+ * window puts each only in its card's empty parts.
+ */
+export function planFillSystem(): string {
+  return `${MARKER} update fill
+You help a novelist plan scenes they have named but not planned yet: each has a title (and perhaps a When, or who is in it) but nothing on its card about what happens. Plan each one's card from the story so far and the scenes around it. You plan; you never write the story itself.
+
+Answer in exactly this form and nothing else: no introduction, no notes at the end, no bold or other formatting. One card for each scene given, in the same order:
+
+${SCENE_FORM}
+
+Rules:
+- Exactly one scene card for each scene given, in the order given, each under its own "### Scene:" heading with the scene's own title.
+- Keep to what each card already says (its When, who is in it, where), and fit each scene between the scene before it and the scene after it.
+- Add "Point of view:", "Characters:", "Location:" or "Mood:" lines after its When for what its card doesn't say yet.
+${SCENE_RULES}
+${THREAD_RULES}
+${STAGE_SHARED}`
+}
+
 /** Where the story stands, for the first stage: carrying on from it, or starting from the premise. */
 export function stageStart(o: { chapters: number; lastAct: string | null; newActs: boolean }): string {
   if (o.chapters <= 0) return 'The story has nothing written or planned yet: start it from the premise.'
@@ -201,11 +252,27 @@ export function stageStart(o: { chapters: number; lastAct: string | null; newAct
 /** What a stage asks for, in plain words: the last part of its briefing. */
 export function stageAsk(
   level: StageLevel,
-  o: { acts?: number; chapters?: number; title?: string; kept?: boolean; start?: string; latestWhen?: string; sceneLabel?: string }
+  o: {
+    acts?: number
+    chapters?: number
+    title?: string
+    kept?: boolean
+    start?: string
+    latestWhen?: string
+    sceneLabel?: string
+    /**
+     * The Plan hub (2026-10-20): what the new parts come after, in words ("“The ferry” (Ch 4, Sc 2), the last scene
+     * written"): scenes carry on from that scene, chapters from that chapter, rather than from the end.
+     */
+    after?: string
+    /** scenes: exactly this many. */
+    count?: number
+  }
 ): string {
   const title = (o.title ?? '').replace(/\s+/g, ' ').trim()
   const latest = (o.latestWhen ?? '').replace(/\s+/g, ' ').trim()
   const days = latest ? ` The story's last scene with a When is set at “${latest}”: carry the days on from the outline around them.` : ''
+  const after = (o.after ?? '').replace(/\s+/g, ' ').trim()
   if (level === 'acts') {
     const acts = Math.max(1, o.acts ?? 3)
     const chapters = Math.max(acts, o.chapters ?? acts * 4)
@@ -214,10 +281,18 @@ export function stageAsk(
   if (level === 'chapters') {
     const n = Math.max(1, o.chapters ?? 3)
     if (!title) return `Suggest ${plural(n, 'chapter')}, each with its goal and card. No acts and no scenes. ${o.start ?? ''}`.trim() + days
+    if (after)
+      return `Suggest the chapters of the act “${title}”${o.kept ? ' (it is in the story already)' : ''} that come after ${after}, to the end of the act: about ${plural(n, 'chapter')}, each with its goal and card. No scenes yet. Carry on from where the story has got to; never retell it.${days}`
     return `Suggest the chapters of the act “${title}”${o.kept ? ' (it is in the story already)' : ''}: about ${plural(n, 'chapter')}, each with its goal and card. No scenes yet.${days}`
   }
   if (level === 'scenes') {
-    return `Suggest the scenes of the chapter “${title || 'Untitled chapter'}”${o.kept ? ' (it is in the story already)' : ''}: as many as it needs, each a scene card.${days}`
+    const where = `the chapter “${title || 'Untitled chapter'}”${o.kept ? ' (it is in the story already)' : ''}`
+    if (after && o.count === 1)
+      return `Suggest exactly 1 scene of ${where}: the one that comes right after ${after}. It carries on from how that scene ends and never retells it.${days}`
+    if (after)
+      return `Suggest the scenes of ${where} that come after ${after}: ${o.count ? `exactly ${plural(o.count, 'scene')}` : 'as many as it still needs to do what it is for'}, each a scene card. They carry on from how that scene ends and never retell it.${days}`
+    if (o.count) return `Suggest exactly ${plural(o.count, 'scene')} of ${where}, each a scene card.${days}`
+    return `Suggest the scenes of ${where}: as many as it needs, each a scene card.${days}`
   }
   return `Plan ${o.sceneLabel || 'this scene'}: one scene card, fitting what its card already says and the scenes around it.`
 }

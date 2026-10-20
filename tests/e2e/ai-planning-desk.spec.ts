@@ -1,4 +1,5 @@
-// The AI planning pages on the desk (UI overhaul, "the AI planning pages"), on the sample world against the fake provider:
+// The AI planning pages on the desk (UI overhaul, "the AI planning pages"; since 2026-10-20 the outline helper, a
+// chapter's plan and, with a story open, the world builder are sections of Build with AI),
 // each page opens in its room's frame with its picture, its one plain line and (for a wizard) its steps; the AI's work
 // streams in with the lamp and shows as cards that are dealt in; Keep sends a copy of a card flying to the story's spine
 // and Undo brings it back; the world builder's results are the world's own cards; the plot threads are a loom; the story
@@ -50,51 +51,33 @@ async function sampleWorld(
   return a
 }
 
-test('the outline helper on the desk: its picture and steps, the lamp while it streams, cards dealt in, Keep flies to the spine and Undo back', async ({ launch }) => {
+test('the Plan hub on the desk: the lamp while it streams, words fade in, Keep flies to the spine and Undo back, Discard and Undo', async ({ launch }) => {
   const fake = await fakeServer(30)
   try {
     const { win } = await sampleWorld(launch, fake)
     await room(win, 'Plan').click()
-    await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
-
-    // In the Plan room's frame, on a page of its own: the lamp-lit desk, its name, one plain line and its steps.
-    const outline = page(win, 'outline')
-    await expect(outline).toBeVisible()
+    // The Plan room's first link (Build with AI since 2026-10-20; the outline helper is its story line).
+    await expect(links(win, 'Plan').getByRole('button').first()).toHaveText(/Build with AI/)
+    await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
+    const hub = win.locator('[data-plan-hub]')
+    await expect(hub).toHaveAttribute('data-plan-hub', 'writing')
     await expect(win.locator('[data-desk-room="plan"]')).toBeVisible()
-    await expect(outline.locator('[data-plan-art="outline"]')).toBeVisible()
-    await expect(outline.getByRole('heading', { level: 1 })).toHaveText('Plan what comes next')
-    await expect(outline.locator('.plan-line')).toContainText('nothing goes into the story until you keep it')
-    const steps = outline.getByRole('list', { name: 'Steps' })
-    await expect(steps.getByRole('listitem')).toHaveCount(4)
-    await expect(steps.locator('[data-step="from"]')).toHaveClass(/is-done/)
-    await expect(steps.locator('[data-step="suggest"]')).toHaveClass(/is-todo/)
-    // Before anything is asked: what will come, with an example.
-    await expect(outline.locator('[data-plan-empty]')).toContainText('Your outline will lie here')
-    await expect(outline.locator('[data-plan-empty]')).toContainText('For example')
-    // Two columns: what Adam writes on the left, the AI's work on the right.
-    const left = (await outline.locator('[data-plan-col="left"]').boundingBox())!
-    const right = (await outline.locator('[data-plan-col="right"]').boundingBox())!
-    expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 1)
+    await expect(hub.getByRole('heading', { level: 1 })).toHaveText('Build “The Keeper’s Light” with AI')
 
-    // Streaming: the lamp says what it is doing (no spinner), the step is at work, the words fade in, cards are dealt in.
+    // Streaming: the lamp says what it is doing (no spinner), the words fade in, faint rows wait for the first.
     await setModel(win, 'fake/slow')
-    await outline.getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(outline.locator('[data-plan-thinking]')).toBeVisible()
-    await expect(outline.locator('[data-plan-thinking]')).toContainText('Suggesting')
-    await expect(steps.locator('[data-step="suggest"]')).toHaveClass(/is-working/)
-    await expect(outline.locator('.plan-icard').first()).toBeVisible({ timeout: 30_000 })
-    await expect.poll(() => outline.locator('.plan-fresh').count(), { timeout: 15_000 }).toBeGreaterThan(0)
-    await expect(outline.locator('.plan-deal').first()).toBeVisible()
-    await expect(outline.getByText(/Here is the outline:/)).toBeVisible({ timeout: 60_000 })
-    await expect(outline.locator('[data-plan-thinking]')).toHaveCount(0)
-    await expect(steps.locator('[data-step="keep"]')).toHaveClass(/is-now/)
-    // Before anything is added: what Keep all that's left would add.
-    await expect(outline.locator('[data-plan-receipt]')).toContainText('Keep all that’s left adds')
-    await expect(outline.locator('.plan-count.is-ai').first()).toBeVisible()
+    const next = hub.locator('[data-next-card]')
+    await next.getByRole('button', { name: 'the rest of Ch 2' }).click()
+    await next.locator('[data-plan-it]').click()
+    await expect(hub.locator('[data-plan-thinking]').first()).toBeVisible()
+    await expect(hub.locator('[data-suggestion="scene"]').first()).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => hub.locator('.plan-fresh').count(), { timeout: 15_000 }).toBeGreaterThan(0)
+    await expect(hub.locator('[data-batch-head]')).toContainText('2 suggestions to keep, change or discard', { timeout: 60_000 })
+    await expect(hub.locator('[data-plan-thinking]')).toHaveCount(0)
 
     // Keep one scene card: it is stamped Kept, and a copy of it flies off to the story's spine.
-    const scene = outline.locator('[data-suggestion="scene"]').first()
-    const title = (await scene.locator('.plan-ic-title').textContent())!.trim()
+    const scene = hub.locator('[data-suggestion="scene"]').first()
+    const title = (await scene.locator('.hub-sug-title').textContent())!.trim()
     await scene.getByRole('button', { name: `Keep “${title}”` }).click()
     await expect(scene).toHaveAttribute('data-state', 'kept')
     await expect(scene.getByText('Kept', { exact: true })).toBeVisible()
@@ -102,7 +85,7 @@ test('the outline helper on the desk: its picture and steps, the lamp while it s
     await expect(win.locator('[data-desk-spine]').getByText(title, { exact: true })).toBeVisible()
     await expect(win.locator('.plan-ghost')).toHaveCount(0, { timeout: 3000 })
 
-    // Undo puts it back on the desk, to decide again; it flies back from the spine.
+    // Undo puts it back to decide again; it flies back from the spine.
     await toastWith(win, 'to the story').getByRole('button', { name: 'Undo' }).click()
     await expect(scene).toHaveAttribute('data-state', 'open')
     await expect(scene.locator('[data-box]')).toHaveClass(/is-back/)
@@ -110,62 +93,57 @@ test('the outline helper on the desk: its picture and steps, the lamp while it s
 
     // Discard puts it away; Undo brings it back.
     await scene.getByRole('button', { name: `Discard “${title}”` }).click()
-    await expect(outline.getByRole('group', { name: `Scene: ${title}`, exact: true })).toHaveCount(0)
+    await expect(hub.getByRole('group', { name: `Scene: ${title}`, exact: true })).toHaveCount(0)
     await toastWith(win, 'Discarded').getByRole('button', { name: 'Undo' }).click()
-    await expect(outline.getByRole('group', { name: `Scene: ${title}`, exact: true })).toBeVisible()
+    await expect(hub.getByRole('group', { name: `Scene: ${title}`, exact: true })).toBeVisible()
   } finally {
     await fake.close()
   }
 })
 
-test('planning a chapter on the desk: the notebook, the interview as a slip, its scene cards', async ({ launch }) => {
+test('planning a chapter on the desk: in its row of Build with AI, the interview as a slip, its scene cards', async ({ launch }) => {
   const fake = await fakeServer()
   try {
     const { win } = await sampleWorld(launch, fake)
     await room(win, 'Plan').click()
     await links(win, 'Plan').getByRole('button', { name: /Plan a chapter/ }).click()
     await win.getByRole('menuitem', { name: 'The Drowned Steps' }).click()
-    const chapter = page(win, 'chapter')
-    await expect(chapter.locator('[data-plan-art="chapter"]')).toBeVisible()
-    await expect(chapter.getByRole('heading', { level: 1 })).toHaveText('The Drowned Steps')
+    // Plan a chapter is Plan this chapter, open in the chapter's row of Build with AI's story line (2026-10-20).
+    const chapter = win.locator('[data-plan-hub] [data-chapter-plan]')
+    await expect(chapter.getByRole('heading', { name: 'Ch 2 · The Drowned Steps' })).toBeVisible()
     await chapter.getByRole('button', { name: 'Interview me' }).click()
     const interview = chapter.getByRole('region', { name: 'Interview' })
     await expect(interview).toHaveClass(/plan-interview/)
     await expect(interview.locator('.plan-q-text')).toHaveText('What happens in this chapter?')
-    await expect(chapter.locator('[data-step="interview"]')).toHaveClass(/is-now/)
     await interview.getByLabel('Your answer').fill('The bell rope is found cut, not rotted.')
     await interview.getByRole('button', { name: 'Answer' }).click()
     await expect(interview.getByLabel('Your answer')).toBeEnabled()
     await interview.getByRole('button', { name: 'Done' }).click()
-    await expect(chapter.getByRole('button', { name: 'Keep all that’s left' })).toBeVisible({ timeout: 30_000 })
-    await expect(chapter.locator('.plan-icard')).toHaveCount(3)
-    await expect(chapter.locator('[data-plan-receipt]')).toContainText('to this chapter')
+    await expect(chapter.getByRole('button', { name: 'Keep all' })).toBeVisible({ timeout: 30_000 })
+    await expect(chapter.getByRole('group', { name: /^Scene: / })).toHaveCount(3)
+    await expect(chapter.locator('[data-chapter-batch]')).toContainText('3 scene cards to keep, change or discard')
   } finally {
     await fake.close()
   }
 })
 
-test('the world builder on the desk: the map unrolls, what the summary makes lies there as the world’s own cards, one Undo', async ({ launch }) => {
+test('the world builder on the desk, with a story open: Build with AI’s Cast and world, from a summary, one Undo', async ({ launch }) => {
   const fake = await fakeServer()
   try {
     const { win } = await sampleWorld(launch, fake)
     await room(win, 'World').click()
     await links(win, 'World').getByRole('button', { name: 'Build from a summary' }).click()
-    const world = page(win, 'world')
-    await expect(world.locator('[data-plan-art="world"]')).toBeVisible()
-    await expect(world.locator('[data-plan-empty]')).toContainText('What your summary makes will lie here')
+    const world = win.locator('[data-plan-hub] [data-summary-builder]')
+    await expect(win.locator('[data-plan-hub] [data-nav="cast"]')).toHaveAttribute('aria-current', 'true')
     await world
       .getByRole('textbox', { name: 'Your summary' })
       .fill('Maud Fenner is a net-mender who owes the Pilots Guild a winter of wages. Skerry Hythe is a fishing village in the Saltings. Who cut the bell rope?')
-    await expect(world.locator('.plan-receipt')).toContainText('Estimated cost')
+    await expect(world).toContainText('Estimated cost')
     await world.getByRole('button', { name: 'Build the world' }).click()
     const made = world.getByRole('region', { name: 'Made from your summary' })
     await expect(made).toBeVisible({ timeout: 60_000 })
-    await expect(made.locator('[data-made="character"]')).toHaveCount(1)
-    await expect(made.locator('[data-made="place"]')).toHaveCount(1)
-    await expect(made.locator('[data-made="character"] .g-art')).toBeVisible()
     await expect(made.getByRole('button', { name: 'Open Maud Fenner' })).toBeVisible()
-    await expect(world.locator('[data-step="review"]')).toHaveClass(/is-done/)
+    await expect(win.locator('[data-plan-hub] [data-in-world]')).toContainText('Maud Fenner')
     await world.getByRole('button', { name: 'Undo the whole build' }).click()
     await expect(made.getByText('The build was undone.', { exact: false })).toBeVisible()
   } finally {
@@ -341,38 +319,40 @@ test('the scene card’s ideas on the desk: the lamp while they come, index card
   }
 })
 
-test('with less motion the planning pages are still: no flights, the drawings rest, words simply appear', async ({ launch }) => {
+test('with less motion the planning pages are still: no flights, words simply appear', async ({ launch }) => {
   const fake = await fakeServer()
   try {
     const { win } = await sampleWorld(launch, fake)
     await win.emulateMedia({ reducedMotion: 'reduce' })
     await room(win, 'Plan').click()
-    await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
-    const outline = page(win, 'outline')
-    await expect(outline.locator('[data-plan-art="outline"]')).toBeVisible()
-    expect(await win.evaluate<string>(`getComputedStyle(document.querySelector('[data-plan-art="outline"] .pa-drift')).animationName`)).toBe('none')
-    await outline.getByRole('button', { name: 'Suggest an outline' }).click()
-    await expect(outline.getByText(/Here is the outline:/)).toBeVisible({ timeout: 30_000 })
-    expect(await win.evaluate<string>(`getComputedStyle(document.querySelector('.plan-deal')).animationName`)).toBe('none')
-    const scene = outline.locator('[data-suggestion="scene"]').first()
-    const title = (await scene.locator('.plan-ic-title').textContent())!.trim()
+    await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
+    const hub = win.locator('[data-plan-hub]')
+    const next = hub.locator('[data-next-card]')
+    await next.getByRole('button', { name: 'the rest of Ch 2' }).click()
+    await next.locator('[data-plan-it]').click()
+    await expect(hub.locator('[data-batch-head]')).toContainText('to keep, change or discard', { timeout: 30_000 })
+    const scene = hub.locator('[data-suggestion="scene"]').first()
+    const title = (await scene.locator('.hub-sug-title').textContent())!.trim()
     await scene.getByRole('button', { name: `Keep “${title}”` }).click()
     await expect(scene).toHaveAttribute('data-state', 'kept')
     await expect(win.locator('.plan-ghost')).toHaveCount(0)
+    // Its rows change at once (every duration all but nothing).
+    const took = await win.evaluate<string>(`getComputedStyle(document.querySelector('.hub-sug')).transitionDuration`)
+    expect(Math.max(...took.split(',').map((t) => parseFloat(t)))).toBeLessThan(0.01)
   } finally {
     await fake.close()
   }
 })
 
-test('a window that isn’t full screen: the planning pages keep their two columns at 1366 and stack when narrower, with nothing spilling', async ({ launch }) => {
+test('a window that isn’t full screen: Build with AI keeps its talk beside the plan at 1366 and puts it under when narrower, with nothing spilling', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch, null, [1366, 768])
   await room(win, 'Plan').click()
-  await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
-  const outline = page(win, 'outline')
-  await expect(outline).toBeVisible()
-  const left = (await outline.locator('[data-plan-col="left"]').boundingBox())!
-  const right = (await outline.locator('[data-plan-col="right"]').boundingBox())!
-  expect(right.x).toBeGreaterThanOrEqual(left.x + left.width - 1)
+  await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
+  const hub = win.locator('[data-plan-hub]')
+  await expect(hub).toBeVisible()
+  const main = (await hub.locator('.hub-main').boundingBox())!
+  const side = (await hub.locator('.hub-side').boundingBox())!
+  expect(side.x).toBeGreaterThanOrEqual(main.x + main.width - 1)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
   // (The window can't be made narrower than about 950 pixels: the page is zoomed in instead, for a narrower room.)
   await app.evaluate(({ BrowserWindow }) => {
@@ -383,44 +363,53 @@ test('a window that isn’t full screen: the planning pages keep their two colum
   await expect.poll(async () => (await win.evaluate('innerWidth')) as number).toBeLessThanOrEqual(800)
   await expect
     .poll(async () => {
-      const l = (await outline.locator('[data-plan-col="left"]').boundingBox())!
-      const r = (await outline.locator('[data-plan-col="right"]').boundingBox())!
-      return r.y >= l.y + l.height - 1
+      const m = (await hub.locator('.hub-main').boundingBox())!
+      const s = (await hub.locator('.hub-side').boundingBox())!
+      return s.y >= m.y + m.height - 1
     })
     .toBe(true)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
+  // Nothing in the plan's header spills past its card.
+  const card = (await hub.locator('[data-next-card]').boundingBox())!
+  const plan = (await hub.locator('[data-plan-it]').boundingBox())!
+  expect(plan.x + plan.width).toBeLessThanOrEqual(card.x + card.width)
 })
 
-// Adam, 2026-10-20: on the outline step there was no way back. The desk's plan page filled the Story builder's whole
-// view, over its step bar; now it sits under the bar, with Back and Next at its foot like every other step.
-test('the Story builder’s outline step on the desk keeps its step bar in view, with Back and Next at its foot', async ({ launch }) => {
-  const { win } = await sampleWorld(launch, null)
+// Build with AI (2026-10-20): its sections listed beside them on the desk at full screen and along the top at 1366, the
+// one in view lit, a click going to another; the Story builder's way in (the palette's "Your idea, cast and world") lands
+// at Your idea.
+test('Build with AI on the desk: its sections listed beside or along the top, the one in view lit, the Story builder’s way in', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch, null, [1920, 1080])
   await room(win, 'Plan').click()
-  await links(win, 'Plan').getByRole('button', { name: 'Outline helper' }).click()
-  const outline = page(win, 'outline')
-  await expect(outline).toBeVisible()
-
-  // The step bar is on top, not under the page: the point at its middle belongs to it.
-  const bar = win.locator('[data-story-builder="outline"] [data-step-bar]')
-  await expect(bar).toBeVisible()
-  // Once the page has crossfaded in (a view transition covers the window while it runs).
-  const onTop = async (): Promise<boolean> => {
-    const box = (await bar.boundingBox())!
-    const page = (await outline.boundingBox())!
-    if (page.y < box.y + box.height - 1) return false
-    return (await win.evaluate(`!!document.elementFromPoint(${box.x + box.width / 2}, ${box.y + box.height / 2})?.closest('[data-step-bar]')`)) as boolean
-  }
-  await expect.poll(onTop).toBe(true)
-  await expect(bar.locator('[data-step="outline"]')).toHaveAttribute('aria-current', 'step')
-
-  // Back and Next at the foot, in view without scrolling.
-  const nav = win.locator('[data-story-builder="outline"] [data-step-nav]')
-  await expect(nav.getByRole('button', { name: 'Next: Done' })).toBeInViewport()
-  await nav.getByRole('button', { name: 'Cast and world' }).click()
-  await expect(win.locator('[data-story-builder="codex"] [data-step="codex"]')).toHaveAttribute('aria-current', 'step')
-  // And back to the outline from the bar.
-  await win.locator('[data-step-bar] [data-step="outline"]').first().click()
-  await expect(page(win, 'outline')).toBeVisible()
-  await win.locator('[data-story-builder="outline"] [data-step-nav]').getByRole('button', { name: 'Next: Done' }).click()
-  await expect(win.locator('[data-story-builder="done"] [data-step="done"]')).toHaveAttribute('aria-current', 'step')
+  await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
+  const hub = win.locator('[data-plan-hub]')
+  const nav = hub.locator('[data-build-nav]')
+  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+  // Full screen: beside the sections, on the left.
+  let n = (await nav.boundingBox())!
+  let m = (await hub.locator('.build-main').boundingBox())!
+  expect(n.x + n.width).toBeLessThanOrEqual(m.x)
+  await nav.locator('[data-nav="threads"]').click()
+  await expect(nav.locator('[data-nav="threads"]')).toHaveAttribute('aria-current', 'true')
+  await expect(hub.locator('[data-talk-about]')).toContainText('Threads')
+  // At 1366: along the top, above them.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1366, 768))
+  await expect.poll(async () => (await win.evaluate('innerWidth')) as number).toBe(1366)
+  // (It stays at the top of the area as the page scrolls: as wide as the area, not a column beside it.)
+  await expect
+    .poll(async () => {
+      n = (await nav.boundingBox())!
+      m = (await hub.locator('.build-main').boundingBox())!
+      return n.width > m.width
+    })
+    .toBe(true)
+  expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
+  // The Story builder's way in: Your idea (from the palette, the keyboard on the page first).
+  await nav.locator('[data-nav="line"]').click()
+  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+  await win.keyboard.press('Control+K')
+  await win.keyboard.type('Your idea, cast')
+  await win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: 'Your idea, cast and world' }).click()
+  await expect(nav.locator('[data-nav="idea"]')).toHaveAttribute('aria-current', 'true')
+  await expect(hub.locator('[data-build-section="idea"]').getByLabel(/^Your idea, in your own words/)).toBeInViewport()
 })

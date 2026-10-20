@@ -28,7 +28,7 @@ describe('a draft’s steps', () => {
     ])
   })
 
-  it('say how many things are looked up, at most the most there can be, then planning again', async () => {
+  it('say how many things are looked up (and which, each name once), at most the most there can be, then planning again', async () => {
     const w = testWorld(0)
     const ctx: LookupContext = { db: w.db, sceneId: w.scenes[0], storyId: w.storyId, asItBegins: true, entries: [], people: [], hidden: new Set() }
     const heard: DraftStep[] = []
@@ -38,7 +38,8 @@ describe('a draft’s steps', () => {
     off()
     expect(out.answers).toHaveLength(calls.length)
     expect(heard).toEqual([
-      { sceneId: w.scenes[0], step: 'lookups', count: LOOKUPS_MOST },
+      // The names go as asked: the window says only those it knows (features/waits/waitWords.ts lookupWords).
+      { sceneId: w.scenes[0], step: 'lookups', count: LOOKUPS_MOST, about: ['no_such_lookup'] },
       { sceneId: w.scenes[0], step: 'plan' }
     ])
   })

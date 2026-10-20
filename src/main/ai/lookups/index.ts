@@ -482,7 +482,13 @@ export async function answerLookups(
 ): Promise<{ results: ChatMessage[]; steps: AgentStep[]; answers: LookupAnswer[] }> {
   const answers: LookupAnswer[] = []
   // The calm overhaul: the window says "Looking up 3 things…" while they are answered, then planning again (ai/steps.ts).
-  draftStep(ctx.sceneId, 'lookups', Math.min(calls.length, LOOKUPS_MOST))
+  // What it looks up goes with it, so the window can say it ("looking up where everyone is…").
+  draftStep(
+    ctx.sceneId,
+    'lookups',
+    Math.min(calls.length, LOOKUPS_MOST),
+    calls.slice(0, LOOKUPS_MOST).map((c) => c.name)
+  )
   try {
     for (const [i, c] of calls.entries()) {
       answers.push(

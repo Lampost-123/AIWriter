@@ -34,7 +34,7 @@ import { UserError } from '../util'
 import { castText, earlierText, planText, storyText, threadsText, type BlockDraft, type FittedBriefing } from '../outline/briefing'
 import { outlineFacts, type OutlineFacts } from '../outline/context'
 import { briefingBudget, checkReplyRoom, fitBriefing, outlineReplyTokens, OUTLINE_REPLY_MOST, OUTLINE_TEMPERATURE, type JobDeps } from '../outline/jobs'
-import { cleanSize, outlineAsk } from '../outline/prompts'
+import { cleanSize, DIRECTION_RULE, DIRECTION_TITLE, outlineAsk } from '../outline/prompts'
 import { startStageJob } from '../outline/stages'
 import { existingText } from '../worldBuilder/prompts'
 import { parseRecipe } from '../recipes/parse'
@@ -281,7 +281,11 @@ export const hasIdea = (brief: StoryBrief): boolean => !!brief.plot.trim() || br
  * `premise`: the premise as the outline helper's box has it (in place of the story's kept one, which may not be saved
  * yet); left out, the story's.
  */
-export function startStoryOutline(deps: StoryDeps, input: StoryOutlineRequest & { premise?: string }, brief: StoryBrief): { generationId: ID } {
+export function startStoryOutline(
+  deps: StoryDeps,
+  input: StoryOutlineRequest & { premise?: string; direction?: string },
+  brief: StoryBrief
+): { generationId: ID } {
   const size = cleanSize(input.size)
   const base = factsOf(deps, input.storyId, brief)
   const premise = typeof input.premise === 'string' ? input.premise.slice(0, 6000) : base.story.premise
@@ -290,9 +294,17 @@ export function startStoryOutline(deps: StoryDeps, input: StoryOutlineRequest & 
   const withPremise = !premise.trim()
   const reply = outlineReplyTokens(size) + (withPremise ? 200 : 0)
   checkReplyRoom(deps.model, reply, 'That is', 'Ask for fewer chapters or fewer scenes in each, or pick a model that writes longer answers in Settings › Models.')
-  const system = storyOutlineSystem({ withActs: size.acts > 0, withPremise, recipe: !!f.recipe })
+  // The Plan hub (2026-10-20): Adam's own words (or which part of a new story to plan), sent last, and they win.
+  const own = typeof input.direction === 'string' ? input.direction.slice(0, 4000).trim() : ''
+  const told = storyOutlineSystem({ withActs: size.acts > 0, withPremise, recipe: !!f.recipe })
+  const system = own ? `${told}\n- ${DIRECTION_RULE}` : told
   const askText = `${withPremise ? 'Write the premise, then plan the story. ' : ''}${outlineAsk(size, { lastAct: facts.lastAct, chapters: facts.chapterCount, latestWhen: facts.latestWhen })}`
-  const drafts: BlockDraft[] = [...ideaBlocks(deps, f), ...storyBlocks(deps, facts, input.storyId), { id: 'ask', title: 'What to plan', priority: 0, forms: [askText] }]
+  const drafts: BlockDraft[] = [
+    ...ideaBlocks(deps, f),
+    ...storyBlocks(deps, facts, input.storyId),
+    ...(own ? [{ id: 'direction', title: DIRECTION_TITLE, priority: 0, forms: [own] }] : []),
+    { id: 'ask', title: 'What to plan', priority: 0, forms: [askText] }
+  ]
   const fitted = fit(deps, drafts, system, reply)
   return startTask({
     db: deps.db,
@@ -306,7 +318,7 @@ export function startStoryOutline(deps: StoryDeps, input: StoryOutlineRequest & 
     ],
     reply,
     temperature: OUTLINE_TEMPERATURE,
-    direction: 'Story builder: plan the outline',
+    direction: own || 'Story builder: plan the outline',
     blocks: fitted.blocks,
     entries: sent(fitted, facts),
     emit: deps.emit,
@@ -348,10 +360,13 @@ export function startPlanChat(deps: StoryDeps, input: PlanChatRequest, brief: St
   if (!message) throw new UserError('Say what you would like changed first.')
   const reply = planRoom(current)
   const system = planChatSystem()
+  const looking = typeof input.looking === 'string' ? clip(input.looking.replace(/\s+/g, ' ').trim(), 200) : ''
   const drafts: BlockDraft[] = [
     ...ideaBlocks(deps, f),
     ...storyBlocks(deps, facts, input.storyId),
-    { id: 'suggestions', title: 'The suggestions still waiting for a decision', priority: 0, forms: [current || '(none)'] }
+    { id: 'suggestions', title: 'The suggestions still waiting for a decision', priority: 0, forms: [current || '(none)'] },
+    // Build with AI (2026-10-20): what the author is looking at while talking, so the answer is about that.
+    ...(looking ? [{ id: 'looking-at', title: 'What the author is looking at now', priority: 0, forms: [`${looking}. Answer about that first.`] }] : [])
   ]
   const fitted = fit(deps, drafts, system, reply)
   return startTask({

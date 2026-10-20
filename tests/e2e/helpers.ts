@@ -156,8 +156,11 @@ const PAGES = {
   Timeline: ['World', 'Timeline'],
   'Relationship map': ['World', 'Relationship map'],
   'Plot threads board': ['Plan', 'Plot threads board'],
-  'Outline helper': ['Plan', 'Outline helper'],
-  'Story builder': ['Plan', 'Story builder'],
+  // Build with AI (2026-10-20): the Plan area's first row, every AI building tool in one area; its Your idea (the Story
+  // builder's first step before) is the first section of it.
+  'Build with AI': ['Plan', 'Build with AI'],
+  'Plan with AI': ['Plan', 'Build with AI'],
+  'The idea, cast and world': ['Plan', 'Build with AI'],
   Consistency: ['Check', 'Consistency'],
   'What changed': ['Check', 'What changed'],
   'Style guide': ['Write', 'Style guide'],

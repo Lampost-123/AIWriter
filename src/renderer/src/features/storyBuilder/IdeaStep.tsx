@@ -1,10 +1,12 @@
-// The Story builder's first step: the idea. On the left, what Adam writes: his plot (as long as he likes), where it is
-// set, what must and must never happen, how long it is, his own characters and places, and the AI's questions. On the
-// right, the story's style (one place for everything the AI writes in this story: a preset, how far it goes, point
-// of view, tense and tone) and the recipe it follows, if any, which can be talked over or redone for this story.
+// Build with AI's Your idea (the Story builder's first step before, 2026-10-20). First, what Adam writes: his idea (the
+// one idea field: the Story builder's plot, showing the story's premise while there is none), where it is set, what must
+// and must never happen, how long it is, his own characters and places, and the AI's questions. Then the story's style
+// (one place for everything the AI writes in this story: a preset, how far it goes, point of view, tense and tone) and
+// Start from a recipe: the recipe it follows, if any, which can be talked over or redone for this story (the recipe
+// library stays its own page, for making and looking after recipes). Two columns when the area is wide enough.
 
 import { useEffect, useId, useState } from 'react'
-import { CircleHelp, CookingPot, Plus, Settings2, Square, Trash2, X } from '@/components/ui/icons'
+import { ArrowRight, CircleHelp, CookingPot, Plus, Settings2, Square, Trash2, X } from '@/components/ui/icons'
 import type { BriefEntry, StoryLength } from '@shared/contracts/storyBuilder'
 import type { RecipePartId, RecipeSummary } from '@shared/contracts/recipes'
 import { RECIPE_PARTS } from '@shared/contracts/recipes'
@@ -23,6 +25,8 @@ import { editStoryStyle } from '@/features/stories/storyActions'
 import { PART_LABELS, PartRedo, RecipeTalkPanel, talkParts } from '@/features/recipes/RecipeTalk'
 import { settlePreview } from '@/features/planning/talkStore'
 import { defaultMode } from '@/features/outline/stages'
+import { openRecipes } from '@/features/recipes/recipeStore'
+import { SaveNote } from '@/features/world/parts/SaveNote'
 import {
   answerQuestion,
   applyRecipeTalk,
@@ -59,29 +63,47 @@ const KINDS: { value: EntryKind; label: string }[] = [
   { value: 'event', label: 'Event' }
 ]
 
-export function IdeaStep({ storyId }: { storyId: ID }): React.JSX.Element {
+export function IdeaStep({ storyId, premise = '' }: { storyId: ID; premise?: string }): React.JSX.Element {
   const brief = useBuilders((s) => s.builders[builderKey(storyId)]?.brief)!
   const plotId = useId()
+  // Saved a moment after he stops typing (the brief saves itself): said quietly beside the box.
+  const [typed, setTyped] = useState(0)
+  const [saved, setSaved] = useState<'idle' | 'saved'>('idle')
+  useEffect(() => {
+    if (!typed) return
+    setSaved('idle')
+    const t = setTimeout(() => setSaved('saved'), 600)
+    return () => clearTimeout(t)
+  }, [typed])
+  // The one idea field: the plot, or the story's premise while there is no plot.
+  const idea = brief.plot.trim() || typed ? brief.plot : premise
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-      <div className="flex flex-col gap-5">
+    <div className="@container">
+      <div className="grid gap-6 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @4xl:gap-8">
+      <div className="flex min-w-0 flex-col gap-5">
         <div>
-          <label htmlFor={plotId} className="text-[13px] font-semibold text-fg">
-            Your plot
-          </label>
+          <div className="flex items-end justify-between gap-2">
+            <label htmlFor={plotId} className="text-[13px] font-semibold text-fg">
+              Your idea, in your own words: a line or two, or the whole story
+            </label>
+            <SaveNote status={saved} error={null} />
+          </div>
           <p className="mt-0.5 text-[12.5px] text-muted">As much or as little as you have: a few lines, or the whole story beat by beat. Everything you write here wins.</p>
           <AutoTextarea
             id={plotId}
-            value={brief.plot}
-            minRows={8}
+            value={idea}
+            minRows={6}
             maxRows={40}
             placeholder="A lighthouse keeper’s daughter has one winter to prove the town still needs its light, while someone is wrecking ships on purpose…"
-            className="mt-2 font-serif text-[15px] leading-[1.65] placeholder:font-sans placeholder:text-[13.5px]"
-            onChange={(e) => patchBrief(storyId, { plot: e.target.value })}
+            className="hub-box is-idea mt-2"
+            onChange={(e) => {
+              patchBrief(storyId, { plot: e.target.value })
+              setTyped((n) => n + 1)
+            }}
             data-plot
           />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 @xl:grid-cols-2">
           <Field label="Where and when it is set">
             {(id) => (
               <AutoTextarea id={id} value={brief.setting} minRows={2} maxRows={8} placeholder="A cold northern harbour town, 1890s" onChange={(e) => patchBrief(storyId, { setting: e.target.value })} />
@@ -107,9 +129,10 @@ export function IdeaStep({ storyId }: { storyId: ID }): React.JSX.Element {
         <MineList storyId={storyId} mine={brief.mine} />
         <Questions storyId={storyId} />
       </div>
-      <div className="flex flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-5">
         <StoryStyle storyId={storyId} />
         <RecipeCard storyId={storyId} />
+      </div>
       </div>
     </div>
   )
@@ -122,8 +145,8 @@ function lengthHint(length: StoryLength): string {
   const start = length ? 'A new outline starts' : 'Until you choose, a new outline starts'
   // A long story is planned in stages (2026-10-19): the acts first, then each act's chapters and each chapter's scenes.
   if (defaultMode(size.chapters) === 'stages')
-    return `${start} in stages: ${size.acts} acts first, about ${size.chapters} chapters in all, then each act’s chapters and each chapter’s scenes as you go. You can change that on the Outline step.`
-  return `${start} with ${acts}${size.chapters} chapters of ${size.scenes} scenes each. You can change that on the Outline step.`
+    return `${start} in stages: ${size.acts} acts first, about ${size.chapters} chapters in all, then each act’s chapters and each chapter’s scenes as you go. You can change that in the story line.`
+  return `${start} with ${acts}${size.chapters} chapters of ${size.scenes} scenes each. You can change that in the story line.`
 }
 
 // ---------- His own characters and places ----------
@@ -136,7 +159,7 @@ function MineList({ storyId, mine }: { storyId: ID; mine: BriefEntry[] }): React
       <p className="mt-0.5 text-[12.5px] text-muted">Anyone or anything you already have in mind. The AI keeps them exactly as you write them, names and all, and builds the rest around them.</p>
       <div className="mt-3 flex flex-col gap-2.5">
         {mine.map((e, i) => (
-          <div key={i} className="grid grid-cols-[120px_minmax(0,1fr)_auto] items-start gap-2" data-mine>
+          <div key={i} className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-start gap-2" data-mine>
             <Select ariaLabel="Kind" value={e.kind} options={KINDS} onChange={(v) => v && set(i, { kind: v as EntryKind })} />
             <div className="flex flex-col gap-1.5">
               <Input aria-label="Name" value={e.name} placeholder="Name" onChange={(ev) => set(i, { name: ev.target.value })} />
@@ -289,7 +312,7 @@ function StoryStyle({ storyId }: { storyId: ID }): React.JSX.Element {
       <div className="mt-3">
         <StylePresets value={shown} onPick={pick} compact />
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 @md:grid-cols-2">
         <Field label="Tone">
           {(id) => (
             <Input id={id} value={tone} placeholder="Wry, warm and hopeful" onChange={(e) => setTone(e.target.value)} onBlur={() => tone !== story.tone && void save({ tone })} />
@@ -333,17 +356,19 @@ function RecipeCard({ storyId }: { storyId: ID }): React.JSX.Element {
     <section aria-label="Recipe" className="rounded-xl border border-line bg-surface p-4" data-recipe-card>
       <div className="flex items-center gap-2">
         <CookingPot size={14} className="text-muted" aria-hidden />
-        <h2 className="text-[13px] font-semibold text-fg">Follow a recipe</h2>
+        <h2 className="min-w-0 flex-1 text-[13px] font-semibold text-fg">Start from a recipe</h2>
         <span className="text-[12px] text-faint">Optional</span>
       </div>
-      <p className="mt-0.5 text-[12.5px] text-muted">The shape, beats, cast roles and pacing of a story you admire, told through your own idea. Your idea wins where they differ.</p>
+      <p className="mt-0.5 text-[12.5px] text-muted">
+        The shape, beats, cast roles and pacing of a story you admire, told through your own idea. The story line plans from it; your idea wins where they differ.
+      </p>
       {!brief.recipe ? (
         list === null ? null : list.length ? (
           <div className="mt-3">
             <Select ariaLabel="Recipe" value={null} placeholder="Choose a recipe…" options={list.map((r) => ({ value: r.id, label: r.name || 'Untitled recipe' }))} onChange={(v) => v && void pickRecipe(storyId, v)} />
           </div>
         ) : (
-          <p className="mt-3 text-[12.5px] text-faint">You have no recipes yet. Make one from a story you admire in Recipes.</p>
+          <p className="mt-3 text-[12.5px] text-faint">You have no recipes yet. Make one from a story you admire in your recipe library.</p>
         )
       ) : (
         <>
@@ -390,6 +415,10 @@ function RecipeCard({ storyId }: { storyId: ID }): React.JSX.Element {
           />
         </>
       )}
+      <button type="button" className="hub-link mt-3" onClick={openRecipes} title="Make a recipe from a story you admire, or look after the ones you have">
+        Your recipe library
+        <ArrowRight size={12} aria-hidden />
+      </button>
     </section>
   )
 }

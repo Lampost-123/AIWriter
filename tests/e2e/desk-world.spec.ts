@@ -204,10 +204,12 @@ test('the World room’s other pages open in its frame beside the spine: by kind
   await links.getByRole('button', { name: 'Timeline' }).click()
   await expect(links.getByRole('button', { name: 'Timeline' })).toHaveAttribute('aria-current', 'page')
   await clear('timeline')
+  // Build from a summary, with a story open: Build with AI's Cast and world, from a summary, in the Plan room (2026-10-20).
   await links.getByRole('button', { name: 'Build from a summary' }).click()
-  await expect(links.getByRole('button', { name: 'Build from a summary' })).toHaveAttribute('aria-current', 'page')
-  await clear('build from a summary')
+  await expect(win.locator('[data-desk-room="plan"] [data-summary-builder]')).toBeVisible()
+  expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
   // Back to everything.
+  await win.getByRole('navigation', { name: 'Rooms' }).getByRole('button', { name: /^World/ }).click()
   await links.getByRole('button', { name: /^Everything/ }).click()
   await expect(tab(win, 'All')).toHaveAttribute('aria-selected', 'true')
 })

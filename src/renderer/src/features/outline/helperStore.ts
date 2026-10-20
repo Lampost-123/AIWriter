@@ -43,6 +43,7 @@ import {
   discardKeys,
   findNode,
   goneIds,
+  anchorItems,
   keepPlan,
   keptMessage,
   madePagesNote,
@@ -58,6 +59,7 @@ import {
   type Edits,
   type KeepPlace,
   type NodeEdit,
+  type RunPlace,
   type TreeNode
 } from './tree'
 
@@ -110,6 +112,17 @@ export interface HelperRun {
   at?: number
   /** The last stage asked for under one of its acts or chapters (the outline in stages), while it arrives and after. */
   stage?: HelperStage | null
+  /**
+   * The Plan hub (2026-10-20): where these suggestions belong in the story (tree.ts RunPlace): the hub shows them there in
+   * the story line, and Keep puts them there. Left out: after everything the story has.
+   */
+  place?: RunPlace
+  /**
+   * The Plan hub's "Fill in the empty cards" (2026-10-20): the scenes the suggestions are cards for, in order (the nth
+   * scene suggested is the card of the nth scene here). Keep puts each only in its scene card's empty parts
+   * (planHub/hubStore keepInLine), never making a scene.
+   */
+  fill?: ID[]
 }
 
 /** A request is arriving: the run itself, or a stage under one of its suggestions. */
@@ -261,12 +274,17 @@ function listen(): void {
   useApp.subscribe((now, before) => {
     if (now.outlineRev === before.outlineRev) return
     const prefix = helperKey(now.world?.id, '')
+    // Build with AI shows the story's own session and its chapters' (Plan this chapter, in their rows).
     const view =
-      now.view.kind === 'outline' ? now.view : now.view.kind === 'storyBuilder' ? { storyId: now.view.storyId, chapterId: undefined as ID | undefined } : null
+      now.view.kind === 'outline'
+        ? { storyId: now.view.storyId, chapterId: now.view.chapterId, all: false }
+        : now.view.kind === 'storyBuilder' || now.view.kind === 'planHub' || now.view.kind === 'recipePlan'
+          ? { storyId: now.view.storyId, chapterId: undefined as ID | undefined, all: now.view.kind === 'planHub' }
+          : null
     for (const [key, s] of Object.entries(useOutlineHelper.getState().sessions)) {
       if (!key.startsWith(prefix)) continue
       const { storyId, chapterId } = partsOf(key.slice(prefix.length))
-      const showing = !!view && view.storyId === storyId && (view.chapterId ?? null) === chapterId
+      const showing = !!view && view.storyId === storyId && (view.all || (view.chapterId ?? null) === chapterId)
       const toastShows = keepBatch?.key === key && liveToast(keepBatch.toastId)
       if ((showing || toastShows) && (s.gone.length || allRuns(s).some(hasKept))) void checkKept(storyId, chapterId)
       // A chapter's plan doesn't ask whether the story is blank.
@@ -361,10 +379,17 @@ export function setHelperMode(storyId: ID, mode: PlanMode): void {
   put(keyOf(storyId), { mode })
 }
 
+/**
+ * The suggestions' whole text: with a chapter's plan's heading first (`lead`; a chapter heading the model added anyway is
+ * the chapter's own, so it goes). What the tree, the talk and Redo read, so their keys are the same.
+ */
+export function fullText(run: Pick<HelperRun, 'text' | 'lead'>): string {
+  return run.lead ? run.lead + run.text.replace(/^\s*[#*\s]*chapter\b[^\n]*\n/i, '') : run.text
+}
+
 /** The suggestions so far as a tree. A reply that has ended (complete, stopped or failed) counts as whole. */
 export function treeOf(run: HelperRun): TreeNode[] {
-  // A chapter's plan: a chapter heading the model added anyway is the chapter's own, already in `lead`.
-  const text = run.lead ? run.lead + run.text.replace(/^\s*[#*\s]*chapter\b[^\n]*\n/i, '') : run.text
+  const text = fullText(run)
   // A stage still arriving shows under its act or chapter, its last part not complete yet.
   const st = run.stage
   if (st && !st.merged && st.status === 'running' && !run.lead && st.text.trim()) {
@@ -424,7 +449,7 @@ export async function suggestOutline(
   storyId: ID,
   premise: string,
   size: OutlineSize,
-  o: { premiseOptional?: boolean; mode?: PlanMode } = {}
+  o: { premiseOptional?: boolean; mode?: PlanMode; direction?: string } = {}
 ): Promise<void> {
   const s = get(keyOf(storyId))
   if (runBusy(s.run)) return
@@ -437,11 +462,11 @@ export async function suggestOutline(
   if (o.mode === 'stages') {
     const level = size.acts > 0 ? 'acts' : 'chapters'
     await suggestOutlineWith(storyId, size, (taskId) =>
-      api.startOutlineStage({ taskId, storyId, level, premise, acts: size.acts, chapters: size.chapters })
+      api.startOutlineStage({ taskId, storyId, level, premise, acts: size.acts, chapters: size.chapters, ...(o.direction ? { direction: o.direction } : {}) })
     )
     return
   }
-  await suggestOutlineWith(storyId, size, (taskId) => api.startOutline({ taskId, storyId, premise, size }))
+  await suggestOutlineWith(storyId, size, (taskId) => api.startOutline({ taskId, storyId, premise, size, ...(o.direction ? { direction: o.direction } : {}) }))
 }
 
 /**
@@ -503,7 +528,16 @@ export async function planStage(storyId: ID, nodeKey: string): Promise<void> {
  * The same, with another way of asking (Story recipes: a new story planned from a recipe). `start` begins the
  * request with the task id given; its answer is read, kept, edited and discarded as the outline helper's is.
  */
-export async function suggestOutlineWith(storyId: ID, size: OutlineSize, start: (taskId: ID) => Promise<{ generationId: ID }>): Promise<void> {
+export async function suggestOutlineWith(
+  storyId: ID,
+  size: OutlineSize,
+  start: (taskId: ID) => Promise<{ generationId: ID }>,
+  /**
+   * The Plan hub (2026-10-20): where the suggestions belong (`place`), and, for scenes in a chapter the story has, that
+   * chapter's heading (`lead`) and its decision (kept as the chapter itself), as a chapter's plan has them.
+   */
+  extra: Pick<HelperRun, 'place' | 'lead' | 'fill'> & { decisions?: Decisions } = {}
+): Promise<void> {
   listen()
   const key = keyOf(storyId)
   const s = get(key)
@@ -516,7 +550,21 @@ export async function suggestOutlineWith(storyId: ID, size: OutlineSize, start: 
     size,
     problem: null,
     earlier: withEarlier(s, previous),
-    run: { taskId, generationId: null, text: '', status: 'running', cutOff: false, retrying: null, size, decisions: {}, edits: {}, at: Date.now() }
+    run: {
+      taskId,
+      generationId: null,
+      text: '',
+      status: 'running',
+      cutOff: false,
+      retrying: null,
+      size,
+      decisions: extra.decisions ?? {},
+      edits: {},
+      at: Date.now(),
+      ...(extra.lead ? { lead: extra.lead } : {}),
+      ...(extra.place ? { place: extra.place } : {}),
+      ...(extra.fill ? { fill: extra.fill } : {})
+    }
   })
   try {
     const { generationId } = await start(taskId)
@@ -622,6 +670,19 @@ export function settledRun(storyId: ID): HelperRun | null {
   return s.run && !runBusy(s.run) ? shownRun(s, s.run) : null
 }
 
+/** A request for the story's suggestions is arriving, so talking them over waits for it. */
+export const talkBusy = (storyId: ID): boolean => runBusy(get(keyOf(storyId)).run)
+
+/** The Plan hub's filled cards (HelperRun.fill): these suggestions are kept, as the scenes given (their ids). */
+export function markKept(storyId: ID, runId: ID, kept: { key: string; id: ID }[]): void {
+  patchRun(keyOf(storyId), runId, (r) => ({ decisions: { ...r.decisions, ...Object.fromEntries(kept.map((k) => [k.key, { status: 'kept' as const, id: k.id }])) } }))
+}
+
+/** Undo for markKept: those suggestions are open again. */
+export function unmarkKept(storyId: ID, runId: ID, keys: string[]): void {
+  patchRun(keyOf(storyId), runId, (r) => ({ decisions: Object.fromEntries(Object.entries(r.decisions).filter(([k, d]) => !(keys.includes(k) && d.status === 'kept'))) }))
+}
+
 /** A talk's revised plan, and what it knows of where its parts came from (planTalk.ts PlanRevision). */
 export interface RevisionInput extends RevisionTrail {
   text: string
@@ -639,10 +700,33 @@ export function applyRevision(storyId: ID, revision: RevisionInput): boolean {
   const key = keyOf(storyId)
   const s = get(key)
   const previous = s.run
-  if (!previous || runBusy(previous)) return false
+  if (previous && runBusy(previous)) return false
+  // No suggestions yet (the Plan hub's talk, 2026-10-20): what the talk made becomes the suggestions, in the story line to
+  // keep, change or discard. Nothing goes into the story.
+  if (!previous) {
+    if (!outlineTree(parseOutline(revision.text, true)).length) return false
+    const size = s.size ?? { acts: 0, chapters: 1, scenes: 3 }
+    const run: HelperRun = {
+      taskId: crypto.randomUUID(),
+      generationId: null,
+      text: revision.text,
+      status: 'complete',
+      cutOff: false,
+      retrying: null,
+      size,
+      decisions: {},
+      edits: {},
+      at: Date.now(),
+      place: { at: 'end' }
+    }
+    dropReplaced()
+    put(key, { run, problem: null })
+    return true
+  }
   // A redo or another revision since moves the parts about: then they are matched by their titles alone.
-  const trail: RevisionTrail = revision.base === undefined || revision.base === previous.text ? revision : {}
-  const next = carryRevision(previous.text, decisionsOf(s), previous.edits, revision.text, trail)
+  const whole = fullText(previous)
+  const trail: RevisionTrail = revision.base === undefined || revision.base === whole ? revision : {}
+  const next = carryRevision(whole, decisionsOf(s), previous.edits, revision.text, trail)
   const taskId = crypto.randomUUID()
   const run: HelperRun = {
     ...previous,
@@ -781,9 +865,11 @@ export function keepSuggestions(storyId: ID, keys: string[] | 'all', chapterId?:
     await checkKept(storyId, chapterId)
     const s = get(key)
     const run = runIn(s, o.runId)
-    if (!run || run.status === 'running' || stageHolds(run, keys)) return
+    // Cards for scenes the story has (the Plan hub's fill) are never made into new scenes: the hub keeps those itself.
+    if (!run || run.status === 'running' || stageHolds(run, keys) || run.fill) return
     const tree = treeOf(run)
-    const planned = keepPlan(tree, decisionsOf(s, run), run.edits, keys)
+    // Where the batch belongs (the Plan hub): after the last scene written, in the act being written...
+    const planned = anchorItems(keepPlan(tree, decisionsOf(s, run), run.edits, keys), run.place)
     const items = o.place && keys !== 'all' && keys.length === 1 ? placeKeep(planned, keys[0], o.place) : planned
     if (!items.length) return
     let kept: KeptItem[]

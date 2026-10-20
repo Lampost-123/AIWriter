@@ -1,8 +1,9 @@
-// Write the whole chapter in the window (contracts/chapterWriter.ts): which chapter the start dialog asks about, the
-// run going now (the top bar shows it, with Stop), the chapter plan waiting for Adam before anything is written
-// (ChapterPlanReview.tsx: Write, Change the plan, Cancel), the page holding the scenes it works on, and the message when
-// it ends (Show opens the report on the chapter card; Undo puts the chapter back). Listens once, from the dialog mounted
-// in the workspace (ChapterWriterDialog.tsx).
+// Write the whole chapter in the window (contracts/chapterWriter.ts): the run going now (the top bar shows it, with Stop),
+// the chapter plan waiting for Adam before anything is written (shown inline at its chapter in Build with AI's story
+// line, ChapterPlanReview.tsx: Write the chapter, Change the plan, Cancel), the page holding the scenes it works on, and
+// the message when it ends (Show opens the report on the chapter card; Undo puts the chapter back). Every way in (the
+// binder's chapter menu, the palette, a chapter card's report) opens Build with AI at that chapter, Write this chapter
+// open in its row (2026-10-20: the start dialog is that row now). Listens once, from the workspace (App.tsx).
 
 import { create } from 'zustand'
 import type { ChapterPlanAnswer, ChapterWriterProgress, ChapterWriterReport } from '@shared/contracts/chapterWriter'
@@ -12,47 +13,54 @@ import { api, onEvent } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
+import { useOutlineStore } from '@/features/binder/outlineStore'
 import { endWords } from './chapterWriterLogic'
 import { setHeld, showRunChange } from './hold'
 
 interface ChapterWriterState {
-  /** The chapter the start dialog asks about; null when it is closed. */
-  ask: ID | null
   /** The run going now. */
   progress: ChapterWriterProgress | null
   /** Bumped when a chapter's report changes, so the report on its card reloads. */
   reportRev: number
-  /** The chapter plan's window shows (while the run waits for Adam over it; closed, the top bar opens it again). */
-  planOpen: boolean
 }
 
-export const useChapterWriter = create<ChapterWriterState>(() => ({ ask: null, progress: null, reportRev: 0, planOpen: false }))
+export const useChapterWriter = create<ChapterWriterState>(() => ({ progress: null, reportRev: 0 }))
 
-export const openChapterWriter = (chapterId: ID): void => useChapterWriter.setState({ ask: chapterId })
-export const closeChapterWriter = (): void => useChapterWriter.setState({ ask: null })
+/** The story a chapter is in: the binder's when it shows it, else the story open. */
+function storyOfChapter(chapterId: ID): ID | null {
+  const o = useOutlineStore.getState().outline
+  if (o?.chapters.some((c) => c.id === chapterId)) return o.story.id
+  return useApp.getState().storyId
+}
+
+/**
+ * "Write this chapter with AI" from anywhere: Build with AI at that chapter, Write this chapter open in its row (what the
+ * chapter's scenes are ready for, then its plan, then how it goes).
+ */
+export function openChapterWriter(chapterId: ID): void {
+  const storyId = storyOfChapter(chapterId)
+  if (!storyId) return
+  useApp.getState().navigate({ kind: 'planHub', storyId, section: 'line', chapterId, open: 'write' })
+}
 
 const bumpReport = (): void => useChapterWriter.setState((s) => ({ reportRev: s.reportRev + 1 }))
 
 function setProgress(p: ChapterWriterProgress | null): void {
-  const was = useChapterWriter.getState().progress
-  // The plan opens by itself once it is ready, and closes once writing starts.
-  const review = p?.stage === 'review'
-  const planOpen = review ? (was?.stage === 'review' && was.runId === p.runId ? useChapterWriter.getState().planOpen : true) : false
-  useChapterWriter.setState({ progress: p, planOpen })
+  useChapterWriter.setState({ progress: p })
   setHeld(p?.sceneIds ?? [])
 }
 
-/** Shows the chapter plan waiting for Adam again (closed with Escape, say). */
-export const openChapterPlan = (): void => useChapterWriter.setState((s) => ({ planOpen: s.progress?.stage === 'review' }))
-/** Hides the chapter plan; the run goes on waiting for it (the top bar opens it again). */
-export const hideChapterPlan = (): void => useChapterWriter.setState({ planOpen: false })
+/** The chapter plan waiting for Adam (the top bar's "The chapter plan is ready for you"): its chapter in Build with AI. */
+export function openChapterPlan(): void {
+  const p = useChapterWriter.getState().progress
+  if (p) openChapterWriter(p.chapterId)
+}
 
 /** Writes the chapter to the plan, with any part Adam changed. Throws (plain words) when the run isn't waiting any more. */
-export async function writeToChapterPlan(changes: Pick<ChapterPlanAnswer, 'scenes' | 'overview'>): Promise<void> {
+export async function writeToChapterPlan(changes: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'>): Promise<void> {
   const p = useChapterWriter.getState().progress
   if (!p || p.stage !== 'review') return
   await api.answerChapterPlan({ runId: p.runId, ...changes })
-  useChapterWriter.setState({ planOpen: false })
 }
 
 /** Starts the run (the page saved first). Throws (plain words) when it can't start. */

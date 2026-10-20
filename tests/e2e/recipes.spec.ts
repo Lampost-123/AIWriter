@@ -6,7 +6,7 @@ import Database from 'better-sqlite3'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
+import { createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
 
 // A made-up story, written for this test.
 const STORY = `Chapter 1
@@ -116,15 +116,23 @@ test('a pasted story becomes a recipe with none of its names, and a new story is
     await dialog.getByRole('button', { name: 'Create' }).click()
     await expect(dialog).toBeHidden()
 
-    // The plan page: the premise (carrying his guidance) and the chapters arrive as suggestions to keep.
-    await expect(main(win).getByRole('heading', { level: 1, name: 'Plan “Station Nine”' })).toBeVisible()
-    const premise = main(win).getByRole('region', { name: 'Suggested premise' })
+    // Build with AI's story line (2026-10-20; the recipe's plan page before): the premise (carrying his guidance) and the
+    // chapters arrive as suggestions to keep; the story follows the recipe, his guidance its idea.
+    const area = main(win).locator('[data-plan-hub]')
+    await expect(area.getByRole('heading', { level: 1, name: 'Build “Station Nine” with AI' })).toBeVisible()
+    await expect(area.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
+    const premise = area.getByRole('region', { name: 'Suggested premise' })
     await expect(premise).toContainText('Set as asked: set it on a space station', { timeout: 30_000 })
-    await expect(main(win).getByText(/Here is the plan:/)).toBeVisible({ timeout: 30_000 })
-    await premise.getByRole('button', { name: 'Keep' }).click()
-    await expect(premise.getByText('Kept')).toBeVisible()
-    await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
-    await expect(binder(win).getByText('Grey Water', { exact: true })).toBeVisible()
+    await expect(area.locator('[data-batch-head]')).toContainText('to keep, change or discard', { timeout: 30_000 })
+    await expect(area.locator('[data-nav="idea"]')).toContainText('follows a recipe')
+    await expect(area.getByLabel(/^Your idea, in your own words/)).toHaveValue('set it on a space station')
+    await premise.getByRole('button', { name: 'Keep as the premise' }).click()
+    await expect(premise).toHaveCount(0)
+    await area.locator('[data-batch-head]').getByRole('button', { name: 'Keep all' }).click()
+    await expect.poll(async () => {
+      const made = (await invoke(win, 'listStories')).find((s) => s.title === 'Station Nine')!
+      return (await invoke(win, 'getOutline', made.id)).chapters.map((c) => c.title)
+    }).toContain('Grey Water')
 
     // An ordinary story: its premise, its chapters, and the recipe's style and themes as its own.
     const stories = await invoke(win, 'listStories')

@@ -117,8 +117,9 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     fake.reset()
     await binder(win).locator('[data-row="chapter"]', { hasText: 'Chapter 1' }).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Interview me about this chapter' }).click()
-    await expect(main(win).getByRole('heading', { level: 1 })).toHaveText('Chapter 1')
-    const page = main(win)
+    // Plan this chapter, in its row of Build with AI's story line (2026-10-20; its own page before).
+    const page = main(win).locator(`[data-chapter-plan="${chapter.id}"]`)
+    await expect(page.getByRole('heading', { name: 'Ch 1' })).toBeVisible()
     const box = page.getByRole('region', { name: 'Interview' })
     await answer(box, 'What happens in this chapter?', 'A letter comes for Mara')
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] interview chapter')).toBe(true)
@@ -131,7 +132,7 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     await expect(page.locator('[data-suggestion]')).toHaveCount(3)
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] plan chapter')).toBe(true)
     await expect(toastWith(win, 'Gave the chapter a goal from your answers.')).toBeVisible()
-    await expect(page.getByLabel('Goal', { exact: true })).toHaveValue('A letter comes for Mara.')
+    await expect(page.getByLabel('What the chapter achieves')).toHaveValue('A letter comes for Mara.')
     await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).chapters[0].goal).toBe('A letter comes for Mara.')
 
     // ----- Keep one: it takes the place of the chapter's empty "Scene 1" -----
@@ -144,9 +145,9 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     // ----- Discard one, keep the rest -----
     await page.getByRole('button', { name: 'Discard “The name on the door”', exact: true }).click()
     await expect(suggestion('The name on the door')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Keep all that’s left' }).click()
+    await page.getByRole('button', { name: 'Keep all' }).click()
     await expect.poll(chapterScenes).toEqual(['A letter at dawn', 'Questions at the market'])
-    await expect(page.getByText('Everything is decided.', { exact: false })).toBeVisible()
+    await expect(page.locator('[data-chapter-batch]')).toContainText('All decided · 2 kept')
     const scenes = (await invoke(win, 'getOutline', story.id)).scenes.filter((s) => s.chapterId === chapter.id)
     expect(scenes.map((s) => s.title)).toEqual(['A letter at dawn', 'Questions at the market'])
     const dawn = await invoke(win, 'getScene', scenes[0].id)

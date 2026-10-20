@@ -26,7 +26,7 @@ import {
   type ThreadLine
 } from './briefing'
 import { ideasFacts, outlineFacts } from './context'
-import { cleanSize, ideasAsk, ideasSystem, outlineAsk, outlineSystem } from './prompts'
+import { cleanSize, DIRECTION_RULE, DIRECTION_TITLE, ideasAsk, ideasSystem, outlineAsk, outlineSystem } from './prompts'
 
 type DB = Database.Database
 
@@ -111,7 +111,9 @@ export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generat
   )
   const premise = (input.premise ?? '').slice(0, 6000)
   const facts = outlineFacts(deps.db, input.storyId, premise)
-  const system = outlineSystem(size.acts > 0)
+  // The Plan hub (2026-10-20): Adam's own words (or which part of a new story to plan), sent last, and they win.
+  const own = typeof input.direction === 'string' ? input.direction.slice(0, 4000).trim() : ''
+  const system = own ? `${outlineSystem(size.acts > 0)}\n- ${DIRECTION_RULE}` : outlineSystem(size.acts > 0)
   const drafts: BlockDraft[] = [
     { id: 'story', title: 'The story', priority: 1, forms: [storyText(facts.story)] },
     { id: 'earlier', title: 'Earlier stories', priority: 4, forms: [earlierText(facts.earlier), earlierText(facts.earlier, 2)] },
@@ -124,6 +126,7 @@ export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generat
       entryIds: facts.threads.map((t) => t.id)
     },
     { id: 'cast', title: 'Characters and places', priority: 5, forms: castForms(facts.cast), entryIds: facts.cast.map((c) => c.id) },
+    ...(own ? [{ id: 'direction', title: DIRECTION_TITLE, priority: 0, forms: [own] }] : []),
     {
       id: 'ask',
       title: 'What to suggest',
@@ -147,6 +150,7 @@ export function startOutlineJob(deps: JobDeps, input: OutlineRequest): { generat
     messages: messagesOf(system, fitted),
     reply,
     temperature: OUTLINE_TEMPERATURE,
+    ...(own ? { direction: own } : {}),
     blocks: fitted.blocks,
     entries: sentEntries(fitted.blocks, [...facts.cast, ...facts.threads]),
     emit: deps.emit,

@@ -16,7 +16,7 @@ import { sceneWords } from '../ask/agent'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
 import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, STATE_CHECKS, cardReady, contractMisses, issueFindings, planMisses, type RunDeps } from './run'
-import { checkChapterPlan, readChapterPlan, withAnswer } from './plan'
+import { chapterLine, chapterPlanText, checkChapterPlan, keptFacts, readChapterPlan, withAnswer } from './plan'
 import { passageFor, replyPassage } from './fix'
 import { CHAPTER_MARKER, PLAN_STEPS } from './prompts'
 import { sceneNamed } from './tools'
@@ -301,6 +301,68 @@ describe('the chapter plan, read and checked', () => {
     expect(changed.overview).toBe('Mara walks.')
     expect(changed.scenes[0]).toMatchObject({ text: 'Mara misses the ferry and walks.', changed: true, changes: [{ who: 'Mara', change: 'ends on the ferry' }] })
     expect(changed.scenes[1]).toBe(plan.scenes[1])
+    // What the chapter does, in its parts: each changed part is his, the rest as they were.
+    const three = withAnswer({ ...plan, lead: 'Mara', wants: 'To cross.', against: 'The river.', turn: 'She swims.' }, { wants: '  To cross   tonight. ' })
+    expect([three.wants, three.against, three.turn]).toEqual(['To cross tonight.', 'The river.', 'She swims.'])
+  })
+
+  it('reads what the chapter does in three parts, and how each scene ends; a plan made before them reads as it was', () => {
+    const { db, s1, s2 } = world()
+    const refs = [
+      { ...scenes[0], id: s1 },
+      { ...scenes[1], id: s2 }
+    ]
+    const people = repo.listEntries(db).filter((e) => e.kind === 'character')
+    const raw = readChapterPlan(
+      JSON.stringify({
+        overview: 'Mara crosses.',
+        lead: 'mara',
+        wants: 'To reach the ferry before dark.',
+        against: 'Tobin’s questions.',
+        turn: 'She tells him the truth.',
+        scenes: [
+          { scene: 'Sc 1', does: 'Mara meets Tobin.', ends: 'Mara soaked to the knee, boots off by the fire.' },
+          { scene: 'Sc 2', does: 'The inn.', endsWith: 'The key in her pocket.' }
+        ]
+      })
+    )!
+    const plan = checkChapterPlan(raw, { db, scenes: refs, people })!
+    expect(plan).toMatchObject({ lead: 'Mara', wants: 'To reach the ferry before dark.', against: 'Tobin’s questions.', turn: 'She tells him the truth.' })
+    expect(plan.scenes.map((s) => s.ends)).toEqual(['Mara soaked to the knee, boots off by the fire.', 'The key in her pocket.'])
+    expect(plan.scenes[0].text).toBe('What it must do: Mara meets Tobin.\nEnds with: Mara soaked to the knee, boots off by the fire.')
+    expect(chapterLine(plan)).toBe('Mara crosses.\nMara wants: To reach the ferry before dark.\nAgainst Mara: Tobin’s questions.\nHow it turns: She tells him the truth.')
+    expect(chapterPlanText(plan).startsWith('Mara crosses.\nMara wants:')).toBe(true)
+    // A name the codex doesn't have isn't whose chapter it is; the rest stays.
+    expect(checkChapterPlan({ ...raw, lead: 'Nobody Real' }, { db, scenes: refs, people })!.lead).toBeUndefined()
+    // A plan as it was before (2026-10-19): no parts, no endings, and its text as before.
+    const old = checkChapterPlan(readChapterPlan('{"overview": "Mara crosses.", "scenes": [{"scene": "Sc 1", "does": "Mara meets Tobin."}]}')!, { db, scenes: refs, people })!
+    expect(old.wants).toBeUndefined()
+    expect(old.scenes[0].ends).toBe('')
+    expect(old.scenes[0].text).toBe('What it must do: Mara meets Tobin.')
+    expect(chapterLine(old)).toBe('Mara crosses.')
+  })
+
+  it('says what it keeps true from the story so far, each with where it was set, the plain facts first, a few a person', () => {
+    const core = {
+      people: [
+        'Ash: at the ford (since Ch 1, Sc 1)',
+        'Ash: burn on the left forearm (since Ch 1, Sc 2)',
+        'Ash: carrying the lamp (since Ch 1, Sc 2)',
+        'Ash: wearing a grey coat (since Ch 1, Sc 1)',
+        'Ash knows: the silver is in the case (since Ch 1, Sc 3)',
+        'Ash and Wren: wary friends (since Ch 1, Sc 1)',
+        'Wren: carrying the survey case (since Ch 1, Sc 1)',
+        'Bryn: no place given'
+      ]
+    }
+    const kept = keptFacts(core, { scenes: [{ keep: ['Edric’s letter: never take the coast road', 'Ash: burn on the left forearm (since Ch 1, Sc 2)'] }] as never })
+    expect(kept).toEqual([
+      'Ash: at the ford (since Ch 1, Sc 1)',
+      'Ash: burn on the left forearm (since Ch 1, Sc 2)',
+      'Ash: carrying the lamp (since Ch 1, Sc 2)',
+      'Wren: carrying the survey case (since Ch 1, Sc 1)',
+      'Edric’s letter: never take the coast road'
+    ])
   })
 })
 
@@ -415,14 +477,20 @@ describe('writing a whole chapter', () => {
       notes.set(sceneId, o.notes)
       return draft(sceneId, o)
     }
+    d.estimate = (ids) => ({ minutes: ids.length * 2, cost: 0.09, free: false })
     const run = new ChapterRun(d, 'run-review', chapterId)
     run.prepare()
     const report = await run.run()
     expect(shown).toHaveLength(1)
     expect(shown[0].scenes.map((s) => s.sceneId)).toEqual([s1, s2])
-    // The window was given the plan while it waited, and only then.
+    // The window was given the plan while it waited, and only then, with what writing it takes.
     const review = progress.find((p) => p.stage === 'review')
     expect(review?.plan?.scenes).toHaveLength(2)
+    expect(review?.estimate).toEqual({ minutes: 4, cost: 0.09, free: false })
+    expect(review?.plan?.kept).toContain('Keep Sc 1 true to the memory.')
+    expect(review?.plan?.scenes[0].ends).toBe('Sc 1 ends on the far bank.')
+    // The drafts are told what the chapter does, in its parts.
+    expect(notes.get(s1)).toContain('How it turns: The ferry leaves without them.')
     expect(progress.filter((p) => p.stage !== 'review').every((p) => !p.plan)).toBe(true)
     expect(notes.get(s1)).toContain('Sc 1 moves the chapter on.')
     expect(notes.get(s2)).toContain('Mara sleeps in the stable instead.')

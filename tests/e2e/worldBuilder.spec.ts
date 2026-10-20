@@ -36,6 +36,11 @@ const MADE = [
 const VOICE = 'A woman in her thirties with a low, steady voice, a slight northern lilt and a dry, unhurried delivery.'
 
 const main = (win: Page) => win.locator('main')
+/**
+ * The World builder's form: with a story open (every new world has one), Build with AI's Cast and world, "from a summary"
+ * (2026-10-20); its own page only in a world with no story.
+ */
+const summaryForm = (win: Page) => main(win).locator('[data-summary-builder]')
 const summaryBox = (win: Page) => main(win).getByRole('textbox', { name: 'Your summary' })
 const soFar = (win: Page) => main(win).getByRole('region', { name: 'Made so far' })
 const results = (win: Page) => main(win).getByRole('region', { name: 'Made from your summary' })
@@ -75,7 +80,7 @@ async function connect(win: Page, fake: FakeProvider, world?: string): Promise<v
 
 async function openFromBinder(win: Page): Promise<void> {
   await openPage(win, 'Build from a summary')
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
+  await expect(summaryForm(win)).toBeVisible()
 }
 
 test('one paragraph builds the world in one click, saving as it goes: his words are his, and one Undo takes it all away', async ({
@@ -228,7 +233,7 @@ test('into a world that has things already, a build adds only what is missing an
     await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
     await win.getByLabel('World name').fill('Grey Coast')
     await win.getByRole('button', { name: 'Build from a summary' }).click()
-    await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
+    await expect(summaryForm(win)).toBeVisible()
     await expect(summaryBox(win)).toBeFocused()
     // No model yet: the page says what to do, before anything is started.
     await expect(main(win).getByText('Choose a writer model first, in Settings › Models.')).toBeVisible()
@@ -298,7 +303,7 @@ test('Cancel stops the build and keeps what was saved; one Undo still takes it a
     await openPage(win, 'Codex')
     await expect(main(win).getByRole('button', { name: 'Quick start from a few notes' })).toBeVisible()
     await main(win).getByRole('button', { name: 'Build from a summary' }).click()
-    await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
+    await expect(summaryForm(win)).toBeVisible()
     await summaryBox(win).fill(SUMMARY)
     await main(win).getByRole('button', { name: 'Build the world' }).click()
 

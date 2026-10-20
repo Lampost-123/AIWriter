@@ -11,7 +11,7 @@ import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provid
 import { dbWorld } from '../../../tests/unit/testWorld'
 import { estimateTokens } from '../keeper/text'
 import { MARKER, stageAsk, stageStart, stageSystem } from './prompts'
-import { headingsOnly, headingTitle, stageReplyTokens, startStageJob } from './stages'
+import { headingsOnly, headingTitle, latestUpTo, stageReplyTokens, startStageJob } from './stages'
 import { UserError } from '../util'
 
 let fake: FakeProvider
@@ -170,6 +170,76 @@ describe('asking for a stage', () => {
     const deps = { db: w.db, model: model({ maxOutput: 500 }), emit: () => undefined }
     expect(() => startStageJob(deps, { taskId: 't5', storyId, level: 'chapters', chapters: 6 })).toThrow(UserError)
     expect(() => startStageJob(deps, { taskId: 't6', storyId, level: 'everything' as 'acts' })).toThrow('That part of the outline can’t be planned')
+  })
+})
+
+describe('the Plan hub’s requests (2026-10-20)', () => {
+  it('asks for the next scene right after the last scene written, told how it ends, with Adam’s words last', async () => {
+    const w = dbWorld()
+    const storyId = w.id('b1')
+    const o = repo.getOutline(w.db, storyId)
+    const chapterId = o.chapters[0].id
+    const last = o.scenes.filter((s) => s.chapterId === chapterId)[0]
+    repo.updateChapter(w.db, chapterId, { title: 'Rain on the Narrows' })
+    repo.updateScene(w.db, last.id, { title: 'The ferry' })
+    repo.saveSceneText(w.db, last.id, null, 'Mara paid the ferryman twice and watched the far bank until the fog took it.')
+    const direction = 'They cross at night, and someone on the far bank is waiting.\n\nBring back this plot thread: Who burned the mill? (open since Ch 1).'
+    const record = await run(
+      (emit) =>
+        startStageJob(
+          { db: w.db, model: model(), emit },
+          { taskId: 'h1', storyId, level: 'scenes', chapterId, afterSceneId: last.id, count: 1, direction }
+        ),
+      w.db
+    )
+    const [system, user] = record.messages
+    expect(system.content).toContain('Rules:\n- What the author wants comes first')
+    expect(system.content).toContain('- Exactly one scene, no more.')
+    expect(user.content).toContain('## How the last scene written ends\nMara paid the ferryman twice')
+    // His words come last of all, just before what is asked.
+    expect(user.content).toContain(`## What the author wants (make it happen)\n${direction}\n\n## What to suggest`)
+    expect(user.content).toContain('Suggest exactly 1 scene of the chapter “Rain on the Narrows” (it is in the story already): the one that comes right after “The ferry” (Ch 1, Sc 1), the last scene written.')
+    // What the AI saw says what Adam asked, in his words.
+    expect(record.direction).toBe(direction)
+    // The fake gives exactly one.
+    expect(record.response.match(/^### Scene:/gm)).toHaveLength(1)
+  })
+
+  it('asks for the rest of an act after the chapter being written', () => {
+    expect(stageAsk('chapters', { chapters: 3, title: 'The Arrival', kept: true, after: '“The Ford” (Ch 4), the chapter being written' })).toBe(
+      'Suggest the chapters of the act “The Arrival” (it is in the story already) that come after “The Ford” (Ch 4), the chapter being written, to the end of the act: about 3 chapters, each with its goal and card. No scenes yet. Carry on from where the story has got to; never retell it.'
+    )
+    expect(stageAsk('scenes', { title: 'Rain', kept: true, after: 'the scene (Ch 2, Sc 3), the last scene written' })).toBe(
+      'Suggest the scenes of the chapter “Rain” (it is in the story already) that come after the scene (Ch 2, Sc 3), the last scene written: as many as it still needs to do what it is for, each a scene card. They carry on from how that scene ends and never retell it.'
+    )
+  })
+
+  it('carries the days on from the last scene written, not from a plan further on', () => {
+    const scene = (id: string, when: string) => ({ id, title: id, summary: '', goal: '', beats: [], when, words: 0 })
+    const plan = [
+      {
+        id: null,
+        title: '',
+        purpose: '',
+        chapters: [
+          { id: 'c1', title: 'One', goal: '', summary: '', scenes: [scene('s1', 'Day 3, morning'), scene('s2', '')] },
+          { id: 'c2', title: 'Two', goal: '', summary: '', scenes: [scene('s3', 'Day 1, morning')] }
+        ]
+      }
+    ]
+    expect(latestUpTo(plan, 's2')).toBe('Day 3, morning')
+    expect(latestUpTo(plan, 's3')).toBe('Day 1, morning')
+    expect(latestUpTo(plan, 'gone')).toBe('Day 1, morning')
+  })
+
+  it('leaves the request as it was when nothing of the hub’s is given', async () => {
+    const w = dbWorld()
+    const storyId = w.id('b1')
+    const chapterId = repo.getOutline(w.db, storyId).chapters[0].id
+    const record = await run((emit) => startStageJob({ db: w.db, model: model(), emit }, { taskId: 'h2', storyId, level: 'scenes', chapterId }), w.db)
+    expect(record.messages[1].content).not.toContain('What the author wants')
+    expect(record.messages[1].content).not.toContain('How the last scene written ends')
+    expect(record.messages[0].content).not.toContain('What the author wants comes first')
   })
 })
 

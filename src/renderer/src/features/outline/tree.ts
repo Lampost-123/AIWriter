@@ -303,6 +303,43 @@ export function placeKeep(items: KeepItem[], key: string, place: KeepPlace): Kee
   return out
 }
 
+/**
+ * Where a batch of suggestions belongs in the story (the Plan hub, 2026-10-20), so the hub shows them in their place in
+ * the story line and Keep puts them there, not at the end of the binder:
+ * - 'here': carrying on from where the writing has got to. Scenes for the chapter being written go right after its last
+ *   scene written (`afterSceneId`), in order; new chapters go into the act being written (`actId`, null: among the
+ *   chapters with no act), right after the chapter being written (`afterChapterId`).
+ * - 'chapter': scenes for a chapter in the story that has none yet (they go into it, at its end).
+ * - 'act': chapters for an act in the story that has none yet (they go into it), after `afterChapterId` when given.
+ * - 'end': after everything the story has (the outline helper's own way; a batch with no place is here).
+ */
+export type RunPlace =
+  | { at: 'here'; chapterId: ID | null; afterSceneId: ID | null; actId: ID | null; afterChapterId: ID | null }
+  | { at: 'chapter'; chapterId: ID }
+  | { at: 'act'; actId: ID; afterChapterId?: ID | null }
+  | { at: 'end' }
+
+/**
+ * What Keep adds, put where the batch belongs (see RunPlace): the first scene kept into the chapter being written goes
+ * right after its last scene written (later ones follow the one kept before them, as keepPlan says), and a chapter with
+ * no act or place of its own goes into the act being written, after the chapter being written. Anything already given a
+ * place (after or before a kept one, or inside an act being kept with it) keeps it. Pure.
+ */
+export function anchorItems(items: KeepItem[], place: RunPlace | null | undefined): KeepItem[] {
+  if (!place || place.at === 'end') return items
+  return items.map((item) => {
+    if (item.after || item.before) return item
+    if (item.kind === 'scene' && place.at === 'here' && place.afterSceneId && place.chapterId && item.parent?.id === place.chapterId)
+      return { ...item, after: { id: place.afterSceneId } }
+    if (item.kind === 'chapter' && !item.parent && (place.at === 'here' || place.at === 'act')) {
+      const actId = place.actId ?? null
+      const afterChapterId = place.afterChapterId ?? null
+      return { ...item, parent: { id: actId }, ...(afterChapterId ? { after: { id: afterChapterId } } : {}) }
+    }
+    return item
+  })
+}
+
 /** The decisions once the story has what keepOutline made. */
 export function withKept(decisions: Decisions, kept: KeptItem[]): Decisions {
   const next = { ...decisions }

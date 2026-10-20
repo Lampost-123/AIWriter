@@ -94,14 +94,14 @@ function RoomLinks({ room, c }: { room: Area; c: LinkContext }): React.JSX.Eleme
       writeLinks(c).map((l) => <SubLink key={l.id} link={l} />)
     ) : room === 'plan' ? (
       (() => {
-        const [outline, , , threads, recipes, story] = planLinks(c)
+        // Build with AI first (2026-10-20: every AI building tool for the story in one area).
+        const [hub, , , threads, recipes] = planLinks(c)
         const chapters = chapterLinks(c)
         return (
           <>
+            <SubLink link={hub} />
             <SubLink link={boardLink(c)} />
-            <SubLink link={story} />
-            <SubLink link={outline} />
-            <SubMenu label="Plan a chapter" icon={chapters[0]?.icon ?? outline.icon} links={chapters} />
+            <SubMenu label="Plan a chapter" icon={chapters[0]?.icon ?? hub.icon} links={chapters} />
             <SubLink link={threads} />
             <SubLink link={recipes} />
           </>
