@@ -86,20 +86,15 @@ test('a scene interview asks about what the card is missing, and fills only its 
     await expect(card.getByLabel('Goal', { exact: true })).toHaveValue('Get the ledger back')
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.locationId).toBeNull()
 
-    // ----- From the palette: the planned scene in Build with AI's story line, its interview in its row (2026-10-20);
-    // the AI says when it has enough -----
+    // ----- From the palette; the AI says when it has enough -----
     await win.keyboard.press('Control+k')
     await win.getByRole('dialog', { name: 'Search' }).getByRole('combobox').fill('interview me about this scene')
     await win.keyboard.press('Enter')
-    const inRow = main(win).locator(`[data-plan-hub] [data-scene-row="${scene.id}"]`)
-    const rowBox = inRow.getByRole('region', { name: 'Interview' })
-    await answer(rowBox, 'Who walks in first?', 'Mara')
-    await answer(rowBox, 'How should it end?', 'She gets away')
-    await answer(rowBox, 'How should it feel?', 'Hurried')
+    await answer(box, 'Who walks in first?', 'Mara')
+    await answer(box, 'How should it end?', 'She gets away')
+    await answer(box, 'How should it feel?', 'Hurried')
     await expect(toastWith(win, 'Filled in the beats')).toBeVisible()
-    await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.outcome).toBe('Hurried')
-    // Its row closes with the interview.
-    await expect(rowBox).toHaveCount(0)
+    await expect(card.getByLabel('Outcome', { exact: true })).toHaveValue('Hurried')
   } finally {
     await fake.close()
   }

@@ -29,7 +29,7 @@ import { openAsk } from '@/features/ask/open'
 import { setSpineFull, toggleFlyout } from '@/features/desk/deskStore'
 import { FULL_FROM } from '@/layout/desk/deskFit'
 import { deskOn } from '@/features/look/look'
-import { openChapterInterview, openPlanHub, openSceneTool } from '@/features/outline/open'
+import { openChapterInterview, openPlanHub } from '@/features/outline/open'
 import { showSceneIdeas, showSceneInterview } from '@/features/outline/ideas'
 import { openCastSettings, stopReading, toggleListen } from '@/features/readAloud/control'
 import { openEntryVoice } from '@/features/readAloud/voiceReveal'
@@ -305,21 +305,18 @@ export async function runAction(id: ActionId): Promise<void> {
         // Your idea, then the cast and world: Build with AI's first sections (the Story builder's first steps before).
         if (a.storyId) openPlanHub(a.storyId, { section: 'idea' })
         return
+      // On the writing page, the scene's own card (its ideas and interview); the Plan area's Next scene ideas and Interview
+      // me open them in Build with AI's story line.
       case 'scene-ideas':
-      case 'scene-interview': {
         if (!a.sceneId) return
-        // A planned scene: in Build with AI's story line, its ideas or its interview open in its row (2026-10-20). A scene
-        // with words keeps them on its card, beside the page.
-        const scene = useOutlineStore.getState().outline?.scenes.find((s) => s.id === a.sceneId)
-        if (a.storyId && scene && scene.wordCount === 0) {
-          openSceneTool(a.storyId, a.sceneId, fixed === 'scene-ideas' ? 'ideas' : 'interview', false)
-          return
-        }
         backToWriting()
-        if (fixed === 'scene-ideas') showSceneIdeas(a.sceneId)
-        else showSceneInterview(a.sceneId)
+        showSceneIdeas(a.sceneId)
         return
-      }
+      case 'scene-interview':
+        if (!a.sceneId) return
+        backToWriting()
+        showSceneInterview(a.sceneId)
+        return
       case 'chapter-interview': {
         const o = useOutlineStore.getState().outline
         const chapterId = o?.scenes.find((sc) => sc.id === a.sceneId)?.chapterId

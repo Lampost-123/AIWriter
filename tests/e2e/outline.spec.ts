@@ -276,7 +276,7 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await main(win).getByRole('button', { name: 'What the AI saw' }).click()
     await expect(main(win).getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
     await expect(main(win).getByText(/^The exact briefing for this plan, written /)).toBeVisible()
-    await main(win).getByRole('button', { name: 'Back to the plan' }).click()
+    await main(win).getByRole('button', { name: 'Back to Build with AI' }).click()
     await expect(batchHead(win)).toContainText('All decided · 8 kept')
     await expect(hub(win).locator('[data-planned-chapters]')).toContainText('Ch 1 · Rain on the Narrows')
 

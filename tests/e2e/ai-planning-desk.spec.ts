@@ -290,7 +290,7 @@ test('Story recipes on the desk: the library, and the recipe maker as steps with
   await expect(recipes.getByRole('button', { name: 'Make the recipe' })).toBeVisible()
 })
 
-test('a planned scene’s ideas on the desk, in Build with AI: the lamp while they come, then Use this fills the card', async ({ launch }) => {
+test('the scene card’s ideas on the desk: the lamp while they come, index cards, Use this fills the card', async ({ launch }) => {
   const fake = await fakeServer(30)
   try {
     const { win } = await sampleWorld(launch, fake)
@@ -304,13 +304,14 @@ test('a planned scene’s ideas on the desk, in Build with AI: the lamp while th
     await win.keyboard.press('Control+K')
     await win.keyboard.type('Ideas for this scene')
     await win.getByRole('option', { name: /^Ideas for this scene/ }).first().click()
-    // A planned scene's ideas open in its row of Build with AI's story line (2026-10-20), asked for at once.
-    const ideas = win.locator('[data-plan-hub]').getByRole('region', { name: 'Ideas for this scene' })
+    const ideas = win.getByRole('region', { name: 'Ideas for this scene' })
     await expect(ideas.locator('[data-plan-thinking]')).toBeVisible()
     await expect(ideas.locator('[data-idea]')).toHaveCount(3, { timeout: 30_000 })
+    await expect(ideas.locator('[data-idea].plan-idea').first()).toBeVisible()
     await expect(ideas.locator('[data-plan-thinking]')).toHaveCount(0, { timeout: 30_000 })
-    await ideas.getByRole('button', { name: 'Use “The door left open”' }).click()
-    await expect(ideas).toContainText('One went on the scene’s card')
+    await ideas.getByRole('button', { name: 'Use “The door left open” for this scene' }).click()
+    await expect(win.locator('.plan-ghost')).toHaveCount(1)
+    await expect(win.locator('.plan-ghost')).toHaveCount(0, { timeout: 3000 })
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes.find((s) => s.title.includes('door') || s.title === 'The Bell Rope')!.id
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).card.beats.length).toBeGreaterThan(0)
   } finally {
@@ -394,15 +395,18 @@ test('Build with AI on the desk: its sections listed beside or along the top, th
   // At 1366: along the top, above them.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1366, 768))
   await expect.poll(async () => (await win.evaluate('innerWidth')) as number).toBe(1366)
+  // (It stays at the top of the area as the page scrolls: as wide as the area, not a column beside it.)
   await expect
     .poll(async () => {
       n = (await nav.boundingBox())!
       m = (await hub.locator('.build-main').boundingBox())!
-      return n.y + n.height <= m.y + 1
+      return n.width > m.width
     })
     .toBe(true)
   expect(await win.evaluate<number>('document.documentElement.scrollWidth - innerWidth')).toBeLessThanOrEqual(0)
-  // The Story builder's way in: Your idea.
+  // The Story builder's way in: Your idea (from the palette, the keyboard on the page first).
+  await nav.locator('[data-nav="line"]').click()
+  await expect(nav.locator('[data-nav="line"]')).toHaveAttribute('aria-current', 'true')
   await win.keyboard.press('Control+K')
   await win.keyboard.type('Your idea, cast')
   await win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: 'Your idea, cast and world' }).click()

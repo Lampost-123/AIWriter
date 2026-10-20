@@ -348,8 +348,11 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
       if (!frame) frame = requestAnimationFrame(read)
     }
     root.addEventListener('scroll', onScroll, { passive: true })
+    // A window made bigger or smaller moves the sections under the strip: read again.
+    window.addEventListener('resize', onScroll)
     return () => {
       root.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
       if (frame) cancelAnimationFrame(frame)
     }
   }, [])

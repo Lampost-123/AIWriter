@@ -5033,7 +5033,8 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   (`features/outline/open.ts`) and `openChapterWriter` (Write this chapter open at that chapter) are the openers: the
   story menu ("Build with AI"), the Plan area and room (Build with AI, Next scene ideas and Interview me: the open
   planned scene's tool, else the story line at the next scene; Plan a chapter), the palette ("Build with AI", "Your
-  idea, cast and world", "Ideas for this scene" and "Interview me about this scene" on a planned scene), the binder's
+  idea, cast and world"; its "Ideas for this scene" and "Interview me about this scene" stay the writing page's own,
+  on the scene's card), the binder's
   chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with the AI next" (Your
   idea), Story settings' premise, the chapter card's report, the top bar's "The chapter plan is ready for you".
 - **Removed**: the Story builder's page (`StoryBuilderView.tsx`, its steps bar and `DoneStep.tsx`), the chapter's plan

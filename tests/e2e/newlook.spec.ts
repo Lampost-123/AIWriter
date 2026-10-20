@@ -90,7 +90,7 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
 
   // The trail leads back: the chapter to its plan (Plan), the scene to its page (Write).
   await trail.getByRole('button', { name: 'The Night Ferry' }).click()
-  await expect(main(win).getByRole('heading', { level: 1, name: 'The Night Ferry' })).toBeVisible()
+  await expect(main(win).locator('[data-chapter-plan]').getByRole('heading', { name: 'Ch 1 · The Night Ferry' })).toBeVisible()
   await expect(area(win, 'Plan')).toHaveAttribute('aria-current', 'page')
   await trail.getByRole('button', { name: 'Lighting the Lamp' }).click()
   await expect(area(win, 'Write')).toHaveAttribute('aria-current', 'page')

@@ -162,7 +162,7 @@ test('mid-story on the desk: where you are, what happens next in Adam’s words,
     // What the AI saw has his words.
     await hub(win).locator('[data-batch-head]').getByRole('button', { name: 'What the AI saw' }).click()
     await expect(win.locator('main')).toContainText('Iska writes her report by lamplight, and leaves out the rope.')
-    await win.locator('main').getByRole('button', { name: 'Back to the plan' }).click()
+    await win.locator('main').getByRole('button', { name: 'Back to Build with AI' }).click()
     await expect(hub(win)).toBeVisible()
 
     // Keep: right after the last scene written, in its chapter (not at the end of the binder).
