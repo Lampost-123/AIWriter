@@ -8,7 +8,7 @@
 // (ChapterSize: Auto or a number; the length is its chapter card's target, so Write this chapter and every draft go by
 // it) above it.
 
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ChapterCard, ID } from '@shared/types'
 import { CHAPTER_PLAN_SCENES } from '@shared/contracts/outline'
 import { CHAPTER_TARGET_LIMITS, chapterShare } from '@shared/lengths'
@@ -176,10 +176,11 @@ export function ChapterGoal({ chapter }: { chapter: LineChapter }): React.JSX.El
     setSaved(chapter.goal)
     if (goal === saved) setGoal(chapter.goal)
   }
+  // `saved` follows the chapter as read (the outline reloads after this write): set here, the next render would see the
+  // older chapter still on screen as a change from elsewhere and put it back over what Adam typed (chat truth R7).
   const autosave = useAutosave<string>(
     async (g) => {
       await api.updateChapter(chapter.id, { goal: g })
-      setSaved(g)
       useApp.getState().bumpOutline()
     },
     { what: 'the chapter’s goal' }
@@ -231,12 +232,14 @@ export function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineCh
   const fallback = usePrefs((s) => s.prefs?.chapterLength ?? null)
   // The chapter card's target; undefined until it is read.
   const [words, setWords] = useState<number | null | undefined>(undefined)
+  /** A length Adam typed that isn't written yet: a read of the card meanwhile doesn't put the older one back on screen. */
+  const typed = useRef<number | null | undefined>(undefined)
   const cardsRev = useApp((s) => s.chapterCardsRev)
   useEffect(() => {
     let live = true
     api
       .getChapterCard(chapter.id)
-      .then((c) => live && setWords(c.totalWords ?? null))
+      .then((c) => live && typed.current === undefined && setWords(c.totalWords ?? null))
       .catch(() => live && setWords(null))
     return () => {
       live = false
@@ -250,6 +253,7 @@ export function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineCh
       if (n == null) delete next.totalWords
       else next.totalWords = n
       const saved = await api.updateChapterCard(chapter.id, next)
+      if (typed.current === n) typed.current = undefined
       chapterCardShown(chapter.id, saved.card)
       announceChapterCard(chapter.id, before, saved)
     },
@@ -294,6 +298,7 @@ export function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineCh
           placeholder={fallback != null ? fallback.toLocaleString('en-GB') : 'Auto'}
           describedBy={`${id}-size-hint`}
           onChange={(n) => {
+            typed.current = n
             setWords(n)
             autosave.schedule(n)
           }}

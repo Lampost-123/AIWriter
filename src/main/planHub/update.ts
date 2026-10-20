@@ -61,10 +61,11 @@ export function planUpdateScenes(db: JobDeps['db'], sceneIds: readonly ID[]): Pl
 }
 
 /**
- * Starts "Update the plan", or (mode 'fill') plans the cards of scenes that have nothing on them. Throws (plain words)
- * only before it starts.
+ * Starts "Update the plan", or (mode 'fill') plans the cards of scenes that have nothing on them. Says which scenes it
+ * asked about, in the order of the cards it asked for, so the window puts each card on its own scene (chat truth R10).
+ * Throws (plain words) only before it starts.
  */
-export function startPlanUpdate(deps: JobDeps, input: PlanUpdateRequest): { generationId: ID } {
+export function startPlanUpdate(deps: JobDeps, input: PlanUpdateRequest): { generationId: ID; sceneIds: ID[] } {
   const storyId = String(input?.storyId ?? '')
   const story = repo.getStory(deps.db, storyId)
   const fill = input?.mode === 'fill'
@@ -164,7 +165,7 @@ export function startPlanUpdate(deps: JobDeps, input: PlanUpdateRequest): { gene
     { role: 'system', content: system },
     { role: 'user', content: fitted.text }
   ]
-  return startTask({
+  const { generationId } = startTask({
     db: deps.db,
     taskId: input.taskId,
     job: 'outline',
@@ -178,4 +179,5 @@ export function startPlanUpdate(deps: JobDeps, input: PlanUpdateRequest): { gene
     emit: deps.emit,
     onKeyRejected: deps.onKeyRejected
   })
+  return { generationId, sceneIds: scenes.map((s) => s.id) }
 }

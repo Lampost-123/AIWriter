@@ -79,9 +79,11 @@ export interface PlanHubApi {
   /**
    * "Update the plan": the chat model writes those scene cards again so they fit what has been written. It streams as
    * task events with job 'outline', in the outline helper's scene form, one card for each scene given, in order; nothing
-   * changes until Adam keeps it. Throws (plain words) only before it starts.
+   * changes until Adam keeps it. `sceneIds` are the scenes it asked about (only those still planned after the last one
+   * written, at most a few), in the order of the cards: the window matches each card to its scene by these, never by
+   * its own list. Throws (plain words) only before it starts.
    */
-  startPlanUpdate(input: PlanUpdateRequest): Promise<{ generationId: ID }>
+  startPlanUpdate(input: PlanUpdateRequest): Promise<{ generationId: ID; sceneIds: ID[] }>
 }
 
 export interface PlanHubEvents {

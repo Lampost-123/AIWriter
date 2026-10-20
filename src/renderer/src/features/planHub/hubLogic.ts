@@ -5,7 +5,7 @@
 // chapters folded away, the chapter being written, the marker, what is planned but not written, acts with no chapters),
 // and Adam's direction as it goes to the AI (his words, then the plot threads he ticked).
 
-import type { Act, ID, Outline, SceneMeta } from '@shared/types'
+import type { Act, ID, Outline, SceneCard, SceneMeta } from '@shared/types'
 import type { OutlineSize } from '@shared/contracts/outline'
 import type { HubThread } from '@shared/contracts/planHub'
 import type { Decisions, RunPlace, TreeNode } from '@/features/outline/tree'
@@ -481,4 +481,50 @@ export function chapterToWrite(
   if (!id || at < 0) return null
   if (outline.scenes.some((s) => s.chapterId === id && s.wordCount > 0)) return null
   return { id, no: at + 1, all: sceneIds.every((s) => chapterOf.get(s) === id) }
+}
+
+// ---------- Update the plan: each card on its own scene (chat truth R10) ----------
+
+/** One scene card "Update the plan" brought, as the window reads it from the reply. */
+export interface UpdatedCard {
+  title: string
+  summary: string
+  when: string
+  beats: string[]
+}
+
+/**
+ * Each card with its scene: the scenes main asked about (`sent`, only those still planned, in the order of the cards
+ * it asked for), never the window's own list. Scenes with no card are left out; cards beyond the scenes go.
+ */
+export function pairUpdate(sent: readonly ID[] | null, cards: readonly UpdatedCard[]): { sceneId: ID; card: UpdatedCard }[] {
+  return (sent ?? []).slice(0, cards.length).map((sceneId, i) => ({ sceneId, card: cards[i] }))
+}
+
+/** What keeping `next` writes on a card: an empty part of the new card keeps the old one. */
+export function updatePatch(next: UpdatedCard, card: Pick<SceneCard, 'goal' | 'beats' | 'when'>): Pick<SceneCard, 'goal' | 'beats' | 'when'> {
+  return { goal: next.summary || card.goal, beats: next.beats.length ? next.beats : card.beats, when: next.when || card.when }
+}
+
+/** Whether keeping `next` changes the scene's card or title at all. */
+export function updateChanges(next: UpdatedCard, card: Pick<SceneCard, 'goal' | 'beats' | 'when'>, title: string): boolean {
+  const p = updatePatch(next, card)
+  const beatsChanged = p.beats.length !== card.beats.length || p.beats.some((b, i) => b !== card.beats[i])
+  return p.goal !== card.goal || p.when !== card.when || beatsChanged || (!!next.title && next.title !== title)
+}
+
+const listOf = (words: readonly string[]): string => (words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`)
+
+/**
+ * The toast after Keep: how many cards really changed, how many of the scenes asked about got a card at all, and the
+ * scenes written meanwhile (left alone).
+ */
+export function updateToast(o: { changed: number; sent: number; arrived: number; written: readonly string[] }): string {
+  const out: string[] = []
+  if (o.changed > 0) out.push(`Updated the plan: ${o.changed === 1 ? '1 scene card now follows' : `${o.changed} scene cards now follow`} what you’ve written.`)
+  else if (o.written.length < o.arrived) out.push('Nothing in the plan changed: the new cards say what the old ones did.')
+  if (o.arrived < o.sent) out.push(`${o.arrived} of ${o.sent} scenes got new cards.`)
+  if (o.written.length === 1) out.push(`${o.written[0]} was written meanwhile, so its card was left as it was.`)
+  else if (o.written.length > 1) out.push(`${listOf(o.written)} were written meanwhile, so their cards were left as they were.`)
+  return out.join(' ')
 }

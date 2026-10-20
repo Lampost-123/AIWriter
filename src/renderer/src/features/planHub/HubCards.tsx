@@ -22,7 +22,7 @@ import { HubStatus } from './HubStatus'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { PlanSize } from '@/features/outline/PlanSize'
 import type { PlanMode } from '@/features/outline/stages'
-import { gistLine, threadChip, type HubMode, type HubScope, type HubScopeId, type Where } from './hubLogic'
+import { gistLine, pairUpdate, threadChip, type HubMode, type HubScope, type HubScopeId, type Where } from './hubLogic'
 import { discardUpdate, keepUpdate, startUpdate, stopUpdate, updatedCards, type PlanUpdate } from './hubStore'
 
 /** The scope chips: "Plan  the next scene · the rest of Ch 4 · …", one pressed. */
@@ -269,7 +269,7 @@ export function DriftCard({
   const head = useId()
   const shown = drift.slice(0, 2)
   const more = drift.length - shown.length
-  const cards = update ? updatedCards(update) : []
+  const cards = update ? pairUpdate(update.sent, updatedCards(update)) : []
   return (
     <section aria-labelledby={head} className="hub-card hub-drift" data-drift-card>
       <div className="hub-drift-row">
@@ -332,10 +332,8 @@ export function DriftCard({
             <>
               <p className="hub-update-t">The cards, before you keep them:</p>
               <ol className="hub-update-list">
-                {update.sceneIds.map((id, i) => {
+                {cards.map(({ sceneId: id, card: now }) => {
                   const was = update.before.find((b) => b.sceneId === id)
-                  const now = cards[i]
-                  if (!now) return null
                   return (
                     <li key={id} className="hub-update-item" data-update-scene={id}>
                       <p className="hub-sug-head">
