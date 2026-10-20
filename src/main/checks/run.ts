@@ -34,6 +34,7 @@ import {
   CHECK_GROUPS,
   checkOpening,
   checkRequest,
+  checkRequests,
   checkSections,
   factRelevance,
   factsToRank,
@@ -51,7 +52,7 @@ import { CHECK_SYSTEM, checkTask, retryMessage, TASK_HEADING } from './prompts'
 import { withCorrection } from '../repair/retry'
 import { reportHash, reportItems, saveReport } from './report'
 import { ruleChecksQuietly } from './ruleChecks'
-import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt } from './quote'
+import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt, quotesOverlap } from './quote'
 import type { ContractCheck } from '@shared/contracts/checks'
 import type { SceneContract } from '../ai/contract'
 import {
@@ -227,6 +228,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   }
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
   const items: Record<string, unknown>[] = []
+  // What each request found, apart, so a slip two requests found on their own is known (corroborated).
+  const byRequest: Record<string, unknown>[][] = []
   // What each check looked at and found good, from every part (the critic's report).
   const checked: Record<string, unknown>[] = []
   let splits = 0
@@ -236,8 +239,9 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   let partial = false
 
   // The checks in two focused requests (a live run found one request for all six spread the model thin and missed
-  // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads. They open alike.
-  const groups = o.together && checks.length ? [checks] : CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads, each asking
+  // facts and who knows what too (checkfix, 2026-10-20: context.ts ASKED_IN_BOTH). They open alike.
+  const groups = checkRequests(checks, o.together)
   // The scene's contract (fix 13) rides in the request about what is so (or the only one), item by item, in its task.
   const contract = o.contract?.items.length ? o.contract : null
   const answers: ContractAnswer[][] = []
@@ -257,6 +261,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   const parts = splitScene(ctx.text, room)
   for (const group of groups) {
     if (stopped || failure) break
+    const mine: Record<string, unknown>[] = []
+    byRequest.push(mine)
     const withContract = !!contract && group === contractGroup
     const queue = parts.map((text) => ({ text }))
     let number = 0
@@ -352,7 +358,10 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
             "The consistency check model's reply wasn't in the right format. Try again, or pick another consistency check model in Settings › Models."
         }
       }
-      if (got) items.push(...got)
+      if (got) {
+        items.push(...got)
+        mine.push(...got)
+      }
     }
   }
 
@@ -370,12 +379,18 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
     if (o.stopped()) stopped = true
     else kept = contractFindings(contract, ruling.judged, ctx, ruling)
   }
-  let found = [...foundIssues(items, read), ...(kept?.found ?? [])]
+  // What each request found (the same as reading them all at once: the first of one key stands), and which of it two
+  // requests found on their own. What the contract found comes first: the request without the contract, asking facts too
+  // (checkfix), may find the same words plainly, and saving keeps the first of the same thing (db/checks.ts saveFound).
+  const foundIn = byRequest.map((x) => foundIssues(x, read))
+  const sure = corroborated(foundIn, ctx.text)
+  let found = [...(kept?.found ?? []), ...firstOfEachKey(foundIn.flat())]
   // A second opinion on what the checks found about what is so, before it is kept (2026-10-16: continuity findings, kept
   // since then, raised false alarms from a stage record that didn't hold): one call, only when something was found; what
-  // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything.
+  // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything. What both requests found on
+  // their own isn't put to it (checkfix, 2026-10-20: on the book's live run it ruled a slip both had found not real).
   if (!stopped && !failure && found.length && !o.secondOpinionOff) {
-    const ruling = await findingsRuling(o, sceneId, found, ctx, checks, sections)
+    const ruling = await findingsRuling(o, sceneId, found, ctx, checks, sections, sure)
     if (!o.db.open || o.closed?.()) return { status: 'stopped', found: 0 }
     if (o.stopped()) stopped = true
     else found = ruling.kept
@@ -535,11 +550,54 @@ export const CHECK_SECOND_MARKER = '[AIWRITE-CHECK-SECOND v1]'
  */
 export const CHECK_SECOND_TASK = `${TASK_HEADING}
 ${CHECK_SECOND_MARKER} verdicts
-You are checking another continuity editor's notes on this scene (under "The scene"), against the same material they read (everything before the scene): the story's memory as the scene begins (each entry under a "### E1 ..." heading), who knows what, the story so far, the scenes just before (S1 ...), where things stood as the previous scene ended, the story calendar and the author's plan for the scene. For each numbered note, decide whether it is a real slip: the quoted words and what the material says cannot both be true, and nothing in the scene shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the scene itself shows, flags what the author's plan for the scene asks for, or carries where things stood as the previous scene ended across time that has passed since (someone asleep, sitting or holding something then need not be, hours or days later). Keep a note that is right even if it is worded badly, and keep it when unsure.
+You are checking another continuity editor's notes on this scene (under "The scene"), against the same material they read (everything before the scene): the story's memory as the scene begins (each entry under a "### E1 ..." heading), who knows what, the story so far, the scenes just before (S1 ...), where things stood as the previous scene ended, the story calendar and the author's plan for the scene. For each numbered note, decide whether it is a real slip: the quoted words and what the material says cannot both be true, and nothing in the scene shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the scene itself shows, flags what the author's plan for the scene asks for, or carries where things stood as the previous scene ended across time that has passed since (someone asleep, sitting or holding something then need not be, hours or days later). How someone learned something (who told them, or that they heard or saw it themselves) is a fact like any other: a note that the scene tells it otherwise than the material is real even when the material says they know it. Keep a note that is right even if it is worded badly, and keep it when unsure: the rules above for leaving out what you are unsure of are for finding issues, not for ruling on them.
 Reply with JSON only: {"verdicts": [{"n": 1, "reason": "...", "real": true}]}, one per note: reason first (one sentence, citing the line or the words that settle it), then real (true or false).`
 
 /** The kinds of finding the second opinion rules on: what is so. Voice and style are how it reads, never put to it. */
 const RULED_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'continuity'])
+
+/** The kinds of finding asked in both requests (context.ts ASKED_IN_BOTH), so two of them can find the same slip apart. */
+const BOTH_KINDS = new Set<IssueKind>(['fact', 'knowledge'])
+
+/** Where a finding's words are in the scene (its quote is the scene's own words), or null when they can't be placed. */
+function spanOf(text: string, f: cdb.FoundIssue): [number, number] | null {
+  let at = -1
+  for (let n = 0; n <= (f.payload.occurrence ?? 0); n++) {
+    at = text.indexOf(f.quote, at + 1)
+    if (at < 0) return null
+  }
+  return [at, at + f.quote.length]
+}
+
+/** True when two findings point at words that overlap in the scene. */
+function sameWords(text: string, a: cdb.FoundIssue, b: cdb.FoundIssue): boolean {
+  const x = spanOf(text, a)
+  const y = spanOf(text, b)
+  return x && y ? x[0] < y[1] && y[0] < x[1] : quotesOverlap(a.quote, b.quote)
+}
+
+/**
+ * The findings two requests made on their own (checkfix, 2026-10-20): a finding of fact or of who knows what (the checks
+ * asked in both) whose words overlap such a finding of the other request. Their keys. Two looks with different tasks
+ * agreeing on the same words is the surest sign there is: on the book's live runs (37 checks of planted passages, released
+ * and overhaul) every such pair was a planted slip, and the second opinion once ruled a pair (X6, Kit's "I heard her")
+ * not real. Findings of the same request never count for each other (one look), nor continuity or the timeline (asked once).
+ */
+export function corroborated(byRequest: cdb.FoundIssue[][], text: string): Set<string> {
+  const sure = new Set<string>()
+  byRequest.forEach((mine, r) => {
+    const others = byRequest.filter((_, i) => i !== r).flat().filter((g) => BOTH_KINDS.has(g.kind))
+    for (const f of mine) if (BOTH_KINDS.has(f.kind) && others.some((g) => sameWords(text, f, g))) sure.add(f.key)
+  })
+  return sure
+}
+
+/** The findings with the first of each key (as foundIssues keeps them, reading every request's at once). */
+export function firstOfEachKey(found: cdb.FoundIssue[]): cdb.FoundIssue[] {
+  const out = new Map<string, cdb.FoundIssue>()
+  for (const f of found) if (!out.has(f.key)) out.set(f.key, f)
+  return [...out.values()]
+}
 
 /**
  * The second opinion (repair/second.ts) on what a whole check found (2026-10-16), before it is kept: one call on the check
@@ -547,7 +605,8 @@ const RULED_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'contin
  * finding is a note citing its entry (E) or earlier scene (S), with what the memory and the scene say. It opens as the
  * checks did (`sections`, their material, then the scene: 2026-10-19), with the material shortened when the model reads
  * too little (no room at all: nothing asked). A finding ruled not real goes. No ruling (a failed call, a reply it can't
- * read, stopped): every finding is kept.
+ * read, stopped): every finding is kept. `sure`: the keys of findings both requests made on their own (corroborated), kept
+ * without asking (checkfix, 2026-10-20); none left to ask: no call.
  */
 export async function findingsRuling(
   o: Pick<CheckOptions, 'db' | 'model' | 'stopped' | 'closed' | 'fetchImpl' | 'retryDelays'>,
@@ -555,10 +614,11 @@ export async function findingsRuling(
   found: cdb.FoundIssue[],
   ctx: SceneCheckContext,
   checks: CheckKind[],
-  sections?: Section[]
+  sections?: Section[],
+  sure: ReadonlySet<string> = new Set()
 ): Promise<{ kept: cdb.FoundIssue[]; dropped: cdb.FoundIssue[]; ruled: boolean }> {
   const none = { kept: found, dropped: [], ruled: false }
-  const asked = found.filter((f) => RULED_KINDS.has(f.kind) && !f.payload.contract && f.quote.trim())
+  const asked = found.filter((f) => RULED_KINDS.has(f.kind) && !f.payload.contract && f.quote.trim() && !sure.has(f.key))
   if (!asked.length) return none
   const entryCode = new Map(ctx.entries.map((c) => [c.entry.id, c.code]))
   const sceneCode = new Map(ctx.earlier.map((s) => [s.sceneId, s.code]))
