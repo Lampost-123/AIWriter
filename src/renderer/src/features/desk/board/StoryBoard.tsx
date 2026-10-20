@@ -18,7 +18,7 @@ import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { openPlanHub } from '@/features/outline/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLogic'
@@ -405,7 +405,7 @@ function Cards({
     els.forEach((el) => (el.style.transition = 'none'))
     const to = cardCentres(scroller.current)
     const ease = getComputedStyle(scroller.current).getPropertyValue('--motion-glide').trim() || 'ease-out'
-    const duration = parseFloat(getComputedStyle(scroller.current).getPropertyValue('--dur-base')) || 0
+    const duration = tokenMs(scroller.current, '--dur-base')
     els.forEach((el) => {
       el.style.transition = ''
       const id = moverKey(el)
@@ -415,8 +415,25 @@ function Cards({
       const dx = a.x - b.x
       const dy = a.y - b.y
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
-      const lifted = id === `card:${land.id}`
-      el.animate([{ translate: `${dx}px ${dy}px`, scale: lifted ? '1.03' : '1' }, { translate: '0 0', scale: '1' }], { duration, easing: ease })
+      if (id !== `card:${land.id}`) {
+        el.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration, easing: ease })
+        return
+      }
+      // The card let go stays above the others as it lands, and loses its lift (a little bigger, a little tilted).
+      el.style.zIndex = '20'
+      const glide = el.animate(
+        [
+          { translate: `${dx}px ${dy}px`, scale: '1.03', rotate: '1.5deg' },
+          { translate: '0 0', scale: '1', rotate: '0deg' }
+        ],
+        { duration, easing: ease }
+      )
+      // Picked up again before it lands: the drag keeps it on top.
+      const settle = (): void => {
+        if (dragRef.current?.id !== land.id) el.style.zIndex = ''
+      }
+      glide.onfinish = settle
+      glide.oncancel = settle
     })
   }, [layout])
 
@@ -618,7 +635,6 @@ function Cards({
   )
 }
 
-/** Moves a card: on screen at once, then for real (with Undo, as in the binder). */
 /** The cards and their pins, which glide together when a card is let go somewhere new. */
 const MOVERS = '[data-board-card], [data-board-pin]'
 const moverKey = (el: HTMLElement): string => (el.dataset.boardCard ? `card:${el.dataset.boardCard}` : `pin:${el.dataset.boardPin ?? ''}`)
@@ -633,6 +649,7 @@ function cardCentres(root: HTMLElement | null): Map<string, { x: number; y: numb
   return at
 }
 
+/** Moves a card: on screen at once, then for real (with Undo, as in the binder). */
 async function moveCard(id: ID, chapterId: ID, index: number): Promise<void> {
   useOutlineStore.getState().patch((o) => moveOnScreen(o, id, chapterId, index))
   await actions.moveScene(id, chapterId, index)

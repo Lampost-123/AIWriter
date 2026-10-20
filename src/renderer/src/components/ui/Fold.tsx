@@ -2,8 +2,7 @@
 // shrinks back as they fade out (140 ms) before they go. From the keyboard, with less motion, or when the section
 // is already open as the screen arrives, it happens at once (styles.css, .fold).
 import { useEffect, useRef, useState } from 'react'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
-import { cn } from '@/lib/cn'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 
 export function Fold({
   open,
@@ -37,10 +36,18 @@ export function Fold({
     if (open) setShown(true)
   }
 
+  // Settled once the height has grown; if the browser never says so (hidden around it, or no height to grow), after
+  // the time it takes.
+  useEffect(() => {
+    if (!open || settled || instant || !ref.current) return
+    const t = window.setTimeout(() => setSettled(true), tokenMs(ref.current, '--dur-base'))
+    return () => window.clearTimeout(t)
+  }, [open, settled, instant])
+
   useEffect(() => {
     if (open || !shown) return
     const el = ref.current
-    const exit = el && !instant ? parseFloat(getComputedStyle(el).getPropertyValue('--dur-exit')) || 0 : 0
+    const exit = el && !instant ? tokenMs(el, '--dur-exit') : 0
     if (!exit) {
       setShown(false)
       return
@@ -62,8 +69,11 @@ export function Fold({
         if (open && e.target === e.currentTarget && e.propertyName === 'grid-template-rows') setSettled(true)
       }}
     >
-      <div id={id} className={cn('fold-in', className)} {...(data ? { [data]: '' } : {})}>
-        {children}
+      {/* The row can't shrink past its item's padding: the caller's padding goes one level in. */}
+      <div className="fold-in">
+        <div id={id} className={className} {...(data ? { [data]: '' } : {})}>
+          {children}
+        </div>
       </div>
     </Outer>
   )

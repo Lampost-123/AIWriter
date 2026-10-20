@@ -32,9 +32,11 @@ export function ChapterWriterReport({ chapterId }: { chapterId: ID }): React.JSX
   }, [chapterId, rev])
 
   const here = running?.chapterId === chapterId
-  // Watched it write here: when it ends written and clean, the tick draws itself (once, not on every visit).
-  const [sawItRun, setSawItRun] = useState(false)
-  if (here && !sawItRun) setSawItRun(true)
+  // Watched it write here: when the new report comes in written and clean, the tick draws itself (once, not on every
+  // visit, and not on the report from before this run, which still shows for a moment as it ends).
+  const [whileRunning, setWhileRunning] = useState<Report | null | undefined | false>(false)
+  if (here && whileRunning !== report) setWhileRunning(report)
+  const draw = whileRunning !== false && report !== whileRunning
   const busy = !!running
   const undo = async (): Promise<void> => {
     setUndoing(true)
@@ -62,7 +64,7 @@ export function ChapterWriterReport({ chapterId }: { chapterId: ID }): React.JSX
           </Button>
         ) : null}
       </div>
-      {report && !here ? <ReportBody report={report} draw={sawItRun} /> : null}
+      {report && !here ? <ReportBody report={report} draw={draw} /> : null}
     </div>
   )
 }

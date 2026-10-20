@@ -14,7 +14,7 @@ import type { Chapter, ID, Outline } from '@shared/types'
 import { Check, ChevronRight, NotebookText, PenLine, Sparkles } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
-import { reducedMotion } from '@/features/look/motion'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { runBusy, treeOf, type HelperRun, type HelperSession } from '@/features/outline/helperStore'
 import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
@@ -160,15 +160,19 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const emptyIn = (chapterId: ID): ID[] => emptyCards[chapterId] ?? []
   const back = p.outerBack
 
-  // Show me: the first lit scene comes into view once its row has opened.
+  // Show me: the first lit scene comes into view once its row has opened (after the fold has grown, 220 ms, so the
+  // page scrolls to where the row ends up, not where it starts).
   const litAt = hub.lit?.at ?? 0
   useEffect(() => {
     if (!litAt || Date.now() - litAt > 1000) return
     const id = hub.lit?.ids[0]
     if (!id) return
-    requestAnimationFrame(() =>
-      document.querySelector(`[data-scene-row="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' })
+    const grow = tokenMs(document.documentElement, '--dur-base')
+    const t = window.setTimeout(
+      () => document.querySelector(`[data-scene-row="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' }),
+      grow
     )
+    return () => window.clearTimeout(t)
   }, [litAt, hub.lit?.ids])
 
   const batch = run ? (

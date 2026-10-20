@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { cn } from '@/lib/cn'
 import { takeEscape } from '@/lib/escape'
 import { useApp } from '@/lib/store'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 
 /** How long a pane slides open or shut in the New look (styles.css: --dur-base). */
 const SLIDE_MS = 220
@@ -115,7 +115,7 @@ export function ResizablePane({
   useEffect(() => {
     if (!leaving) return
     const inner = innerRef.current
-    const ms = inner ? parseFloat(getComputedStyle(inner).getPropertyValue('--dur-exit')) || 0 : 0
+    const ms = inner ? tokenMs(inner, '--dur-exit') : 0
     const t = window.setTimeout(() => setLeaving(false), ms)
     return () => window.clearTimeout(t)
   }, [leaving])

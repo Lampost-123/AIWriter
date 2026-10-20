@@ -46,3 +46,17 @@ export function installInputModality(target: Pick<EventTarget, 'addEventListener
 
 /** True when the change under way came from the keyboard: it then happens at once. */
 export const keyboardDriven = (): boolean => lastInput === 'key'
+
+/**
+ * A motion token's length in milliseconds, as it applies at `el` (`--dur-base`, `--dur-exit` ...). The built CSS may
+ * write it in seconds (220ms becomes .22s), so both are read; 0 when it isn't set.
+ */
+export const tokenMs = (el: Element, name: string): number => msOf(getComputedStyle(el).getPropertyValue(name))
+
+/** A CSS length of time ('220ms', '.22s') in milliseconds; 0 when it isn't one. */
+export function msOf(value: string): number {
+  const v = value.trim()
+  const n = parseFloat(v)
+  if (!Number.isFinite(n)) return 0
+  return v.endsWith('ms') ? n : v.endsWith('s') ? n * 1000 : n
+}
