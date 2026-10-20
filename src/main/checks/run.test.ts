@@ -89,9 +89,10 @@ describe('checking a scene', () => {
     // Each request is a 'check' record of the scene, so "What the AI saw" shows it.
     const rec = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0])
     const next = gens.getGeneration(w.db, checkRecords(w.db, w.s2)[1])
-    // Two focused requests: what is so (facts, timeline, continuity), then who knows what, each its own task, last.
-    expect(rec.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} facts, timeline, continuity\n`)
-    expect(next.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} knowledge\n`)
+    // Two focused requests: what is so (facts, timeline, continuity), then who knows what, each its own task, last; each
+    // asks facts and who knows what too (checkfix, 2026-10-20), its own checks first.
+    expect(rec.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} facts, timeline, continuity, knowledge\n`)
+    expect(next.messages[1].content).toContain(`${TASK_HEADING}\n${CHECK_TASK_MARKER} knowledge, facts\n`)
     // They open alike (2026-10-19): the same instructions, then the same material and scene, byte for byte.
     expect(rec.messages[0].content).toBe(CHECK_SYSTEM)
     expect(next.messages[0].content).toBe(CHECK_SYSTEM)
@@ -196,7 +197,7 @@ describe('check runs', () => {
     const done = events.filter((e) => e.name === 'checks:done').map((e) => e.payload as CheckDone)
     expect(done.map((d) => d.runId)).toEqual([first, second])
     expect(done[1]).toMatchObject({ status: 'complete', found: 2, background: true })
-    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[1].content).toContain(`${CHECK_TASK_MARKER} facts, timeline, continuity\n`)
+    expect(gens.getGeneration(w.db, checkRecords(w.db, w.s2)[0]).messages[1].content).toContain(`${CHECK_TASK_MARKER} facts, timeline, continuity, knowledge\n`)
   })
 
   it('makes no background check when the latest read the words as they are now, with nothing before them changed (token audit)', async () => {
@@ -593,7 +594,10 @@ describe('the scene’s contract after the review (fix 13)', () => {
 describe('a second opinion on what a whole check found (2026-10-16)', () => {
   /** The note number the second opinion's request gives the finding quoting `words`. */
   const noteOf = (user: string, words: string): number => Number(user.split('\n').find((l) => /^\d+\. Quote: /.test(l) && l.includes(words))!.match(/^(\d+)/)![1])
-  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = DONE_CHECKS, check?: (user: string) => unknown) => {
+  // One request (what is so alone), so each finding is found once and put to the second opinion: what two requests both
+  // find isn't (checkfix, 2026-10-20; "what two requests find on their own" below).
+  const ONE_REQUEST: CheckKind[] = ['facts', 'timeline', 'continuity']
+  const ruled = async (answer: (user: string) => unknown, checks: CheckKind[] = ONE_REQUEST, check?: (user: string) => unknown) => {
     const w = world()
     const fetchImpl = stubbed((_system, user) => (user.includes(CHECK_SECOND_MARKER) ? answer(user) : (check?.(user) ?? null)))
     const out = await checkScene({ ...options(w.db), fetchImpl }, w.s2, checks)
@@ -712,8 +716,8 @@ describe('every request about a scene opens alike (2026-10-19, the checks’ cos
     expect(out).toEqual({ status: 'done', found: 3 })
     const tasks = fetchImpl.asked.map((a) => a.user.slice(opening(a.user).length + 2).split('\n').slice(0, 2).join(' '))
     expect(tasks).toEqual([
-      `${TASK_HEADING} ${CHECK_TASK_MARKER} facts, timeline, continuity`,
-      `${TASK_HEADING} ${CHECK_TASK_MARKER} knowledge, voice, style`,
+      `${TASK_HEADING} ${CHECK_TASK_MARKER} facts, timeline, continuity, knowledge`,
+      `${TASK_HEADING} ${CHECK_TASK_MARKER} knowledge, voice, style, facts`,
       `${TASK_HEADING} ${SECOND_MARKER} verdicts`,
       `${TASK_HEADING} ${CHECK_SECOND_MARKER} verdicts`
     ])

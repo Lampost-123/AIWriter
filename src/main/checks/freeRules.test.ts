@@ -110,6 +110,29 @@ describe('the free rules after a reading', () => {
     ])
   })
 
+  it('still ask when the memory made an entry naming the month from this scene’s own words (checkfix, 2026-10-20: the book’s X13)', () => {
+    const w = world()
+    w.card(w.scenes[0], { when: 'Day 1, dusk' })
+    w.card(w.scenes[1], { when: 'Day 8, morning' })
+    save(w.db, w.scenes[0], 'Mara lit the lamp.')
+    save(w.db, w.scenes[1], 'It was a raw March morning. Mara lit the fire.')
+    // Reading the scene before its check, the memory keeper makes its event, in the scene's words.
+    repo.createEntry(w.db, 'event', { name: 'Frost again', summary: 'On a raw March morning Mara lights the fire.' }, { origin: 'text', originStoryId: w.story.id, originSceneId: w.scenes[1] })
+    runRuleChecks(w.db, w.scenes[1])
+    expect(w.open(w.scenes[1]).map((r) => r.message)).toEqual([
+      'The story counts its days (Day 8) and no scene card or codex entry names a month, so March is new here. Keep it, or take it out?'
+    ])
+    // A month an earlier scene's entry names (or Adam's own) is the codex's: nothing to ask.
+    const v = world()
+    v.card(v.scenes[0], { when: 'Day 1, dusk' })
+    v.card(v.scenes[1], { when: 'Day 8, morning' })
+    save(v.db, v.scenes[0], 'Mara lit the lamp.')
+    save(v.db, v.scenes[1], 'It was a raw March morning. Mara lit the fire.')
+    repo.createEntry(v.db, 'event', { name: 'The thaw', summary: 'The thaw came in March.' }, { origin: 'text', originStoryId: v.story.id, originSceneId: v.scenes[0] })
+    runRuleChecks(v.db, v.scenes[1])
+    expect(v.open(v.scenes[1])).toEqual([])
+  })
+
   it('say nothing of a long scene whose times and places fit, with memories in dialogue and a second real church', () => {
     const w = world()
     repo.createEntry(w.db, 'place', { name: "St Mary's chapel", parentId: w.ashby })
