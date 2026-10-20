@@ -219,7 +219,7 @@ test('the Plan hub fills each chapter card, and a scene somewhere else keeps tha
     await useFakeModel(win, fake)
 
     await binder(win).locator('[data-story-menu]').click()
-    await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+    await win.getByRole('menuitem', { name: 'Build with AI' }).click()
     await expect(main(win).locator('[data-plan-hub]')).toBeVisible()
     for (const [label, option] of [
       ['Acts', 'No acts'],

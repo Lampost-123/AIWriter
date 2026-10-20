@@ -131,7 +131,7 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
   // Step 1 of 3, the plan to read.
   if (mine?.stage === 'review' && mine.plan) {
     return (
-      <div className="build-panel is-review" data-write-chapter={chapter.id} data-write-stage="review">
+      <div className="build-panel is-review" data-write-panel={chapter.id} data-write-stage="review">
         <div className="build-panel-close">
           <button type="button" className="build-panel-x" onClick={() => openPanel(storyId, chapter.id, null)} aria-label="Close Write this chapter" title="Close. The plan waits for you: the top bar opens it again.">
             <X size={14} />
@@ -146,7 +146,7 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
   if (mine) {
     const step = writeStep(mine.stage)
     return (
-      <section aria-labelledby={`${id}-t`} className="build-panel" data-write-chapter={chapter.id} data-write-stage={mine.stage}>
+      <section aria-labelledby={`${id}-t`} className="build-panel" data-write-panel={chapter.id} data-write-stage={mine.stage}>
         {head(`Write this chapter · ${step.words}`)}
         <ol className="cw-steps" aria-label="Steps">
           {['The plan', 'Writing', 'Checking and fixing'].map((s, i) => (
@@ -176,9 +176,9 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
   }
 
   const words = plan ? planWords(plan) : null
-  const ended = report && report.status !== 'running' && !report.undone ? report : null
+  const ended = report && report.status !== 'running' && report.status !== 'cancelled' && !report.undone ? report : null
   return (
-    <section aria-labelledby={`${id}-t`} className="build-panel" data-write-chapter={chapter.id} data-write-stage="start">
+    <section aria-labelledby={`${id}-t`} className="build-panel" data-write-panel={chapter.id} data-write-stage="start">
       {head('Write this chapter')}
       {ended ? (
         <div className="build-panel-done" data-write-report>
@@ -220,6 +220,7 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
         ) : null}
       </div>
       {words && words.left.length ? (
+        <div data-testid="chapter-writer-unplanned">
         <Notice
           action={
             planning ? (
@@ -248,6 +249,7 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
             `${words.left.length} scenes have nothing on their cards to write from. Plan them, and the AI writes them too.`
           )}
         </Notice>
+        </div>
       ) : null}
       {words?.warning ? <p className="build-panel-s">{words.warning}</p> : null}
       {other ? <Notice>The AI is writing another chapter now. Wait for it to finish, or stop it from the top bar.</Notice> : null}

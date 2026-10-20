@@ -25,7 +25,8 @@ const toastWith = (win: Page, text: string) => win.locator('div.fixed[aria-live=
 const group = (win: Page, kind: string, title: string) => outline(win).getByRole('group', { name: `${kind}: ${title}`, exact: true })
 const spineScene = (win: Page, title: string) => win.locator('[data-desk-spine] [data-row="scene"]', { hasText: title }).first()
 const dock = (win: Page) => win.getByRole('toolbar', { name: 'AI dock' })
-const writerDialog = (win: Page) => win.getByRole('dialog', { name: 'Write this chapter with AI' })
+// Write this chapter, open in its chapter's row of Build with AI (2026-10-20; a dialog before).
+const writerDialog = (win: Page) => win.locator('[data-plan-hub] [data-write-stage]')
 
 async function fakeServer(): Promise<FakeProvider> {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
@@ -68,7 +69,7 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
     const before = await invoke(win, 'getOutline', story.id)
     const firstChapter = before.chapters[0]
     await room(win, 'Plan').click()
-    await links(win, 'Plan').getByRole('button', { name: 'Plan with AI' }).click()
+    await links(win, 'Plan').getByRole('button', { name: 'Build with AI' }).click()
     await expect(outline(win)).toBeVisible()
 
     // ----- More of the story; how to plan: in stages, the acts first -----
@@ -133,12 +134,12 @@ test('the outline in stages: the acts, then one act’s chapters, then one chapt
     await expect(group(win, 'Act', 'The Arrival')).toHaveAttribute('data-state', 'open')
     await expect(group(win, 'Chapter', 'Rain on the Narrows')).toHaveAttribute('data-state', 'kept')
 
-    // ----- Its scenes kept: Write this chapter opens Write the whole chapter for it -----
+    // ----- Its scenes kept: Write this chapter opens Write the whole chapter for it, in its row -----
     await group(win, 'Chapter', 'Rain on the Narrows').locator('[data-write-chapter]').first().click()
     await expect(writerDialog(win)).toBeVisible()
     await expect(writerDialog(win).getByTestId('chapter-writer-plan')).toContainText('empty: will be written')
     await expect(writerDialog(win).getByTestId('chapter-writer-start')).toBeEnabled()
-    await writerDialog(win).getByRole('button', { name: 'Cancel' }).click()
+    await writerDialog(win).getByRole('button', { name: 'Close Write this chapter' }).click()
     await expect(writerDialog(win)).toHaveCount(0)
 
     // ----- Where the outline puts it: the act at the end, with what is still open in it -----

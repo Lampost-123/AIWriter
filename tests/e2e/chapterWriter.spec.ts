@@ -1,17 +1,20 @@
 // Write the whole chapter (contracts/chapterWriter.ts), end to end against the fake AI server in the New look: the
 // chapter plan is scripted (tests/fake-provider/chapter.mjs: a look-up, then a part for each scene), the checks find
 // nothing in the fake prose, the critic reads the chapter once and its notes on words in the scenes are fixed, each
-// passage rewritten (the fake adds "The rain went on."). Started from the palette's "Whole chapter with AI"; the dialog
-// lists the scenes; the plan shows before anything is written, with Write, Change the plan and Cancel; while it works the
-// top bar says so and the open scene can't be typed in; it ends in a message with Show (the report on the chapter card)
-// and Undo (the words before).
+// passage rewritten (the fake adds "The rain went on."). Started from the palette's "Whole chapter with AI", which opens
+// Build with AI at the chapter, Write this chapter open in its row (2026-10-20; a dialog before): it lists the scenes;
+// the plan shows there before anything is written, with Write the chapter, Change the plan and Cancel; while it works
+// the top bar says so and the open scene can't be typed in; it ends in a message with Show (the report on the chapter
+// card) and Undo (the words before).
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { areaButton, binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
-const dialog = (win: Page) => win.getByRole('dialog', { name: 'Write this chapter with AI' })
-const planView = (win: Page) => win.getByRole('dialog', { name: 'The chapter plan' })
+/** Write this chapter, in its row of Build with AI, before it starts. */
+const dialog = (win: Page) => win.locator('[data-plan-hub] [data-write-stage="start"]')
+/** Its plan to read, in the same row. */
+const planView = (win: Page) => win.locator('[data-plan-hub] [data-write-stage="review"]')
 const status = (win: Page) => win.getByTestId('chapter-writer-status')
 const NEW_LOOK = { AIWRITE_KEEPER_QUIET_MS: '600000', AIWRITE_LOOK: 'new' }
 
@@ -22,6 +25,12 @@ async function start(win: Page): Promise<void> {
   await win.getByRole('option', { name: /^Whole chapter with AI/ }).first().click()
   await dialog(win).getByTestId('chapter-writer-start').click()
   await expect(dialog(win)).toBeHidden()
+}
+
+/** Back to the writing page, where the open scene is. */
+async function toWriting(win: Page): Promise<void> {
+  await areaButton(win, 'Write').click()
+  await expect(prose(win)).toBeVisible()
 }
 
 const FERRY = 'Old words of the ferry scene.'
@@ -70,12 +79,13 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     // The plan, before anything is written: a part for each scene, and what in the cards doesn't fit the memory.
     const view = planView(win)
     await expect(view).toBeVisible({ timeout: 60_000 })
-    await expect(view.getByTestId('chapter-plan')).toContainText('Sc 1 “The ferry”')
-    await expect(view.getByTestId('chapter-plan')).toContainText('What it must do: Sc 1 moves the chapter on.')
+    await expect(view.getByTestId('chapter-plan')).toContainText('1 · The ferry')
+    await expect(view.getByTestId('chapter-plan')).toContainText('Sc 1 moves the chapter on.')
+    await expect(view.getByTestId('chapter-plan')).toContainText('Ends with: Sc 1 ends on the far bank.')
     await expect(view.getByTestId('chapter-plan')).toContainText("Sc 1's card has Mara at the inn; the memory has her at the ferry.")
     expect((await invoke(win, 'getScene', inn)).text).toBe('')
-    // Closed, it waits: the top bar opens it again.
-    await win.keyboard.press('Escape')
+    // Left, it waits: the top bar opens it again, at its chapter.
+    await toWriting(win)
     await expect(view).toBeHidden()
     await expect(status(win)).toContainText('The chapter plan is ready for you')
     await status(win).getByRole('button').click()
@@ -85,8 +95,11 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     await view.getByRole('textbox', { name: 'Sc 2 “The inn”: its part of the plan' }).fill('Mara finds no room at the inn and sleeps in the stable.')
     await view.getByTestId('chapter-plan-write').click()
     await expect(view).toBeHidden()
+    // Its row says how it is going.
+    await expect(win.locator('[data-plan-hub] [data-write-stage]')).not.toHaveAttribute('data-write-stage', 'start')
 
     // While it works: the top bar says what it is doing, and the open scene can be read but not typed in.
+    await toWriting(win)
     await expect(status(win)).toBeVisible()
     await expect(win.locator('.scene-prose.chapter-held')).toHaveCount(1)
     await expect(win.locator('.scene-prose.chapter-held')).toHaveAttribute('contenteditable', 'false')

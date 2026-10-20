@@ -86,15 +86,20 @@ test('a scene interview asks about what the card is missing, and fills only its 
     await expect(card.getByLabel('Goal', { exact: true })).toHaveValue('Get the ledger back')
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.locationId).toBeNull()
 
-    // ----- From the palette; the AI says when it has enough -----
+    // ----- From the palette: the planned scene in Build with AI's story line, its interview in its row (2026-10-20);
+    // the AI says when it has enough -----
     await win.keyboard.press('Control+k')
     await win.getByRole('dialog', { name: 'Search' }).getByRole('combobox').fill('interview me about this scene')
     await win.keyboard.press('Enter')
-    await answer(box, 'Who walks in first?', 'Mara')
-    await answer(box, 'How should it end?', 'She gets away')
-    await answer(box, 'How should it feel?', 'Hurried')
+    const inRow = main(win).locator(`[data-plan-hub] [data-scene-row="${scene.id}"]`)
+    const rowBox = inRow.getByRole('region', { name: 'Interview' })
+    await answer(rowBox, 'Who walks in first?', 'Mara')
+    await answer(rowBox, 'How should it end?', 'She gets away')
+    await answer(rowBox, 'How should it feel?', 'Hurried')
     await expect(toastWith(win, 'Filled in the beats')).toBeVisible()
-    await expect(card.getByLabel('Outcome', { exact: true })).toHaveValue('Hurried')
+    await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.outcome).toBe('Hurried')
+    // Its row closes with the interview.
+    await expect(rowBox).toHaveCount(0)
   } finally {
     await fake.close()
   }
@@ -117,8 +122,9 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     fake.reset()
     await binder(win).locator('[data-row="chapter"]', { hasText: 'Chapter 1' }).click({ button: 'right' })
     await win.getByRole('menuitem', { name: 'Interview me about this chapter' }).click()
-    await expect(main(win).getByRole('heading', { level: 1 })).toHaveText('Chapter 1')
-    const page = main(win)
+    // Plan this chapter, in its row of Build with AI's story line (2026-10-20; its own page before).
+    const page = main(win).locator(`[data-chapter-plan="${chapter.id}"]`)
+    await expect(page.getByRole('heading', { name: 'Ch 1' })).toBeVisible()
     const box = page.getByRole('region', { name: 'Interview' })
     await answer(box, 'What happens in this chapter?', 'A letter comes for Mara')
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] interview chapter')).toBe(true)
@@ -131,7 +137,7 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     await expect(page.locator('[data-suggestion]')).toHaveCount(3)
     expect(fake.lastRequest()!.body.messages[0].content.startsWith('[AIWRITE-OUTLINE v1] plan chapter')).toBe(true)
     await expect(toastWith(win, 'Gave the chapter a goal from your answers.')).toBeVisible()
-    await expect(page.getByLabel('Goal', { exact: true })).toHaveValue('A letter comes for Mara.')
+    await expect(page.getByLabel('What the chapter achieves')).toHaveValue('A letter comes for Mara.')
     await expect.poll(async () => (await invoke(win, 'getOutline', story.id)).chapters[0].goal).toBe('A letter comes for Mara.')
 
     // ----- Keep one: it takes the place of the chapter's empty "Scene 1" -----
@@ -144,9 +150,9 @@ test('a chapter interview gives the chapter a goal and scene cards to keep one b
     // ----- Discard one, keep the rest -----
     await page.getByRole('button', { name: 'Discard “The name on the door”', exact: true }).click()
     await expect(suggestion('The name on the door')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Keep all that’s left' }).click()
+    await page.getByRole('button', { name: 'Keep all' }).click()
     await expect.poll(chapterScenes).toEqual(['A letter at dawn', 'Questions at the market'])
-    await expect(page.getByText('Everything is decided.', { exact: false })).toBeVisible()
+    await expect(page.locator('[data-chapter-batch]')).toContainText('All decided · 2 kept')
     const scenes = (await invoke(win, 'getOutline', story.id)).scenes.filter((s) => s.chapterId === chapter.id)
     expect(scenes.map((s) => s.title)).toEqual(['A letter at dawn', 'Questions at the market'])
     const dawn = await invoke(win, 'getScene', scenes[0].id)

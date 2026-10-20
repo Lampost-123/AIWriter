@@ -74,7 +74,7 @@ async function openHelper(win: Page, story = 'Book 1'): Promise<void> {
   const menu = binder(win).locator('[data-story-menu]')
   await expect(menu).toContainText(story)
   await menu.click()
-  await win.getByRole('menuitem', { name: 'Plan with AI' }).click()
+  await win.getByRole('menuitem', { name: 'Build with AI' }).click()
   await expect(hub(win)).toBeVisible()
 }
 
@@ -306,8 +306,8 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
 
     // ----- From the palette, asked again: it carries on from what the story has, in its last act -----
     await win.keyboard.press('Control+K')
-    await win.keyboard.type('Plan with AI')
-    await palette(win).getByRole('option', { name: 'Plan with AI' }).click()
+    await win.keyboard.type('Build with AI')
+    await palette(win).getByRole('option', { name: 'Build with AI' }).click()
     // Planned, nothing written yet: what to plan, in Adam's words.
     await expect(hub(win)).toHaveAttribute('data-plan-hub', 'planned')
     await expect(hub(win).getByRole('heading', { name: 'What do you want to plan?' })).toBeVisible()

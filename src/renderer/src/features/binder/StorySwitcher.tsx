@@ -192,12 +192,12 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                     </span>
                     Rename this story
                   </M.Item>
-                  {/* The Plan hub (2026-10-20): the one place to plan with AI (the Story builder's idea and cast are in it). */}
+                  {/* Build with AI (2026-10-20): every AI building tool for the story in one area. */}
                   <M.Item onSelect={() => openPlanHub(story.id)} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">
                       <ListTree size={14} />
                     </span>
-                    Plan with AI
+                    Build with AI
                   </M.Item>
                   <M.Item onSelect={() => openExportStory(story.id, currentChapterId())} className={cn(item, 'shrink-0')}>
                     <span className="flex w-4 justify-center text-muted">

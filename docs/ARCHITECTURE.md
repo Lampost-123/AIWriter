@@ -53,8 +53,9 @@ src/renderer/src/
   lib/           api client, zustand store (navigation + open world), flush registry, editor bridge, theme
   components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects
   layout/        Top bar, resizable side panes, inspector, update banner
-  features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (the one place to plan
-                 with AI) over outline (the suggestions' store and parts) and storyBuilder (the idea, cast and world)
+  features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (Build with AI: every AI
+                 building tool for a story in one area) over outline (the suggestions' store and parts), storyBuilder
+                 (the idea, cast and world), chapterWriter (Write the chapter) and worldBuilder (from a summary)
 ```
 
 ## Rules
@@ -1715,8 +1716,9 @@ scene and chapter while the app is open) and are sent with each request.
   characters and places (`matchEntry`), unknown ones left out. The window puts in only parts still empty on the card
   on screen (`planInterviewLogic.fillOnCard`), so nothing Adam wrote changes; Undo empties only what is still as it
   was put in.
-- **A chapter** (the binder's chapter menu "Interview me about this chapter", and the palette): the outline view with
-  a `chapterId` (`ChapterPlanner.tsx`), showing the chapter's goal (editable, saved to the chapter) and the
+- **A chapter** (the binder's chapter menu "Interview me about this chapter", and the palette): since 2026-10-20 Plan this
+  chapter, inline in its row of Build with AI's story line (`planHub/ChapterPlanPanel.tsx`; the outline view with a
+  `chapterId` and its page `ChapterPlanner.tsx` before), showing the chapter's goal (editable, saved to the chapter) and the
   interview. When it ends, `startChapterPlan` streams the outline helper's form with no chapter heading; it is a
   helper session of its own (`helperStore.suggestChapter`, key `<story>#<chapter>`) whose `lead` is the chapter's
   heading and whose chapter node starts out kept, so `Suggestions` (with `chapterId`) lists the scene cards and Keep,
@@ -2556,7 +2558,8 @@ weighed. Contract `contracts/chapterWriter.ts`, main side
   (`DraftActivity.chapterWriter`). The checks use the check model, the critic the writer model. `startChapterWriter` is
   in `ASKS_FIRST`. One run at a time; Generate, Beat by beat and Variants are turned down in its scenes
   (`chapterWriter/active.ts`).
-- **The window.** The binder's chapter menu ("Write this chapter with AI…"), the palette ("Whole chapter with AI")
+- **The window.** (Since 2026-10-20 every way in opens Build with AI at the chapter, Write this chapter open in its row:
+  see "Build with AI"; the start dialog and the plan's dialog below are gone.) The binder's chapter menu ("Write this chapter with AI…"), the palette ("Whole chapter with AI")
   and the chapter card's "Written with AI" group open the start dialog (`ChapterWriterDialog.tsx`, mounted once): the
   scenes, which have no card to write from (left out), and that words already there are replaced but kept for Undo.
   While it works, the top bar shows what it is doing with Stop and what it has spent (`ChapterWriterStatus.tsx`), and a
@@ -2637,7 +2640,8 @@ before are in `meta`, as before; `ChapterWriterReport.plan` is new and optional)
   left out is planned from its card's goal and outcome; asked once to cover every scene), only people the codex has under
   changes, lists kept short; `partText` makes each part the words the writer is given and Adam reads. A plan never
   written is made from the cards, with a question saying so; a call that fails stops the run as before.
-- **The plan is shown to Adam before writing** (`RunDeps.review`; ipc: progress stage 'review' carries
+- **The plan is shown to Adam before writing** (since 2026-10-20 inline at its chapter in Build with AI, built to the
+  mock-up: see "Build with AI"; `RunDeps.review`; ipc: progress stage 'review' carries
   `ChapterWriterProgress.plan`, and the run waits, with no time limit, for `answerChapterPlan` or Stop). The window
   (`features/chapterWriter/ChapterPlanReview.tsx`, mounted beside the start dialog, which is unchanged): the overview and
   each scene's part, with Write, Change the plan (each part, and the overview, as text boxes) and Cancel. Escape only hides
@@ -3899,7 +3903,9 @@ Keep, Edit, Discard and Undo (by its task id: `KeepOptions.runId`) and "Put thes
 content levels, point of view, tense and prose style (and the tone, in the Story builder), with Undo; those marked
 `adult` sit under "For adult readers". Never rename an id.
 
-**Where it is:** the Plan area's "The idea, cast and world", the hub's header link of the same name and the command
+**Since 2026-10-20 the Story builder is Build with AI's first two sections** (Your idea, Cast and world: see "Build with
+AI"); its page, its steps bar and its Done step are gone, and a `storyBuilder` view lands in the matching section.
+Before that, **where it was:** the Plan area's "The idea, cast and world", the hub's header link of the same name and the command
 palette ("The idea, cast and world"); the board's blank story opens the Plan hub's start; the
 New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
@@ -4974,7 +4980,99 @@ checks are still governed by Automatic AI (`shared/automaticAi.ts`) and never go
   messages (`critique.spec.ts`, `issues.spec.ts`, `repair.spec.ts`, `contract.spec.ts`, `live-checks.spec.ts`,
   `ai.spec.ts`, `manuscript.spec.ts`).
 
+## Build with AI: one area to build every part of a story (Adam, 2026-10-20)
+
+Adam, after seeing the Plan hub: "I told you I wanted a unified area to build all parts of the story using AI." The hub
+covered only the outline; the idea, cast and world, chapter plans, scene cards, threads, the world builder, recipes and
+Write the chapter were separate pages or pop-ups. **Build with AI** (View `planHub`, `features/planHub/`) is now the one
+page per story that holds them all: "Build “<story title>” with AI", the Plan area's first item and the Plan room's first
+link, the same on the desk and in the panels. The Plan hub's own parts (below) are its story line.
+
+- **Sections down one page** (`buildLogic.ts` `SECTIONS`, `PlanHub.tsx`), each with its head and how it stands
+  (`ideaStatus`, `castStatus`, `lineStatus`, `threadsStatus`: "Your idea · written", "Cast and world · 6 people, 4 places",
+  "Story line · Ch 1–2 written, Ch 3–4 planned", "Threads · 3 open, 1 overdue"):
+  1. **Your idea** (`storyBuilder/IdeaStep.tsx`): the one idea field (the brief's plot, showing the premise while there is
+     none), where and when, length, must and must never happen, his own characters, questions, the story's style, and
+     **Start from a recipe** (pick or follow one, talk it over for this story; the recipe library stays its own page).
+  2. **Cast and world** (`CastSection.tsx`): "Build it from your idea" (`storyBuilder/CodexStep.tsx`: plan, tick, edit,
+     redo, build into the codex, Undo) or "from a summary" (`worldBuilder/WorldBuilderView.tsx` `SummaryBuilder`, the
+     World builder's form and results without its page), then **In your world**: each kind with its count and names (a
+     click opens one), **Add someone with AI** (the character builder) and Open the codex.
+  3. **The story line**: the Plan hub (below), plus, in each chapter's row (the chapter being written, and each planned
+     chapter), **Plan this chapter** (`ChapterPlanPanel.tsx`: the chapter's goal, Interview me or Just suggest scenes,
+     its scene cards as suggestions in its own session, `LineSuggestions` with `chapterId`, Keep all, then Write this
+     chapter) and **Write this chapter** (`WritePanel.tsx`, below). Each planned scene (`SceneRow.tsx`) has **Ideas**
+     (next scene ideas inline: what Adam has in mind, three ideas, Use this, Dismiss), **Interview me** (the scene
+     interview inline; its row closes when it ends), **Fill the card** (`scenePlanStore.planScene`: only its empty parts,
+     Undo) and **Write it** (`writeScene`: the scene on the writing page, then Generate as its shortcut does). Beat by
+     beat stays on the writing page. One chapter panel and one scene tool open at a time (`hubStore` `panel`, `tool`).
+  4. **Threads** (`ThreadsSection.tsx`, from `getThreadsBoard`): the open threads, overdue first, then due now, then quiet
+     ones (`openThreadsInOrder`, the board's `dueWords`/`quietWords`), each with **Plan its payoff** (`seedPayoff`: the
+     story line's box says "Move toward paying off the plot thread …", the thread is ticked among the threads waiting,
+     put there when the facts didn't list it, `HubState.seeded`) and the way to the Plot threads board.
+- **The list of sections**: along the top of the area as a strip that stays as the page scrolls (the panels, and the desk
+  when the sheet is narrower than 1180px), or beside the sections on the left (the desk with room: `build.css`, a
+  container query on `.hub-scroll`). Its height is `--nav-h` (measured), so a section brought into view and the talk keep
+  clear of it. Which section is in view follows the scroll (the one whose head has passed the upper part of the page) and
+  where Adam clicks or types.
+- **Talk it over beside everything, about the section in view** (`TalkBeside`): Cast and world with a list, the list's own
+  talk (`CodexTalk`, its changes shown first); otherwise the plan's talk, its title saying the section ("Talk it over ·
+  Threads"), its intro and quick asks the section's, and told what Adam is looking at (`PlanChatRequest.looking`, a block
+  "What the author is looking at now" in `storyBuilder/jobs.ts startPlanChat`) for Your idea, Cast and world and Threads.
+- **Where it opens**: a story with nothing yet at Your idea, one planned or under way at the story line's "What happens
+  next?" (`defaultSection`). The view says more (`View.planHub`): `section`, `chapterId` with `open` ('plan' | 'write'),
+  `sceneId` with `tool` ('ideas' | 'interview'), `summary`, `recipeId`, `at`, `back`; the area opens the rows that hold a
+  chapter or scene (`hubLogic.rowsToOpen`), opens its panel or tool, and brings it into view (held there a moment while
+  what is above settles, unless Adam scrolls or clicks first).
+- **Every older way in lands in its section** (`buildLogic.buildRoute`, applied in `navigate()` and in App's pages): a
+  `storyBuilder` view (idea → Your idea, codex → Cast and world, outline → the story line, done or none → where the
+  story stands), `outline` (with a chapter: its row, Plan this chapter open), `recipePlan` (the story line, following
+  that recipe, the recipe plan's guidance as the idea while there is none; a kept premise builds the world with the
+  recipe's roles), `worldBuilder` with a story open (Cast and world, from a summary; with no story the World builder
+  page stays). `openPlanHub(storyId, BuildAt)`, `openChapterPlan`, `openChapterInterview`, `openSceneTool`
+  (`features/outline/open.ts`) and `openChapterWriter` (Write this chapter open at that chapter) are the openers: the
+  story menu ("Build with AI"), the Plan area and room (Build with AI, Next scene ideas and Interview me: the open
+  planned scene's tool, else the story line at the next scene; Plan a chapter), the palette ("Build with AI", "Your
+  idea, cast and world", "Ideas for this scene" and "Interview me about this scene" on a planned scene), the binder's
+  chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with the AI next" (Your
+  idea), Story settings' premise, the chapter card's report, the top bar's "The chapter plan is ready for you".
+- **Removed**: the Story builder's page (`StoryBuilderView.tsx`, its steps bar and `DoneStep.tsx`), the chapter's plan
+  page (`ChapterPlanner.tsx`), a recipe story's plan page (`RecipePlan.tsx`), Write the chapter's start dialog
+  (`ChapterWriterDialog.tsx`) and the plan's dialog. The views stay in `View` so saved links land somewhere sensible.
+  Nothing Adam made changes: the brief, outline sessions (the story's and each chapter's), kept suggestions, the codex
+  plan and its build, chapter interviews and recipe plans are the same stores, shown here.
+- **Write this chapter, inline** (`WritePanel.tsx`): before, which scenes it writes (and that words there are kept for
+  Undo), "Plan these scenes" for scenes with nothing on their cards, and **Plan the chapter** (starts the run); then
+  step 1 of 3, the plan: what it is doing, then the plan to read, `chapterWriter/ChapterPlanReview.tsx`, built to the
+  mock-up: "Write this chapter · step 1 of 3: the plan", the chapter's name, **What the chapter does** (three tiles:
+  "Wren wants", "Against Wren", "How it turns"; the overview for a plan made before them), **Scene by scene** (each
+  scene's line and "Ends with: …"), **Kept true from the memory** (`ChapterWritingPlan.kept`, else the scenes' Keep to
+  lines), the cards' questions, **Write the chapter / Change the plan / Cancel**, and **"About 6 minutes · about 9
+  cents"** (`buildLogic.estimateWords`; "cost not known" when a model has no price, "free" when all are); then steps 2
+  and 3 (writing, checking and fixing) with Stop and the report so far; after, how it ended with See the report and
+  Undo. The chapter's row says how it goes ("Writing · 2 of 3: writing").
+- **The chapter plan says more** (`src/main/chapterWriter/`): the planner is asked for `lead`, `wants`, `against` and
+  `turn` and each scene's `ends` (`prompts.ts`; `readChapterPlan` reads them and their other spellings, `checkChapterPlan`
+  keeps a `lead` only when the codex has that person); `partText` adds "Ends with:" and the drafts are told what the
+  chapter does in its parts (`chapterLine`); a plan without them reads as before. `keptFacts` (no AI call): the story
+  index's lines for everyone on the cards as the chapter begins (`ChapterCore.people`) that say where they were set, the
+  plain facts first and at most 3 a person, then the scenes' Keep to lines, at most 8. `estimate.ts` `chapterEstimate`:
+  each scene's draft, the memory's read, its plan before writing, its check and about one fix, and the critic once, at
+  the writer's, memory's and check models' prices (`RunDeps.estimate`, sent with the review stage as
+  `ChapterWriterProgress.estimate`). The fake provider answers the new parts (`tests/fake-provider/chapter.mjs`).
+- **Tests**: `features/planHub/buildLogic.test.ts` (the statuses, the default section, the routes, the rows to open, the
+  threads' order and Plan its payoff's words, the step, the estimate's words, Kept true, the review's heads),
+  `main/chapterWriter/chapterWriter.test.ts` (the three parts and endings read, an old plan as before, Kept true, the
+  review's estimate and Kept true reach the window, the drafts told the parts), `main/chapterWriter/estimate.test.ts`;
+  `tests/e2e/storyBuilder.spec.ts` (a new story built end to end in one place: idea, cast and world planned, talked over
+  and built, the story line planned and kept, a chapter planned in its row, its plan read with its parts, written with
+  the fake), `tests/e2e/buildWithAi.spec.ts` (the desk mid-story: the statuses, Plan this chapter with its interview, a
+  scene's Ideas and Fill the card, Plan its payoff, Write it; the panels: every older way in), `tests/e2e/buildLook.spec.ts`
+  (pictures, desk Dark and panels Light, 1366×768 and full screen, to `BUILD_SHOTS`).
+
 ## The Plan hub: one place to plan with AI (Adam, 2026-10-20)
+
+(Since the same day this is Build with AI's story line: see above. The header's "The idea, cast and world" link is gone; the sections are on the same page.)
 
 Adam: "the one place to plan with AI", and "we should also be able to return after we have already written part of a
 story and plan the next part of it"; then, trying the outline helper on a story with chapters, "carrying on the outline

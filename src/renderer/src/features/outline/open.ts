@@ -8,6 +8,7 @@ import type { HubScopeId } from '@/features/planHub/hubLogic'
 import type { BuildSection, ChapterPanel, SceneTool } from '@/features/planHub/buildLogic'
 import { checkBlank } from './helperStore'
 import { noteChapterStory, startPlanInterview } from './planInterviewStore'
+import { askIdeas, ideasFor } from './ideasStore'
 
 export interface BuildAt {
   /** The section to show first (left out: a new story's idea, else the story line). */
@@ -67,6 +68,9 @@ export function openChapterPlan(storyId: ID, chapterId: ID): void {
 export function openSceneTool(storyId: ID, sceneId: ID | null, tool: SceneTool, written: boolean): void {
   if (sceneId && !written) {
     if (tool === 'interview') startPlanInterview({ kind: 'scene', sceneId })
+    // Ideas asked for at once, unless some are showing already (as the palette always did).
+    const ideas = tool === 'ideas' ? ideasFor(sceneId) : null
+    if (tool === 'ideas' && (!ideas || ideas.hidden || ideas.status === 'error')) void askIdeas(sceneId)
     openPlanHub(storyId, { section: 'line', sceneId, tool })
   } else openPlanHub(storyId, { section: 'line', at: 'next-scene' })
 }

@@ -361,6 +361,15 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
     scrollToSoon(scroller.current, `[data-build-section="${s}"]`, true, then)
   }, [])
 
+  // The section Adam is working in (a click or the keyboard in it) is the one in view, whatever the scroll says.
+  const working = (s: BuildSection): { onPointerDownCapture: () => void; onFocusCapture: () => void } => {
+    const here = (): void => {
+      holdUntil.current = Date.now() + 400
+      setInView(s)
+    }
+    return { onPointerDownCapture: here, onFocusCapture: here }
+  }
+
   // What the way in asked for: a section, a chapter's panel, a scene's tool, a summary build, a recipe to follow. Once
   // each time it is opened (the first time, a story with nothing asked for opens at its default section).
   const applied = useRef<BuildView | null>(null)
@@ -519,17 +528,17 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
           </nav>
 
           <div className="hub-main build-main">
-            <section aria-labelledby="build-idea-h" className="build-sec" data-build-section="idea">
+            <section aria-labelledby="build-idea-h" className="build-sec" data-build-section="idea" {...working('idea')}>
               {sectionHead('idea')}
               <IdeaStep storyId={storyId} premise={story.premise} />
             </section>
 
-            <section aria-labelledby="build-cast-h" className="build-sec" data-build-section="cast">
+            <section aria-labelledby="build-cast-h" className="build-sec" data-build-section="cast" {...working('cast')}>
               {sectionHead('cast')}
               <CastSection storyId={storyId} summary={hub.summary} premise={story.premise} onGo={(s) => (s === 'idea' ? focusIdea() : goTo(s))} />
             </section>
 
-            <section aria-labelledby="build-line-h" className="build-sec" data-build-section="line">
+            <section aria-labelledby="build-line-h" className="build-sec" data-build-section="line" {...working('line')}>
               {sectionHead('line')}
               {mode !== 'start' ? (
                 <NextCard
@@ -598,7 +607,7 @@ function Hub({ story, shape, session, view }: { story: Story; shape: Outline; se
               <EarlierBatches storyId={storyId} session={session} labelsOf={labelsOf} />
             </section>
 
-            <section aria-labelledby="build-threads-h" className="build-sec" data-build-section="threads">
+            <section aria-labelledby="build-threads-h" className="build-sec" data-build-section="threads" {...working('threads')}>
               {sectionHead('threads')}
               <ThreadsSection
                 storyId={storyId}
