@@ -169,12 +169,12 @@ const BEFORE_TITLE = { soFar: 'The end of the scene so far', previous: 'The end 
 const clean = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim()
 
 /** What may have changed of where things stand, by how far it still holds here. */
-const STAND_NOTE: Record<StageReach, string> = {
+export const STAND_NOTE: Record<StageReach, string> = {
   here: '',
   start:
     'This was as the scene before ended, earlier the same day. The scene card says where and when this scene is: people may have moved. Injuries, what people wear and what they hold carry on unless the card says otherwise, and so do the things in the place, given only when this scene is in the same place.',
   later:
-    'This was as the scene before ended, and time has passed since (a later day, or how long is not known). Only injuries surely carry on: where people are, how they are placed and what they wear and hold may all have changed.',
+    'This was as the scene before ended, and time has passed since (a later day, or how long is not known). Only injuries surely carry on: where people are, how they are placed and what they wear and hold may all have changed; what someone usually wears now, as what must stay true says, still holds.',
   none: ''
 }
 

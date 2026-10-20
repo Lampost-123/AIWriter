@@ -39,6 +39,7 @@ import {
   planText,
   readPlan,
   saysIn,
+  STAND_NOTE,
   type CheckWith,
   type PlanMaterial,
   type RawPlan,
@@ -1228,5 +1229,12 @@ describe('what must change, for the scene’s contract (fix 13)', () => {
       })
     expect(await make(true)).toMatchObject({ needs: [], text: '', must: ['Osric reaches the loft'], checked: { corrected: 0, dropped: 0 } })
     expect(await make(false)).toBeNull()
+  })
+})
+
+describe('what the planner is told carries on (memory review, 2026-10-20)', () => {
+  it('on a later day, what someone usually wears now still holds, though the clothes they ended in may not', () => {
+    expect(STAND_NOTE.later).toContain('may all have changed')
+    expect(STAND_NOTE.later).toContain('what someone usually wears now, as what must stay true says, still holds')
   })
 })

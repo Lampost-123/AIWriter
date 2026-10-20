@@ -824,4 +824,9 @@ export interface SceneCalendar {
   landmarks: Landmark[]
   /** The characters on the scene card, with their ages here where the memory says enough. */
   ages: { name: string; age: AgeHere }[]
+  /**
+   * The scenes just before this one in its story that are on the same day, going back until one isn't (or can't be told),
+   * latest first (memory review, 2026-10-20): clothes put on in them are still on here. Left out: none known.
+   */
+  today?: ID[]
 }

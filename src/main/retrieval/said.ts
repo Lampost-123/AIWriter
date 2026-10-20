@@ -5,6 +5,7 @@
 
 import type { FactState, ID, SaidKind } from '@shared/types'
 import type { SaidLine } from './types'
+import { SAID_KIND_WORDS } from '@shared/knowWords'
 
 /** How many lines the list holds at most. */
 export const SAID_MOST = 8
@@ -28,7 +29,7 @@ export interface SaidTime {
   order: number
 }
 
-const SAID_KINDS: SaidKind[] = ['promise', 'threat', 'secret']
+const SAID_KINDS: SaidKind[] = ['promise', 'threat', 'secret', 'rule']
 export const isSaidKind = (v: unknown): v is SaidKind => typeof v === 'string' && (SAID_KINDS as string[]).includes(v)
 
 const WORD = /\S+/g
@@ -85,9 +86,10 @@ export function saidLines(
 }
 
 const KIND_WORDS: Record<SaidKind, { one: string; whose: (by: string) => string }> = {
-  promise: { one: 'A promise', whose: (by) => `${by}’s promise` },
-  threat: { one: 'A threat', whose: (by) => `${by}’s threat` },
-  secret: { one: 'A secret told', whose: (by) => `A secret ${by} told` }
+  promise: { one: SAID_KIND_WORDS.promise, whose: (by) => `${by}’s promise` },
+  threat: { one: SAID_KIND_WORDS.threat, whose: (by) => `${by}’s threat` },
+  secret: { one: SAID_KIND_WORDS.secret, whose: (by) => `A secret ${by} told` },
+  rule: { one: SAID_KIND_WORDS.rule, whose: (by) => `${by}’s order or rule` }
 }
 
 const joinAnd = (items: string[]): string =>

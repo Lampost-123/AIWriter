@@ -6,6 +6,7 @@
 import type Database from 'better-sqlite3'
 import type { Change, ChangeData, Entry, ID, Origin, SourceLink } from '@shared/types'
 import { FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
+import { SAID_KIND_WORDS } from '@shared/knowWords'
 import { getChange } from '../db/memory'
 import { getEntries } from '../db/repo'
 import { linksInScene } from '../db/history'
@@ -124,8 +125,6 @@ export function factSaysSomething(f: SceneFact): boolean {
 // ---------- In plain words ----------
 
 /** How "What changed" names something said (0.6.29), for the speaker and those who heard it alike. */
-const SAID_WORDS: Record<string, string> = { promise: 'A promise', threat: 'A threat', secret: 'A secret told' }
-
 /** A change in plain words, without the entry's name: "Lost her left hand", "Knows Mara is the heir". */
 export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
   switch (c.kind) {
@@ -140,7 +139,7 @@ export function changeWords(c: ChangeData, nameOf: (id: ID) => string): string {
         : `${upperFirst(p.type || 'linked')}: ${nameOf(p.otherId)}`
     }
     case 'knowledge':
-      if (c.payload.said && !c.payload.forgets) return `${SAID_WORDS[c.payload.said.kind] ?? 'Knows'}: ${c.payload.fact}`
+      if (c.payload.said && !c.payload.forgets) return `${SAID_KIND_WORDS[c.payload.said.kind] ?? 'Knows'}: ${c.payload.fact}`
       // Seen happening, with everyone who was there (World Memory Overhaul B5).
       if (c.payload.seen && !c.payload.forgets) return `Saw it happen: ${c.payload.fact}`
       // Something believed that isn't true (the who-knows-what ledger, long story memory fix 9).

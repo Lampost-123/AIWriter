@@ -462,10 +462,14 @@ export function buildRequest(r: RequestInput): ReadingRequest {
     if (beliefRoom.take(line) && room.take(line)) beliefLines.push(line)
   }
   const factLines: string[] = []
-  for (const f of sm?.facts ?? []) {
-    if (!f.knownBy.some((k) => shown.has(k)) && !relevant.some((e) => mentionAt(f.fact, e.name))) continue
+  // Orders still to be followed first (memory review, 2026-10-20), so one the scene lifts can be ended, though those bound by
+  // it may no longer remember it.
+  for (const f of [...(sm?.facts ?? [])].sort((a, b) => (b.rule ? 1 : 0) - (a.rule ? 1 : 0))) {
+    const bound = (f.rule?.bound ?? []).filter((k) => shown.has(k))
+    if (!f.knownBy.some((k) => shown.has(k)) && !bound.length && !relevant.some((e) => mentionAt(f.fact, e.name))) continue
     const known = f.knownBy.filter((k) => shown.has(k)).map((k) => ids.entry(k))
-    const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}`
+    const toFollow = bound.length ? `; an order ${bound.map((k) => ids.entry(k)).join(', ')} must follow` : ''
+    const line = `- ${ids.knownFact(f.factId, f.fact)} ${q(f.fact)}${known.length ? `: known by ${known.join(', ')}` : ''}${toFollow}`
     if (factLines.length < FACT_LINES && room.take(line)) factLines.push(line)
   }
   // Each open thread with what it promises and its last clue (2026-10-08), so a clue or a payoff is told apart from news.

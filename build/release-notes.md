@@ -1,8 +1,8 @@
-<!-- version: 0.8.6 -->
-What's new in 0.8.6:
+<!-- version: 0.8.7 -->
+What's new in 0.8.7:
 
-- Build with AI is tidier: Your idea, Cast and world, Story line and Threads are now tabs, one at a time.
-- The tabs stay on a chapter's or a scene's page, so getting back is one click.
-- Planned chapters show straight in the story line, each with its one next step.
-- How it all connects opens as soon as your world has a character, place or lore.
-- Plan your story has its own idea box, so a new story can be planned right there.
+- When the story says what someone wears from now on, the AI remembers it in later chapters.
+- Clothes put on earlier the same day stay on in the scenes after.
+- Orders and bans one character gives another are remembered.
+- Older chapters tell the AI what happened to people in them, not only how they ended.
+- For a book written before, right-click the scene where it was set and choose Re-read this scene.

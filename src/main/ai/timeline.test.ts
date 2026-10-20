@@ -201,12 +201,13 @@ describe('an older chapter’s line, from the story record (long story memory fi
   it('says the days it runs, and in full what its opening words may have lost: who learned what, threads paid off', () => {
     const s = story()
     s.chapters[0] = { ...s.chapters[0], record: record() }
-    expect(RECORD_FACTS).toBe(2)
+    // What happened to people in it too (memory review, 2026-10-20: a Ch 3 event cut from its 60-word line by Ch 5).
+    expect(RECORD_FACTS).toBe(4)
     expect(lineOf(timelineText(s, ctx()), '- Ch 1')).toBe(
-      `- Ch 1, Day 11 to Day 13: Chapter 1 in short. ${words(30)} [Ash learned: Wren is the heir; paid off: The toll]`
+      `- Ch 1, Day 11 to Day 13: Chapter 1 in short. ${words(30)} [Wren: cut her hand; Ash learned: Wren is the heir; paid off: The toll; set up: Who rang the bell?]`
     )
     // A chapter whose record says nothing of time or of these keeps its line as it was.
-    s.chapters[1] = { ...s.chapters[1], record: record({ span: '', days: '', learned: [], threads: [] }) }
+    s.chapters[1] = { ...s.chapters[1], record: record({ span: '', days: '', changed: [], learned: [], threads: [] }) }
     expect(lineOf(timelineText(s, ctx()), '- Ch 2')).toBe(`- Ch 2: Chapter 2 in short. ${words(30)}`)
   })
 

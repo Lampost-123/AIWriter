@@ -5557,6 +5557,79 @@ chat" and "The chat never claims a change it didn't make" above.
   `editorChat.spec.ts` (the outcome line through Apply and Undo; an applied card change stays in the open scene card)
   and `planTalk.spec.ts` (fake/plan-wrong-tags, fake/talk-unreadable).
 
+## What the story sets carries on (memory review, 2026-10-20)
+
+Adam: in Ch 3, Sc 2 Mary was told to wear only a green jumper, and Ch 4 and 5 forgot it. A review of the whole story
+memory (`docs/STORY_MEMORY_PIPELINE.md`: what is kept, and what the writer sees) found these, each fixed and tested. No
+migration.
+
+- **Clothes put on scenes ago, earlier the same day, are still on** (`ai/mustStay.ts` `stageInScene`). A piece whose
+  words were older than the scene before was dropped even at the same moment or later the same day (since 0.6.35). Now a
+  piece whose words are from a scene on the same story day is kept (`StageScope.today`, from `SceneCalendar.today`: the
+  scenes before in the story going back while the calendar says they are on the same day, stopping at one it can't tell:
+  `memory/storyCalendar.ts` `sceneCalendar`), and later the same day only what is still on carries (`carriesPiece`). The
+  stage carries pieces on whatever the day, so a hat from days before still never comes back; with cards whose When
+  can't be read as days, nothing changes from before.
+- **What someone wears from now on** (`keeper/prompts.ts`): a change that sets a field for good ("to wear only X from now
+  on") gives its new value, as one that ends it does (5,979 characters, under the 6,000 its tests hold it to). The
+  clothing filters (`memory/looks.ts`) keep it: "nothing but X" (or "none but X") with words that it lasts in the value
+  or the change's note is X (`NOTHING_BUT`, `LASTING`: "from now on", "from then on", "henceforth", "for good" ending a
+  clause, never "for good luck"; not "always" or "ever", which turn up in a love scene's note); the keeper and reading
+  the memory both pass the note. Those words are then left out of the value kept (they say when, not what is worn).
+  "Bare-headed" is no undress, though a piece that is only a bare-word ("bare-chested") or "stripped to the waist" is
+  worn for the moment (`BARE_PIECE`, `MOMENT_PIECE`); "borrowed" and "lent" no longer are. "Nothing but the silver
+  locket" with no such words is still undressed for now.
+- **Told to the writer.** What must stay true says "Mary usually wears: … (since Ch 3, Sc 2)" for a Typical clothing the
+  story changed (rank `usual`, after marks; the short form keeps it), while the stage tells nothing of what they have on;
+  never for one set at the start or a passing undress. In a profile it is a fact to keep to, not a detail to show now and
+  then (`ai/context.ts` `lastingLooks`). The planner and the continuity brief are told it still holds on a later day
+  (`plan/plan.ts` `STAND_NOTE.later`, `plan/brief.ts` `BRIEF_ASK.keep`).
+- **Orders and bans said** are a "said" kind of their own, `rule` ("Ana’s order or rule to Mara …": `retrieval/said.ts`,
+  `shared/types.ts` `SaidKind`; read back by `db/memory.ts` through `isSaidKind`). They were thrown away before. What each
+  kind is called is said once, `SAID_KIND_WORDS` in `shared/knowWords.ts` (the memory's log, the entry page, the briefing).
+- **What someone is to follow.** A `rule` is any order, ban or suggestion someone must follow, spoken or told in the
+  narration; the reading asks for its fact to say who must do what and until when, its quote being the words that say it
+  (5,972 characters, shorter than before, so the smallest models still read paragraphs whole). Reading the memory (`memory/state.ts`) keeps who is bound by each on its fact, `FactState.rule`: those it was
+  said to that its fact names ("Mary must…", by name, other name, or a first name no other hearer has; not everyone in
+  the room who heard it), else all of them, the giver apart. It holds until a change of it ends ("end": "an order lifted
+  or over", so one "until morning" ends when the memory reads that morning; a count of scenes is no count of time),
+  though they may forget it (a fact no one knows any more stays while someone is bound). The scene's contract keeps to
+  it as well (`ai/contract.ts` `KEEP_ORDER`).
+- **Where and when an order holds.** Its cue is read from its fact (`ai/mustStay.ts` `cueOf`: "whenever she hears the
+  bell", "when she is at home", "at home" said with no when). The line says it is in this scene only for being at home,
+  at a place here that is theirs (`placesHere`, `homeHere`: its "Who rules or lives there" names them, or its name names
+  them beside home, house, flat or room; never only "home", as in "the nursing home"). Any other cue is told as "if … in
+  this scene, show them follow it", and comes first when every word of it, whole, is in the card's words, Adam's
+  direction, the scene so far or the names of where the scene happens (`cueIn`; not "bell" in "belly"). It never says a
+  cue is met by chance ("sleep" in the card for "whenever Tom says sleep"), nor that an order doesn't apply. The
+  line also says when they don't remember being told. Who is bound is the one it is about: the hearers named just before
+  its order word ("must", "is to", "will"…: `memory/items.ts` `orderAbout`; Mary in "Whenever Tom says sleep, Mary must
+  kneel", not Tom), else any it names outside its cue, else all who heard it but the one its cue names (the strong order words first: "must", "is to"; then "will", "never"…). An order about clothes that holds only somewhere or on a cue is never what they usually wear
+  (`memory/looks.ts` `ORDERED`, `ONLY_THEN`); the reading asks for one tied to a place or cue as a rule only.
+- **Given from afar.** An order said by letter, telephone or a recording binds the one its fact names though they aren't
+  there (`keeper/apply.ts` `'said'`); a promise or secret is still heard only by those there.
+- **Replaced.** "end" lifts an order the scene lifts, replaces or whose time is up (the reading's own words).
+- **The checks** are told what those in the scene are to follow (`checks/context.ts` `RULES_TITLE`), and going against one
+  where it applies is a warning, unless the scene lifts it; following it without knowing why never is.
+- **By hand.** "Knows at the start" on a character's page can add something they are to follow from the start (a
+  knowledge change with `said.kind` `rule` and no giver). One from the story shows in its history as "An order or rule"
+  and can be removed there, with Undo. Not built: ending one by hand at a chosen scene. What must stay true says "Mary is to follow: …
+  (given by Ana) (since Ch 3, Sc 2)" for those in the scene, a key kind (`rule`, `MUST_RULES` 3) in every form. The
+  keeper's request lists such facts first, saying who must follow them (`keeper/request.ts`), and "end" finds one for
+  someone bound who no longer knows it (`keeper/apply.ts` `endTarget`). Limits: those told must be there at the words
+  (one told by letter or over a telephone isn't bound), the giver must be a person, and nothing checks a draft against it
+  yet.
+- **An older chapter's line** in the story so far also says what happened to people in it (the chapter record's changes,
+  those that last first, half of `RECORD_FACTS`, now 4: `memory/snapshot.ts` `timelineFacts`; "Mara and Tobin: rivals"
+  for a tie), since its 60-word opening says only how it ended.
+- **A book written before this** keeps what the old reading left out: a scene is read again only when its words change.
+  "Re-read this scene" (the scene's menu in the binder) reads it with the new rules.
+- Test: `keeper/lastingLooks.test.ts` reads an order with the fake model and builds the briefing of a scene in the next
+  chapter three days later.
+- Not done: a second event with the name of an earlier one (a second "The storm") still joins it
+  (`keeper/apply.ts`): from the name alone the keeper can't tell a new storm from talk of the old one, so a fix needs the
+  reading to say which.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave

@@ -60,7 +60,8 @@ import { findQuote, likeness, locateQuote, mentionAt, plain, sameFact, scenePara
 import { aliasWorthy, cleanCalled } from './names'
 import { forgetCalledNotIn, keepCalled } from '../db/called'
 import { usualLook } from '../memory/looks'
-import type { CalledName } from '@shared/names'
+import { firstNameOf, type CalledName } from '@shared/names'
+import { nameIn, orderAbout } from '../memory/items'
 
 type DB = Database.Database
 
@@ -235,7 +236,7 @@ function fieldKey(kind: EntryKind, v: unknown): string | null {
  * usualLook). "Typical clothing: none" after an undressing scene, or "coat buttoned to the chin" on a cold train, is
  * where things stand, so it is never kept as who they are.
  */
-const keptLook = (kind: EntryKind, field: string, value: string): string => (kind === 'character' ? usualLook(field, value) : value)
+const keptLook = (kind: EntryKind, field: string, value: string, note = ''): string => (kind === 'character' ? usualLook(field, value, note) : value)
 
 export const patchFor = (e: Entry, field: string, value: string): Parameters<typeof repo.updateEntry>[2] =>
   field === 'summary' ? { summary: value } : field === 'description' ? { description: value } : { fields: { ...e.fields, [field]: value } }
@@ -1779,7 +1780,7 @@ function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Cha
   const listed = /^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined
   const knownId =
     (listed && !chunk.ids.wrong.has(k) ? listed : undefined) ??
-    memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+    memory?.facts.find((f) => (f.knownBy.includes(entry.id) || f.rule?.bound.includes(entry.id)) && sameFact(f.fact, fact))?.factId
   // A belief they see through (the who-knows-what ledger, long story memory fix 9) ends the same way.
   const believedId =
     (listed && chunk.ids.wrong.has(k) ? listed : undefined) ??
@@ -1787,7 +1788,8 @@ function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Cha
   const holds = (id: ID, wrong: boolean): boolean =>
     wrong
       ? !!memory?.beliefs?.some((b) => b.factId === id && b.believedBy.includes(entry.id))
-      : !!memory?.facts.some((f) => f.factId === id && f.knownBy.includes(entry.id))
+      : // An order they are to follow ends though they no longer remember it (memory review, 2026-10-20).
+        !!memory?.facts.some((f) => f.factId === id && (f.knownBy.includes(entry.id) || f.rule?.bound.includes(entry.id)))
   const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
   for (const [id, wrong] of [
     [knownId, false],
@@ -2107,14 +2109,14 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const fields: Record<string, string> = {}
       const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
       const now = run.entry(entry.id) ?? entry
+      const note = str(a.note, 200)
       for (const [k, v] of Object.entries(given)) {
         const key = fieldKey(entry.kind, k)
         if (!key || key === 'summary' || key === 'description') continue
         // Clothes worn for the moment leave a typical clothing as it was: no change at all when nothing else is new.
-        const kept = keptLook(entry.kind, key, str(v))
+        const kept = keptLook(entry.kind, key, str(v), note)
         if (kept && !(kept !== str(v) && plain(kept) === plain(now.fields[key] ?? ''))) fields[key] = kept
       }
-      const note = str(a.note, 200)
       if (!note && !Object.keys(fields).length) return
       addChange(run, entry, { kind: 'update', payload: { note, ...(Object.keys(fields).length ? { fields } : {}) } }, s)
       return
@@ -2189,10 +2191,20 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       // Only those there at the words hear them (live test, 2026-10-16: a confession that named Victor Crane, far away,
       // was kept as heard by him): the model's own list is kept to those on stage, and never an animal.
       const stage = run.stageAt(s)
+      // An order or suggestion given from afar (a telephone, a letter, a recording: memory review, 2026-10-20) still
+      // reaches the one its fact names, wherever they are.
+      const named = (e: Entry): boolean => kind === 'rule' && [e.name, ...(e.aliases ?? []), firstNameOf(e.name)].some((n) => n.trim() && nameIn(orderAbout(fact) || fact, n))
       const hearers: Entry[] = []
       for (const who of strList(a.heard ?? a.hearers, MAX_INVOLVED)) {
         const e = run.resolve(who, chunk.ids, refs)
-        if (e && isPerson(e) && e.id !== entry.id && !hearers.some((h) => h.id === e.id) && stage.some((p) => p.id === e.id) && run.ensureHere(e, s))
+        if (
+          e &&
+          isPerson(e) &&
+          e.id !== entry.id &&
+          !hearers.some((h) => h.id === e.id) &&
+          (stage.some((p) => p.id === e.id) || named(e)) &&
+          run.ensureHere(e, s)
+        )
           hearers.push(e)
       }
       // The same line by the same speaker read again (however the model words the fact) is the fact already kept.

@@ -523,6 +523,8 @@ describe('the plan’s request with a brief', () => {
     expect(asked).toContain(BRIEF_RULE)
     // Never the clothes or the bed an earlier scene ended with, unless where things stand still says so (2026-10-16).
     expect(BRIEF_RULE).toContain('never what people wore, where they were or how they lay as an earlier scene ended unless where things stand says it still holds here')
+    // ...but what the story set someone to wear from now on does (memory review, 2026-10-20: the green jumper).
+    expect(BRIEF_RULE).toContain('what someone usually wears now, as what must stay true says, always holds')
     expect(asked).toContain('"needs": [""], "brief": {"matters": [""], "keep": [""], "knows": [""], "promises": [""], "time": [""]}}')
     expect(asked.replace(`\n${BRIEF_RULE}`, '').replace(/, "brief": \{[^}]*\}/, '')).toBe(plain)
     expect(planSystem(false, false)).toBe(plain)

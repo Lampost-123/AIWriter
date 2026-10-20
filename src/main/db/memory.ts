@@ -31,6 +31,7 @@ import { newId, now, UserError } from '../util'
 import { recordVersion } from './history'
 import type { StoryNode, WorldShape } from '../memory/types'
 import { placementProblem } from '../memory/line'
+import { isSaidKind } from '../retrieval/said'
 
 type DB = Database.Database
 type Row = Record<string, unknown>
@@ -331,7 +332,7 @@ export function cleanChangeInput(db: DB, input: ChangeInput, changeId: ID | null
       // Something said (0.6.29) stays something said when Adam edits the fact: who said it and the line are kept.
       const s = p.said
       const said =
-        s && (s.kind === 'promise' || s.kind === 'threat' || s.kind === 'secret') && typeof s.by === 'string' && text(s.words)
+        s && isSaidKind(s.kind) && typeof s.by === 'string' && text(s.words)
           ? {
               said: {
                 kind: s.kind,

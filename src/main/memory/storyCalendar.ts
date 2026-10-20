@@ -31,6 +31,7 @@ import {
   elapsedBetween,
   goingBack,
   readAge,
+  sameDay,
   storyDayWords,
   withCues,
   type AgeHere,
@@ -352,7 +353,14 @@ export function sceneCalendar(
     const age = ageHere(cal, e, sceneId)
     if (age) ages.push({ name: e.name.trim() || 'Someone', age })
   }
-  return { here, previous, landmarks, ages }
+  // The scenes before it in its story on the same day, latest first, until one isn't (memory review, 2026-10-20).
+  const before = cal.order.slice(0, Math.max(0, cal.order.indexOf(sceneId))).filter((id) => cal.where.get(id)?.storyId === at?.storyId)
+  const today: ID[] = []
+  for (const id of before.reverse()) {
+    if (sameDay(cal.dates.get(id), here) !== true) break
+    today.push(id)
+  }
+  return { here, previous, landmarks, ages, today }
 }
 
 // ---------- On the screen ----------

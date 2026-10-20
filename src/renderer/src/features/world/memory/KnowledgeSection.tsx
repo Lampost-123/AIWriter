@@ -18,6 +18,8 @@ type Knows = Extract<ChangeView, { kind: 'knowledge' }>
 const MAX_SHOWN = 50
 /** The option that adds what was typed as something they believe wrongly. */
 const WRONG = 'new-wrong'
+/** The option that adds what was typed as an order or suggestion they are to follow from the start (2026-10-20). */
+const FOLLOW = 'new-follow'
 
 /**
  * What a character knows from the beginning (baseline knowledge). Facts are shared by id, so
@@ -56,6 +58,7 @@ export function KnowledgeSection({
     if (text && !same) {
       list.push({ key: 'new', label: `Add "${text}"`, create: true })
       list.push({ key: WRONG, label: `Add "${text}" as something ${name} believes wrongly`, create: true })
+      list.push({ key: FOLLOW, label: `Add "${text}" as something ${name} is to follow`, create: true })
     }
     return { list, more: Math.max(0, matching.length - MAX_SHOWN) }
   }, [facts.data, rows, query, name])
@@ -71,7 +74,13 @@ export function KnowledgeSection({
         entryId: self.id,
         anchor: 'baseline',
         kind: 'knowledge',
-        payload: { factId: fact.factId, fact: fact.fact, ...(fact.wrong ? { wrong: true as const } : {}) }
+        payload: {
+          factId: fact.factId,
+          fact: fact.fact,
+          ...(fact.wrong ? { wrong: true as const } : {}),
+          // To follow until the story lifts it (memory/state.ts FactState.rule): an order of the author's own, from no one.
+          ...(o.key === FOLLOW ? { said: { kind: 'rule' as const, by: '', words: fact.fact } } : {})
+        }
       })
       data.update((list) => [...list, c])
       if (o.create) facts.update((list) => [...list, fact])
@@ -105,7 +114,8 @@ export function KnowledgeSection({
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[12.5px] leading-relaxed text-muted">
-        Secrets and facts {name} knows from the beginning. The AI is told who knows what, and who doesn't.
+        Secrets and facts {name} knows from the beginning, and anything {name} is to follow. The AI is told who knows what, and
+        who doesn't.
       </p>
       {rows.length ? (
         <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
@@ -116,6 +126,9 @@ export function KnowledgeSection({
                 <div className="min-w-0 flex-1 py-0.5">
                   <p className="text-[13.5px] leading-snug text-fg">{c.payload.fact}</p>
                   {c.payload.wrong ? <p className="text-[12px] leading-snug text-muted">Believes wrongly: it isn’t true</p> : null}
+                  {c.payload.said?.kind === 'rule' ? (
+                    <p className="text-[12px] leading-snug text-muted">To follow until the story lifts it</p>
+                  ) : null}
                   {changeUntil(c) ? <p className="text-[12px] leading-snug text-faint">True {changeUntil(c)}</p> : null}
                   {note ? <SourceLine note={note} places={places} showAdam /> : null}
                 </div>
