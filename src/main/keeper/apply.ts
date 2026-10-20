@@ -235,7 +235,7 @@ function fieldKey(kind: EntryKind, v: unknown): string | null {
  * usualLook). "Typical clothing: none" after an undressing scene, or "coat buttoned to the chin" on a cold train, is
  * where things stand, so it is never kept as who they are.
  */
-const keptLook = (kind: EntryKind, field: string, value: string): string => (kind === 'character' ? usualLook(field, value) : value)
+const keptLook = (kind: EntryKind, field: string, value: string, note = ''): string => (kind === 'character' ? usualLook(field, value, note) : value)
 
 export const patchFor = (e: Entry, field: string, value: string): Parameters<typeof repo.updateEntry>[2] =>
   field === 'summary' ? { summary: value } : field === 'description' ? { description: value } : { fields: { ...e.fields, [field]: value } }
@@ -2107,14 +2107,14 @@ function applyAdd(run: Run, a: Record<string, unknown>, chunk: ChunkReply, refs:
       const fields: Record<string, string> = {}
       const given = (a.fields && typeof a.fields === 'object' ? a.fields : {}) as Record<string, unknown>
       const now = run.entry(entry.id) ?? entry
+      const note = str(a.note, 200)
       for (const [k, v] of Object.entries(given)) {
         const key = fieldKey(entry.kind, k)
         if (!key || key === 'summary' || key === 'description') continue
         // Clothes worn for the moment leave a typical clothing as it was: no change at all when nothing else is new.
-        const kept = keptLook(entry.kind, key, str(v))
+        const kept = keptLook(entry.kind, key, str(v), note)
         if (kept && !(kept !== str(v) && plain(kept) === plain(now.fields[key] ?? ''))) fields[key] = kept
       }
-      const note = str(a.note, 200)
       if (!note && !Object.keys(fields).length) return
       addChange(run, entry, { kind: 'update', payload: { note, ...(Object.keys(fields).length ? { fields } : {}) } }, s)
       return

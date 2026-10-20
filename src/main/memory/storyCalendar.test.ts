@@ -255,3 +255,31 @@ describe('the calendar in a scene’s briefing', () => {
     expect(cal.ages[0]).toMatchObject({ name: 'Mara', age: { age: { lo: 23, hi: 24 }, basis: '20 as of Book 1, Ch 1, Sc 2', given: 20 } })
   })
 })
+
+describe('the scenes before on the same day (memory review, 2026-10-20)', () => {
+  /** The scene's `today` and its keys, latest first. */
+  const today = (whens: Record<string, string>, key: string): string[] => {
+    const w = world(whens)
+    const id = w.id(key)
+    const cal = sceneCalendar(w.db, id, sceneMemory(w.db, id, { forWriter: true }), repo.getScene(w.db, id).card)
+    const keyOf = new Map(Object.keys(whens).map((k) => [w.id(k), k]))
+    return (cal?.today ?? []).map((x) => keyOf.get(x) ?? x)
+  }
+
+  it('goes back while the scenes are on the same day, across a chapter, and stops at the first that is not', () => {
+    expect(today({ 'b1.c1.s1': 'Day 2, night', 'b1.c1.s2': 'Day 3, dawn', 'b1.c2.s1': 'Day 3, noon', 'b1.c2.s2': 'Day 3, evening' }, 'b1.c2.s2')).toEqual([
+      'b1.c2.s1',
+      'b1.c1.s2'
+    ])
+  })
+
+  it('stops at a scene whose day can’t be told, and never takes another story’s', () => {
+    expect(today({ 'b1.c1.s1': 'Day 3, dawn', 'b1.c1.s2': '', 'b1.c2.s1': 'Day 3, noon', 'b1.c2.s2': 'Day 3, evening', 'kr.c1.s1': 'Day 3' }, 'b1.c2.s2')).toEqual([
+      'b1.c2.s1'
+    ])
+    // An earlier day stops it too, though a later scene of the run is on the day.
+    expect(today({ 'b1.c1.s1': 'Day 3, dawn', 'b1.c1.s2': 'Day 2', 'b1.c2.s1': 'Day 3, noon', 'b1.c2.s2': 'Day 3, evening' }, 'b1.c2.s2')).toEqual([
+      'b1.c2.s1'
+    ])
+  })
+})

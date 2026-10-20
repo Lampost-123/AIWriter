@@ -1297,8 +1297,8 @@ export interface Learned {
   from?: ID
 }
 
-/** The kinds of things said that the memory keeps word for word. */
-export type SaidKind = 'promise' | 'threat' | 'secret'
+/** The kinds of things said that the memory keeps word for word ('rule': an order or ban given, 2026-10-20). */
+export type SaidKind = 'promise' | 'threat' | 'secret' | 'rule'
 
 export interface SaidPayload {
   kind: SaidKind

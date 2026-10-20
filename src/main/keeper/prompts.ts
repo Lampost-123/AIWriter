@@ -18,6 +18,9 @@
 // (what changed in the chapter, how things stand at its end) and to follow them; a scene's summary is never patched.
 // Since 2026-10-16 (code review) a change ends a field's value only "for good … not clothes off for a while": a passing
 // undress set Typical clothing to "nothing" (memory/looks.ts passingLook). 5,971 characters.
+// Since 2026-10-20 (memory review) a change that sets a field from now on ("to wear only X from now on") gives its new
+// value too, as one that ends it does: Mary told to wear only a green jumper kept her old Typical clothing. And an order
+// or ban said is a "said" item, of kind "rule". 5,979 characters.
 // Since 2026-10-19 (overhaul phase 1, one reading of a scene) a reading can also say where things stand at the end of what it
 // reads and write the scene's summary (oneReadingSystem; the tracker's rules from continuity/stagePrompt.ts, the summary's
 // from SUMMARY_RULES), and a reply that couldn't be read is asked for again without sending it back (retryMessage).
@@ -51,9 +54,9 @@ Rules
 - Every fact needs "quote": words copied character for character from one P paragraph: the shortest phrase or sentence that shows it.
 - Refer to entries by their ids (E1, E2 ...), those under "Elsewhere in the world" too: never make a new entry with a name or alias already listed. Later items can refer to a new entry by its "ref" (N1, N2 ...).
 - A new entry's "kind": a character is a person, or an animal or creature in the story in its own right (a horse, a dog). A thing someone has, wants, carries, gives or makes (a bead, a letter) is an item, however much it matters to them. Give a new entry only fields the words show.
-- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change ends for good what one of their fields says (a bandage off, a hat lost; not clothes off for a while), also give that field's new value, without it, in "fields".
+- Changes are what is now different: injuries, possessions, looks, where someone is, goals, a death. Write a "note" as a short phrase without the name. When a change alters a field for good (a bandage off, a hat lost, to wear only X from now on; not clothes off for a while), also give its new value in "fields".
 - Details: facts about an entry that don't change in the scene (a newcomer's eye colour).
-- Said lines later scenes must keep to (a promise or vow, a threat, a secret told): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is now known by the hearers: give it as "said" only, not also "knows".
+- Said lines later scenes must keep to (a promise or vow, a threat, a secret told, an order or ban): a "said" item with who says it, who hears it, and the spoken line itself as the quote. A secret told is now known by the hearers: give it as "said" only, not also "knows".
 - Knows: give "how" and, if told or overheard, "from" whom; "wrong": true if what they believe isn't true.
 - Names: a listed character called something the memory doesn't list (a nickname or title, "her brother" if here it can only mean them): a "name" item.
 - Plot threads: a promise, mystery, threat, goal, debt or secret the story must answer. "open" when the words set one up, with its "promise" (what the reader waits on); "clue" for a new hint; "developing" with a note when it moves on.
@@ -76,7 +79,7 @@ New facts and actions, by "type":
 {"type": "detail", "entry": "E1", "field": "eyes", "value": "grey", "quote": "..."}
 {"type": "relationship", "entry": "E1", "other": "E2", "rel": "sister, rival, holds, member of...", "feels": "how E1 feels about E2", "otherFeels": "how E2 feels about E1", "ended": false, "quote": "..."}
 {"type": "knows", "entry": "E2", "fact": "Mara is the heir", "factId": "K1 if listed", "how": "saw|told|overheard|read|guessed", "from": "E1", "wrong": false, "forgets": false, "quote": "..."}
-{"type": "said", "kind": "promise|threat|secret", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "Mara will be back before the snow", "factId": "K1 if listed", "quote": "the spoken line"}
+{"type": "said", "kind": "promise|threat|secret|rule", "entry": "E1 (who says it)", "heard": ["E2", "E3"], "fact": "Mara will be back before the snow", "factId": "K1 if listed", "quote": "the spoken line"}
 {"type": "thread", "entry": "E5, or none and a name", "name": "the question or promise", "status": "open|clue|developing", "promise": "for open", "clue": "for clue", "note": "...", "quote": "..."}
 {"type": "event", "name": "...", "summary": "one line", "involved": ["E1", "E2"], "quote": "..."}
 {"type": "voice", "entry": "E1", "quote": "a line of dialogue typical of them"}

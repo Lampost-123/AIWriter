@@ -13,6 +13,7 @@ import { READING_MARKER, READING_SYSTEM } from './prompts'
 import { changeWords, fingerprint } from './facts'
 import { saidChanges } from '../db/retrieval'
 import { sceneMemory } from '../memory/scene'
+import { saidText } from '../retrieval/said'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -54,7 +55,7 @@ const LINE = '“I swear I will come back for you before the snow,” Mara told 
 
 describe('what was said', () => {
   it('asks the memory model for promises, threats and secrets told, with the line itself', () => {
-    expect(READING_SYSTEM).toContain('{"type": "said", "kind": "promise|threat|secret"')
+    expect(READING_SYSTEM).toContain('{"type": "said", "kind": "promise|threat|secret|rule"')
     expect(READING_SYSTEM).toContain('the spoken line itself as the quote')
   })
 
@@ -91,6 +92,25 @@ describe('what was said', () => {
     // ...but not before it was said.
     expect(sceneMemory(db, first).facts.some((f) => factIds.has(f.factId))).toBe(false)
     expect(kdb.listLog(db).some((l) => l.text === 'A promise: Mara will come back for Tobin before the snow')).toBe(true)
+  })
+
+  it('keeps an order or ban given (memory review, 2026-10-20), told as one in later briefings', async () => {
+    const db = memoryWorld()
+    const story = repo.listStories(db)[0]
+    const scene = repo.getOutline(db, story.id).scenes[0].id
+    const ORDER = '“You will wear the green jumper and nothing else, from now on,” Ana told Mara.'
+    save(db, scene, [
+      ['a', 'Mara lost her hat. Ana lost her bag.'],
+      ['b', ORDER]
+    ])
+    await readWith(db, scene, [{ type: 'said', kind: 'rule', entry: 'Ana', heard: ['Mara'], fact: 'Mara must wear only the green jumper from now on', quote: ORDER }])
+    const said = saidChanges(db)
+    expect(said.length).toBe(2)
+    expect(said.every((s) => s.said?.kind === 'rule')).toBe(true)
+    expect(saidText({ kind: 'rule', by: 'Ana', heard: ['Mara'], where: 'Ch 3, Sc 2', words: ORDER, fact: 'Mara must wear only the green jumper', order: 1 } as never)).toBe(
+      '- Ana’s order or rule to Mara (Ch 3, Sc 2): ' + ORDER + ' That is: Mara must wear only the green jumper.'
+    )
+    expect(kdb.listLog(db).some((l) => l.text === 'An order or rule: Mara must wear only the green jumper from now on')).toBe(true)
   })
 
   it('keeps the same line by the same speaker once, however the model words it on a later read', async () => {

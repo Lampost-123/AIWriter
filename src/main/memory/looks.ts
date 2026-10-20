@@ -15,7 +15,7 @@
 
 /** Nothing worn, said first: "none", "nothing at all", "naked except for her stockings", "nothing (undressed)". */
 const UNDRESSED =
-  /^(?:wearing nothing|nothing|none|naked|nude|in the nude|undressed|unclothed|stripped|bare|no clothes|(?:half|partly|partially)[- ](?:dressed|undressed|naked))(?:\s+(?:at all|on))?(?=\s*(?:$|[,;.:!(—–-])|\s+(?:but|except|save|apart|other than|besides|now)\b)/i
+  /^(?:wearing nothing|nothing|none|naked|nude|in the nude|undressed|unclothed|stripped|bare|no clothes|(?:half|partly|partially)[- ](?:dressed|undressed|naked))(?:\s+(?:at all|on))?(?=\s*(?:$|[,;.:!(—–]|-(?![a-z]))|\s+(?:but|except|save|apart|other than|besides|now)\b)/i
 /** Naked, said first, for a Looks field other than clothing ("naked and flushed" is no build or skin). */
 const NAKED = /^(?:naked|nude|undressed|unclothed)\b/i
 /** Pieces of a value that each say only that something came off: "dress off", "boots removed", "barefoot". */
@@ -29,11 +29,29 @@ const KEPT_ON = /\b(?:not|never|without)\b|n['’]t\b/i
 // such pieces are left out of a Typical clothing value from the text (usualLook), unless the piece says it is usual
 // ("always buttoned to the chin"); a value with nothing else left is never taken at all.
 
-/** A piece told as worn for the moment: done up or undone, pulled up or round, wet or muddy, for the cold or the road. */
+/**
+ * A piece told as worn for the moment: done up or undone, pulled up or round, wet or muddy, for the cold or the road; bare
+ * or stripped somewhere for now ("bare-chested", "stripped to the waist": memory review, 2026-10-20).
+ */
 const MOMENT_PIECE =
-  /\b(?:buttoned|unbuttoned|done up|undone|unlaced|half-laced|pulled|tugged|hitched|tucked|rolled up|turned up|wrapped|bundled|loosened|open at|up (?:round|around|over|to)|round (?:her|his|their) (?:jaw|chin|ears|face|mouth|nose)|to the (?:chin|throat|neck)|wet|soaked|sodden|damp|dripping|steaming|muddy|mud-|caked|splashed|dusty|snow-|rain-|torn|ripped|for the (?:cold|journey|train|road|weather|wedding|night)|against the (?:cold|wind|rain|frost|weather)|borrowed|lent)/i
+  /\b(?:buttoned|unbuttoned|done up|undone|unlaced|half-laced|pulled|tugged|hitched|tucked|rolled up|turned up|wrapped|bundled|loosened|open at|up (?:round|around|over|to)|round (?:her|his|their) (?:jaw|chin|ears|face|mouth|nose)|to the (?:chin|throat|neck)|wet|soaked|sodden|damp|dripping|steaming|muddy|mud-|caked|splashed|dusty|snow-|rain-|torn|ripped|for the (?:cold|journey|train|road|weather|wedding|night)|against the (?:cold|wind|rain|frost|weather)|stripped[- ]to[- ]the)/i
+/** A piece that is only a bare-word ("bare-chested"); not a usual piece described so ("a bare-shouldered gown"). */
+const BARE_PIECE = /^bare-[a-z]+$/i
 /** Words that make such a piece what they always do: "always buttoned to the chin". */
 const USUAL = /\b(?:always|usually|habitually|ever|every day|never without|as a rule)\b/i
+/**
+ * Words that say a whole value is what the story set them to wear from now on (memory review, 2026-10-20: "told to wear
+ * only the green jumper from now on"), in the value or in its change's note. Narrower than USUAL: "always" or "ever" turn
+ * up in a love scene's note ("undressed for him for the first time ever").
+ */
+export const LASTING = /\b(?:from now on|from then on|henceforth|for good(?=\s*(?:$|[,;.)!])))(?![\w-])/i
+/**
+ * The same words as said in a value, with what joins them on, so the value keeps only what is worn. "For good" only ends
+ * a clause: never "for good luck".
+ */
+const LASTING_WORDS = /\s*[,;(]?\s*\b(?:from now on|from then on|henceforth|for good(?=\s*(?:$|[,;.)!])))(?![\w-])\)?/gi
+/** "Nothing but", said first: with words that it lasts, what follows is all they wear. */
+const NOTHING_BUT = /^(?:wearing\s+)?(?:nothing|none)\s+(?:but|except|save)\s+/i
 
 /** The Looks fields (shared/fields.ts) a passing undress may reach. */
 const LOOKS = new Set(['build', 'face', 'hair', 'eyes', 'skin', 'marks', 'clothing', 'movement'])
@@ -47,22 +65,27 @@ export function passingLook(field: string, value: string | null | undefined): bo
   const v = (value ?? '').replace(/\s+/g, ' ').trim()
   if (!v || !LOOKS.has(field)) return false
   if (field !== 'clothing') return NAKED.test(v)
+  if (NOTHING_BUT.test(v) && LASTING.test(v)) return false
   if (UNDRESSED.test(v)) return true
   const pieces = v.split(/\s*[,;]\s*/).filter(Boolean)
   return pieces.length > 0 && pieces.every((p) => (OFF_PIECE.test(p) && !KEPT_ON.test(p)) || momentPiece(p))
 }
 
-const momentPiece = (piece: string): boolean => MOMENT_PIECE.test(piece) && !USUAL.test(piece)
+const momentPiece = (piece: string): boolean => (MOMENT_PIECE.test(piece) || BARE_PIECE.test(piece)) && !USUAL.test(piece)
 
 /**
  * A Looks value from the text as kept for who someone is: Typical clothing without the pieces worn just for the moment
  * ("coat buttoned to the chin", "the red wool scarf up round her jaw"); '' when nothing is left, or when the value only
- * says they are undressed for now (passingLook). Other values as they are.
+ * says they are undressed for now (passingLook). Other values as they are. `note`: the change's note, when the value
+ * comes with one: "nothing but the green jumper" whose note says "from now on" is "the green jumper". Words that it
+ * lasts are left out of what is kept: they say when, not what is worn.
  */
-export function usualLook(field: string, value: string | null | undefined): string {
-  const v = (value ?? '').replace(/\s+/g, ' ').trim()
+export function usualLook(field: string, value: string | null | undefined, note = ''): string {
+  let v = (value ?? '').replace(/\s+/g, ' ').trim()
+  if (field === 'clothing' && NOTHING_BUT.test(v) && (LASTING.test(v) || LASTING.test(note))) v = v.replace(NOTHING_BUT, '')
   if (passingLook(field, v)) return ''
   if (field !== 'clothing') return v
+  v = v.replace(LASTING_WORDS, '').replace(/^[\s,;]+|[\s,;]+$/g, '')
   const pieces = v.split(/\s*[,;]\s*/).filter(Boolean)
   const kept = pieces.filter((p) => !momentPiece(p))
   return kept.length === pieces.length ? v : kept.join(v.includes(';') ? '; ' : ', ')

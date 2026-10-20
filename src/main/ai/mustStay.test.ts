@@ -1062,6 +1062,86 @@ describe('what the scene before left, told only as far as it carries here (2026-
   it('never states typical clothing as a fact of now, though a look changed in the story still is', () => {
     const lines = mustStayTrue(base({ people: [mara()], storyTitle: 'The Lantern Inn' })).join('\n')
     expect(lines).not.toContain('typical clothing')
+    expect(lines).not.toContain('usually wears')
     expect(lines).toContain('Mara Venn, hair: loose (since Ch 1, Sc 2)')
+  })
+
+  // Memory review, 2026-10-20 (Adam: Mary was told in Ch 3, Sc 2 to wear only a green jumper, and Ch 4 and 5 forgot it).
+  const mary = (clothing = 'only the green jumper, from now on'): EntryState =>
+    entry('character', 'Mary Dunn', {
+      origin: 'text',
+      fields: { clothing },
+      changed: ['clothing'],
+      changedWhere: { clothing: 'The Lantern Inn, Ch 3, Sc 2' }
+    })
+
+  it('says what someone usually wears now when the story set it, on a later day too, unless the stage says what is on', () => {
+    const later = (people: EntryState[], stand: SceneState | null = null): string =>
+      mustStayTrue(base({ stand, reach: 'later', people, storyTitle: 'The Lantern Inn' })).join('\n')
+    expect(later([mary()])).toContain('Mary Dunn usually wears: only the green jumper (since Ch 3, Sc 2)')
+    // Set at the start (no since), or only undressed for now: never.
+    expect(later([entry('character', 'Mary Dunn', { fields: { clothing: 'a grey coat' }, changed: ['clothing'] })])).not.toContain('usually wears')
+    expect(later([mary('nothing')])).not.toContain('usually wears')
+    // What she has on right now is the stage's, piece by piece.
+    const dressed: SceneState = {
+      time: '',
+      weather: '',
+      light: '',
+      characters: [{ ...blank, name: 'Mary Dunn', clothes: [{ name: 'green jumper', state: 'off, on the chair' }] }],
+      said: { 'mary dunn|clothes:green jumper': { quote: 'the jumper over the chair', sceneId: 'here' } }
+    }
+    const here = mustStayTrue(base({ stand: dressed, reach: 'here', people: [mary()], storyTitle: 'The Lantern Inn' })).join('\n')
+    expect(here).toContain('green jumper off')
+    expect(here).not.toContain('usually wears')
+    // The short form keeps it: a lasting rule is not a passing detail.
+    const short = mustStayTrue(base({ stand: null, reach: 'later', people: [mary()], storyTitle: 'The Lantern Inn', short: true })).join('\n')
+    expect(short).toContain('usually wears')
+  })
+
+  it('a Ch 4 scene days later is told the green jumper, in must stay true and as a fact in her profile', () => {
+    const inp = after('Day 2, morning', 'Day 1, night')
+    const m = mary()
+    inp.memory.entries = [m, ...inp.memory.entries.slice(1)]
+    inp.scene.card = { ...inp.scene.card, povId: m.id, presentIds: [m.id, ...inp.scene.card.presentIds.slice(1)] }
+    expect(stageReach(inp)).toBe('later')
+    expect(blockText(inp, MUST_BLOCK)).toContain('Mary Dunn usually wears: only the green jumper (since')
+    const pov = blockText(inp, 'pov')
+    const facts = pov.slice(pov.indexOf('Facts to keep to'))
+    expect(facts.slice(0, facts.indexOf('\n\n') > 0 ? facts.indexOf('\n\n') : undefined)).toContain('Typical clothing: only the green jumper')
+  })
+})
+
+describe('what the scene before left, carried across scenes (memory review, 2026-10-20)', () => {
+  /** Mary pulled the green jumper on two scenes back (sc-2); sc-3 ran straight on; this is sc-4. */
+  const stand = (): SceneState => ({
+    time: 'evening',
+    weather: '',
+    light: '',
+    characters: [{ ...blank, name: 'Mary', where: 'the hall', clothes: [{ name: 'green jumper', state: 'on' }, { name: 'boots', state: 'off, by the door' }] }],
+    said: {
+      'mary|clothes:green jumper': { quote: 'pulled on the green jumper', sceneId: 'sc-2' },
+      'mary|clothes:boots': { quote: 'kicked her boots off by the door', sceneId: 'sc-2' },
+      'mary|where': { quote: 'in the hall', sceneId: 'sc-3' }
+    }
+  })
+  const scope = { sceneId: 'sc-4', previousSceneId: 'sc-3', onCard: [{ name: 'Mary', aliases: [] }], cast: [], words: 'Mary waits in the hall.' }
+  /** `today`: the scenes before on the same day, by the story calendar. */
+  const worn = (carried: 'moment' | 'day' | 'later', today: string[] = ['sc-3', 'sc-2']): string[] =>
+    (stageInScene(stand(), { ...scope, timeCarries: carried === 'moment', carried, today: new Set(today) })?.characters[0]?.clothes ?? []).map((p) => p.name)
+
+  it('keeps what is still on however many scenes ago it was put on that day, the same moment or later', () => {
+    expect(worn('moment')).toEqual(['green jumper', 'boots'])
+    // Later the same day: what is still on, not what came off (she may have put her boots back on).
+    expect(worn('day')).toEqual(['green jumper'])
+    // A later day: clothes are the scene card's and the profile's to say.
+    expect(worn('later')).toEqual([])
+  })
+
+  it('never a piece put on days before, however the scenes run on (a hat on indoors, days later)', () => {
+    // Scene 2 was an earlier day: only scene 3 is today.
+    expect(worn('moment', ['sc-3'])).toEqual([])
+    expect(worn('day', ['sc-3'])).toEqual([])
+    // Nothing known of the days: only the scene before's words hold, as before.
+    expect(worn('moment', [])).toEqual([])
   })
 })

@@ -44,6 +44,7 @@ import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './know
 import { clearStalePlacing } from './briefingFixes'
 import { animalNotPerson } from '../keeper/kinds'
 import { namedIn } from '../keeper/presence'
+import { usualLook } from '../memory/looks'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -182,6 +183,7 @@ const RANK = {
   thing: 5,
   goneNamed: 6,
   marks: 7,
+  usual: 7.5,
   wearing: 8,
   gone: 9,
   gotNamed: 10,
@@ -357,6 +359,11 @@ export interface StageScope {
    * then is from before, under `carried`. Left out: such a value is taken as this scene's own.
    */
   began?: SceneState | null
+  /**
+   * The scenes before this one on the same day (memory/storyCalendar.ts `SceneCalendar.today`): a piece of clothing whose
+   * words are one of theirs still holds, as far as `carried` says. Left out: none known, so only the scene before's.
+   */
+  today?: ReadonlySet<ID>
 }
 
 /**
@@ -472,7 +479,10 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       const was = clothesOf(then)
       kept.clothes = clothesOf(c).filter((p) => {
         const from = pieceSource(stand.said, c.name, p.name)
-        if (ruled && !fresh(from?.sceneId)) return false
+        // What was put on in an earlier scene of the same day is on still (memory review, 2026-10-20: a jumper pulled on
+        // two scenes back was dropped, though the scenes ran on); carriesPiece says what of it holds. Not a hat from days
+        // before: the stage carries pieces on from scene to scene whatever the day.
+        if (ruled && !fresh(from?.sceneId) && !(from?.sceneId && scope.today?.has(from.sceneId) && scope.carried !== 'later')) return false
         const old = was.find((x) => itemKey(x.name) === itemKey(p.name))
         return !before(from, pieceText(p), old && pieceText(old)) || carriesPiece(p)
       })
@@ -614,8 +624,15 @@ export function mustLines(o: MustInput): MustLine[] {
       const v = clean(e.fields?.[k])
       const where = e.changedWhere?.[k]
       // What someone typically wears is never a fact of this moment: what they have on now is the stage's, piece by piece
-      // (Adam, 2026-10-16: "Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" after an undressing scene).
-      if (!label || k === 'marks' || k === 'clothing' || !v || !where) continue
+      // (Adam, 2026-10-16: "Mara Venn, typical clothing: nothing (since Ch 1, Sc 2)" after an undressing scene). But what
+      // the story set them to wear is what they usually wear now (memory review, 2026-10-20: Mary told in Ch 3, Sc 2 to
+      // wear only a green jumper, forgotten by Ch 4), told while the stage says nothing of what they have on.
+      if (k === 'clothing') {
+        const usual = usualLook(k, v)
+        if (usual && where && !clothesOf(c ?? undefined).length) add('usual', who, `${e.name} usually wears: ${usual}`, shortPlace(where, o.storyTitle), false, [e.id])
+        continue
+      }
+      if (!label || k === 'marks' || !v || !where) continue
       add('changed', who, `${e.name}, ${label.toLowerCase()}: ${v}`, shortPlace(where, o.storyTitle), false, [e.id])
     }
   })

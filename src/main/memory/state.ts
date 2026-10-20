@@ -382,7 +382,7 @@ export function stateAt(
         for (const [k, given] of Object.entries(p.fields ?? {})) {
           // Clothes off for a while, or worn just for the moment, are where things stand, not what they typically wear
           // (memory/looks.ts): a value with only those leaves the field as it was.
-          const v = e.kind === 'character' && c.origin !== 'adam' ? usualLook(k, given) : given
+          const v = e.kind === 'character' && c.origin !== 'adam' ? usualLook(k, given, p.note) : given
           if (!v || (v !== given && v === e.fields[k])) continue
           remember(c, e, k)
           touchField(e, k)

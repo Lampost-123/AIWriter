@@ -5472,6 +5472,36 @@ Auto (the creativity's own temperature, as before) or Custom, a slider and a num
 - **What the AI saw.** The record keeps the temperature as sent and `ownTemperature: true`; the Creativity cell then
   says "Temperature 1.5 (your setting)" (or, for an edit, "Temperature 1.5 / Your writing temperature").
 
+## What the story sets carries on (memory review, 2026-10-20)
+
+Adam: in Ch 3, Sc 2 Mary was told to wear only a green jumper, and Ch 4 and 5 forgot it. A review of the whole story
+memory (`docs/STORY_MEMORY_PIPELINE.md`: what is kept, and what the writer sees) found these, each fixed and tested. No
+migration.
+
+- **Clothes put on scenes ago are still on** (`ai/mustStay.ts` `stageInScene`). A piece whose words were older than the
+  scene before was dropped even at the same moment or later the same day (since 0.6.35); now only a later day drops it,
+  and later the same day only what is still on carries, as before (`carriesPiece`).
+- **What someone wears from now on** (`keeper/prompts.ts`): a change that sets a field for good ("to wear only X from now
+  on") gives its new value, as one that ends it does (5,979 characters, under the 6,000 its tests hold it to). The
+  clothing filters (`memory/looks.ts`) keep it: "nothing but X" (or "none but X") with words that it lasts, in the value
+  or the change's note ("from now on", "henceforth", "for good", "always"…), is X (`NOTHING_BUT`, `USUAL`; the keeper and
+  reading the memory both pass the note); "bare-headed" is no undress; "borrowed" and "lent" are no longer pieces worn
+  just for the moment. "Nothing but the silver locket" with no such words is still undressed for now.
+- **Told to the writer.** What must stay true says "Mary usually wears: … (since Ch 3, Sc 2)" for a Typical clothing the
+  story changed (rank `usual`, after marks; the short form keeps it), while the stage tells nothing of what they have on;
+  never for one set at the start or a passing undress. In a profile it is a fact to keep to, not a detail to show now and
+  then (`ai/context.ts` `lastingLooks`). The planner and the continuity brief are told it still holds on a later day
+  (`plan/plan.ts` `STAND_NOTE.later`, `plan/brief.ts` `BRIEF_ASK.keep`).
+- **Orders and bans said** are a "said" kind of their own, `rule` ("Ana’s order or rule to Mara …": `retrieval/said.ts`,
+  `shared/types.ts` `SaidKind`; read back by `db/memory.ts` through `isSaidKind`). They were thrown away before.
+- **An older chapter's line** in the story so far also says what happened to people in it (the chapter record's changes,
+  half of `RECORD_FACTS`, now 4: `memory/snapshot.ts` `timelineFacts`), since its 60-word opening says only how it ended.
+- Test: `keeper/lastingLooks.test.ts` reads an order with the fake model and builds the briefing of a scene in the next
+  chapter three days later.
+- Not done: a second event with the name of an earlier one (a second "The storm") still joins it
+  (`keeper/apply.ts`): from the name alone the keeper can't tell a new storm from talk of the old one, so a fix needs the
+  reading to say which.
+
 ## Milestone 1 scope
 
 Installer and auto-update; library, worlds and stories; binder; editor with autosave
