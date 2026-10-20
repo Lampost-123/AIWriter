@@ -403,10 +403,14 @@ test('the Story builder’s outline step on the desk keeps its step bar in view,
   // The step bar is on top, not under the page: the point at its middle belongs to it.
   const bar = win.locator('[data-story-builder="outline"] [data-step-bar]')
   await expect(bar).toBeVisible()
-  const box = (await bar.boundingBox())!
-  const outlineBox = (await outline.boundingBox())!
-  expect(outlineBox.y).toBeGreaterThanOrEqual(box.y + box.height - 1)
-  expect(await win.evaluate(`!!document.elementFromPoint(${box.x + box.width / 2}, ${box.y + box.height / 2})?.closest('[data-step-bar]')`)).toBe(true)
+  // Once the page has crossfaded in (a view transition covers the window while it runs).
+  const onTop = async (): Promise<boolean> => {
+    const box = (await bar.boundingBox())!
+    const page = (await outline.boundingBox())!
+    if (page.y < box.y + box.height - 1) return false
+    return (await win.evaluate(`!!document.elementFromPoint(${box.x + box.width / 2}, ${box.y + box.height / 2})?.closest('[data-step-bar]')`)) as boolean
+  }
+  await expect.poll(onTop).toBe(true)
   await expect(bar.locator('[data-step="outline"]')).toHaveAttribute('aria-current', 'step')
 
   // Back and Next at the foot, in view without scrolling.
