@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, screen, shell } from 'electron'
 import { join } from 'node:path'
 import type { PaintedTheme } from '@shared/api'
 import { accentIdOf, lookOf, type Look } from '@shared/contracts/look'
@@ -103,9 +103,11 @@ function stopRunningDrafts(): void {
 function createWindow(): void {
   const theme = startTheme()
   const look = startLook()
+  // Opening maximized, the first frame is drawn at the screen's size already, so nothing moves as it shows.
+  const size = MAXIMIZED ? screen.getPrimaryDisplay().workAreaSize : { width: 1440, height: 900 }
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: size.width,
+    height: size.height,
     minWidth: 960,
     minHeight: 600,
     show: false,
@@ -124,9 +126,17 @@ function createWindow(): void {
     }
   })
   mainWindow = win
-  // Both ways of showing it (the interface's first frame, or the fallback) call show: it shows maximized, at once,
-  // rather than at 1440×900 and then growing.
-  if (MAXIMIZED) win.show = () => win.maximize()
+  // Both ways of showing it the first time (the interface's first frame, or the fallback) call show: that once it shows
+  // maximized. After that show is itself again, so opening AI Write a second time brings the window forward at the size
+  // Adam left it.
+  if (MAXIMIZED) {
+    const show = win.show.bind(win)
+    win.show = () => {
+      win.show = show
+      win.maximize()
+      show()
+    }
+  }
   if (BACKGROUND) {
     // Where it would be (off-screen, Windows scales it wrongly), but unseen, clicked through, and shown without
     // taking focus wherever the app shows or focuses it. Screenshots are of the page, so they don't see this.
