@@ -17,7 +17,7 @@ import { api, ApiError, onEvent } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
-import { fillOnCard, filledMessage, unfill } from './planInterviewLogic'
+import { fillOnCard, filledMessage, keptGoalMessage, STOPPED_FILL, unfill } from './planInterviewLogic'
 import { chapterHelperKey, suggestChapter, treeOf, useOutlineHelper } from './helperStore'
 import { cardNames } from './tree'
 import type { ChapterCardNames } from '@shared/contracts/chapterCards'
@@ -199,6 +199,7 @@ export function closePlanInterview(target: PlanTarget): void {
   const s = get(key)
   put(key, null)
   if (s?.taskId) void api.stopTask(s.taskId).catch(() => undefined)
+  if (s?.phase === 'filling') toast(STOPPED_FILL)
 }
 
 /** `byAI`: the AI said it had enough (rather than Adam pressing Done or Stop). */
@@ -236,10 +237,21 @@ async function finish(key: string, byAI = false): Promise<void> {
       return
     }
     put(key, null)
-    if (out.status !== 'complete') return
+    if (out.status !== 'complete') {
+      toast(STOPPED_FILL)
+      return
+    }
     // As the card is now: anything Adam typed while it was being filled stays.
-    const { patch: fill, names } = fillOnCard(await cardNow(sceneId), out.fill)
-    if (names.length) await patchCard(sceneId, fill)
+    let fill: Partial<SceneCard>
+    let names: string[]
+    try {
+      ;({ patch: fill, names } = fillOnCard(await cardNow(sceneId), out.fill))
+      if (names.length) await patchCard(sceneId, fill)
+    } catch (e) {
+      // The interview has closed by now, so the problem is said here: the card stays as it was.
+      toast((e as Error).message || 'Couldn’t fill in the card. Please try again.', { tone: 'danger' })
+      return
+    }
     toast(filledMessage(names), names.length ? { action: { label: 'Undo', run: () => void undoFill(sceneId, fill) } } : undefined)
   } catch (e) {
     if (!still()) return
@@ -329,7 +341,8 @@ async function giveCard(chapterId: ID, names: ChapterCardNames): Promise<void> {
   let out: Awaited<ReturnType<typeof api.fillChapterCard>>
   try {
     out = await api.fillChapterCard(chapterId, names)
-  } catch {
+  } catch (e) {
+    toast((e as Error).message || 'Couldn’t fill in the chapter card. Please try again.', { tone: 'danger' })
     return
   }
   if (!out.filled.length) return
@@ -339,7 +352,11 @@ async function giveCard(chapterId: ID, names: ChapterCardNames): Promise<void> {
     action: {
       label: 'Undo',
       run: async () => {
-        await api.restoreChapterCard(chapterId, out.before, out.updated).catch(() => undefined)
+        try {
+          await api.restoreChapterCard(chapterId, out.before, out.updated)
+        } catch (e) {
+          toast((e as Error).message || 'That didn’t work. Please try again.', { tone: 'danger' })
+        }
         notifyChapterCard()
       }
     }
@@ -348,10 +365,17 @@ async function giveCard(chapterId: ID, names: ChapterCardNames): Promise<void> {
 
 async function giveGoal(chapterId: ID, goal: string): Promise<void> {
   const info = await chapterInfo(chapterId)
-  if (!info || info.goal.trim()) return
+  if (!info) return
+  const own = info.goal.trim()
+  if (own) {
+    // The chapter's own goal stays; Adam hears what the plan would have given it.
+    if (own.replace(/\s+/g, ' ') !== goal) toast(keptGoalMessage(goal))
+    return
+  }
   try {
     await api.updateChapter(chapterId, { goal })
-  } catch {
+  } catch (e) {
+    toast((e as Error).message || 'Couldn’t give the chapter its goal. Please try again.', { tone: 'danger' })
     return
   }
   useApp.getState().bumpOutline()
@@ -361,7 +385,12 @@ async function giveGoal(chapterId: ID, goal: string): Promise<void> {
       run: async () => {
         const now = await chapterInfo(chapterId)
         if (!now || now.goal.trim() !== goal) return
-        await api.updateChapter(chapterId, { goal: '' }).catch(() => undefined)
+        try {
+          await api.updateChapter(chapterId, { goal: '' })
+        } catch (e) {
+          toast((e as Error).message || 'That didn’t work. Please try again.', { tone: 'danger' })
+          return
+        }
         useApp.getState().bumpOutline()
       }
     }

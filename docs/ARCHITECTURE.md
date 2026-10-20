@@ -1723,7 +1723,8 @@ scene and chapter while the app is open) and are sent with each request.
   helper session of its own (`helperStore.suggestChapter`, key `<story>#<chapter>`) whose `lead` is the chapter's
   heading and whose chapter node starts out kept, so `Suggestions` (with `chapterId`) lists the scene cards and Keep,
   Edit, Discard and their Undo work as on the outline helper's page. A goal in the reply goes to the chapter only
-  while it has none, with Undo. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
+  while it has none, with Undo; when it has one, a toast says it was kept (quoting the plan's goal when short). A
+  scene fill that is stopped says nothing on the card changed, and a failed card or goal save shows its error. The first scene kept into a chapter whose only scene is an untouched "Scene 1"
   becomes that scene (`keepOutline`), and its Undo puts it back.
 ## Story recipes
 
