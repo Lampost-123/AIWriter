@@ -69,8 +69,9 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     db.prepare(`DELETE FROM meta WHERE substr(key, 1, ${CHAPTER_CARD_PREFIX.length}) = ? AND substr(key, ${CHAPTER_CARD_PREFIX.length + 1}) NOT IN (SELECT id FROM chapters)`).run(
       CHAPTER_CARD_PREFIX
     )
-    // The chapter writer's report and the words before its run (chapterWriter/store.ts) go with their chapter too.
-    for (const prefix of ['chapter_writer:', 'chapter_writer_before:']) {
+    // The chapter writer's report, the words before its run and the name it gave (chapterWriter/store.ts) go with their
+    // chapter too.
+    for (const prefix of ['chapter_writer:', 'chapter_writer_before:', 'chapter_writer_named:']) {
       db.prepare(`DELETE FROM meta WHERE substr(key, 1, ${prefix.length}) = ? AND substr(key, ${prefix.length + 1}) NOT IN (SELECT id FROM chapters)`).run(prefix)
     }
     // So does its end-of-chapter snapshot (db/snapshots.ts, long story memory fix 15).

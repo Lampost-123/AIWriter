@@ -4,7 +4,7 @@
 // story opens at (a new one at Your idea, one under way at the story line); where every older way in now lands (the Story
 // builder's steps, the outline helper, a chapter's plan, a recipe story's plan, the World builder's summary build); the
 // open plot threads in the order the Threads section lists them (overdue, then due, then the quietest); and the words of
-// Write this chapter's plan review: its step, its time and cost, and what it keeps true.
+// Write this chapter's plan review: its step, its time and cost, what it keeps true, and the name it picked.
 
 import type { ChapterWriterEstimate, ChapterWriterProgress, ChapterWritingPlan } from '@shared/contracts/chapterWriter'
 import type { StoryBrief } from '@shared/contracts/storyBuilder'
@@ -227,6 +227,19 @@ export function sceneHead(label: string): string {
   const m = /^Sc\s*(\d+)\s*(?:[“"](.*)[”"])?\s*$/.exec(label.trim())
   if (!m) return label.trim()
   return m[2]?.trim() ? `${m[1]} · ${m[2].trim()}` : `Scene ${m[1]}`
+}
+
+/** The hint under the chapter name the plan picked. */
+export const NAME_HINT = 'Picked to fit your story and its other chapters. Change it, or clear it to keep the chapter as it is.'
+
+/**
+ * The chapter's name as Adam kept it, for the answer to the plan: nothing when the plan gave no name or he left it as it
+ * was; his words (trimmed, '' when he cleared it, which keeps the title the chapter has) when he changed it.
+ */
+export function nameAnswer(planned: string | undefined, typed: string): { title?: string } {
+  if (planned === undefined) return {}
+  const t = typed.replace(/\s+/g, ' ').trim()
+  return t === planned.trim() ? {} : { title: t }
 }
 
 /** What a scene of the plan does, as the review shows it: its own `does`, else the first line of its part's words. */

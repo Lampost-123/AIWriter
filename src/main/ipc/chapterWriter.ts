@@ -28,7 +28,7 @@ import { coreHandlers } from './core'
 import { isStartingDraft } from './ai'
 import { ChapterRun, chapterScenes, ownTitle, type RunDeps } from '../chapterWriter/run'
 import { activeRun, setActiveRun } from '../chapterWriter/active'
-import { loadBefore, loadReport, saveReport } from '../chapterWriter/store'
+import { loadBefore, loadReport, saveReport, titleToPutBack } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
 import { contractWanted, type SceneContract } from '../ai/contract'
 import { findInStory, meaningForCheck } from '../retrieval'
@@ -82,7 +82,8 @@ let watching = false
  * The run waiting for Adam's word on its chapter plan, by run id: what answerChapterPlan resolves (null: cancel). Stop
  * resolves it with null too.
  */
-const waitingPlans = new Map<ID, (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null) => void>()
+type PlanWord = Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn' | 'title'>
+const waitingPlans = new Map<ID, (answer: PlanWord | null) => void>()
 
 /** A model's prices, as the estimate reads them (unknown when there is no model). */
 const priceOf = (choice: { promptPrice: number | null; completionPrice: number | null } | null | undefined): Price => ({
@@ -135,7 +136,7 @@ function deps(runId: ID): RunDeps {
     review: (_plan, signal) =>
       new Promise((resolve) => {
         if (signal.aborted) return resolve(null)
-        const done = (answer: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'> | null): void => {
+        const done = (answer: PlanWord | null): void => {
           waitingPlans.delete(runId)
           signal.removeEventListener('abort', cancel)
           resolve(answer)
@@ -144,6 +145,8 @@ function deps(runId: ID): RunDeps {
         waitingPlans.set(runId, done)
         signal.addEventListener('abort', cancel, { once: true })
       }),
+    // The plan's name for the chapter, saved as the binder's renames are.
+    rename: (chapterId, title) => void coreHandlers.updateChapter(chapterId, { title }),
     // Roughly how long writing takes and what it costs, shown with the plan (chapterWriter/estimate.ts).
     estimate: (sceneIds) => {
       const settings = getSettings()
@@ -348,7 +351,8 @@ export const chapterWriterHandlers: Handlers<keyof ChapterWriterApi> = {
       ...(typeof answer?.overview === 'string' ? { overview: answer.overview.slice(0, 4000) } : {}),
       ...part('wants'),
       ...part('against'),
-      ...part('turn')
+      ...part('turn'),
+      ...(typeof answer?.title === 'string' ? { title: answer.title.slice(0, 200) } : {})
     })
   },
   chapterWriterNow: () => activeRun()?.progressNow() ?? null,
@@ -374,7 +378,10 @@ export const chapterWriterHandlers: Handlers<keyof ChapterWriterApi> = {
       emit('chapterWriter:sceneChanged', { runId: report.runId, sceneId: b.sceneId, doc: b.doc, text: b.text })
       restored++
     }
+    // The chapter's title as it was, when the run named it and the name is still the run's (Adam's own rename stays).
+    const title = titleToPutBack(db, chapterId)
+    if (title !== null) coreHandlers.updateChapter(chapterId, { title })
     saveReport(db, { ...report, undone: true })
-    return { restored }
+    return { restored, ...(title !== null ? { renamed: true } : {}) }
   }
 }

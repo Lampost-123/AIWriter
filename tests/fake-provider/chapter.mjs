@@ -7,7 +7,8 @@
 //         a part that "does" "Sc N moves the chapter on.", ends with "Sc N ends on the far bank.", keeps "Keep Sc N true
 //         to the memory." and has the card's point of
 //         view and the people it has there change ("ends Sc N further on her way"); questions ["Sc 1's card has Mara at the
-//         inn; the memory has her at the ferry."] when the request names Mara. Asked at its last request (no tools), it
+//         inn; the memory has her at the ferry."] when the request names Mara; and the title "The Far Bank" when the
+//         request asks for a name for the chapter ("give it one in `title`"). Asked at its last request (no tools), it
 //         sends the same plan as JSON (chapterReply).
 //   fix   The passage to rewrite (between the triple quotes under "## The passage to rewrite") sent back with
 //         " The rain went on." at the end of its last paragraph.
@@ -61,7 +62,8 @@ function fakePlan(user) {
         keep: [`Keep ${scene} true to the memory.`]
       }
     }),
-    questions: /\bMara\b/.test(user) ? ["Sc 1's card has Mara at the inn; the memory has her at the ferry."] : []
+    questions: /\bMara\b/.test(user) ? ["Sc 1's card has Mara at the inn; the memory has her at the ferry."] : [],
+    ...(/give it one in `title`/.test(user) ? { title: 'The Far Bank' } : {})
   }
 }
 

@@ -5,7 +5,9 @@
 // write_chapter_plan (or, at its last request, as JSON): for each scene, what it must do, which threads it moves on, what
 // changes for each person (where they end up, what they learn), and facts to keep to. The plan is checked (every scene
 // of the chapter has a part, in order; lists kept short) and each part made into the words the writer is given and Adam
-// reads (partText); Adam may change a part before writing (withAnswer). No Electron imports.
+// reads (partText); Adam may change a part before writing (withAnswer). A chapter whose title is only its number gets a
+// name in the plan too, in the style of the story's other chapters (Adam, 2026-10-20), which he may change or clear.
+// No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { ChapterPlanAnswer, ChapterWritingPlan, ChapterWritingPlanScene } from '@shared/contracts/chapterWriter'
@@ -38,7 +40,7 @@ import {
   WRITE_CHAPTER_PLAN,
   planSystem
 } from './prompts'
-import { sceneNamed, type SceneRef } from './tools'
+import { ownTitle, sceneNamed, type SceneRef } from './tools'
 
 type DB = Database.Database
 
@@ -144,6 +146,33 @@ export function chapterCore(db: DB, storyId: ID, scenes: SceneRef[], people: ID[
 
 // ---------- What the planner is told first ----------
 
+/** The most of the story's chapters the planner is shown by name: the nearest this one, so a long story stays small. */
+export const CHAPTER_NAMES_MOST = 12
+
+/** The longest chapter name kept, in characters. */
+export const NAME_MOST = 80
+
+/**
+ * The story's chapters by name, as the planner is shown them (Adam, 2026-10-20: a chapter written with AI was left
+ * "Chapter 3" while the others had names): "Ch 1 “The ferry”", "Ch 2" for one with no name of its own, this chapter
+ * marked; at most CHAPTER_NAMES_MOST, the nearest this one, in order. `ask`: this chapter has no name of its own, so the
+ * plan names it; `styled`: another chapter has a name, so in their style (else a name that fits the story).
+ */
+export function chapterNames(db: DB, storyId: ID, chapterId: ID): { lines: string[]; trimmed: boolean; ask: boolean; styled: boolean } {
+  const chapters = repo.getOutline(db, storyId).chapters
+  const at = chapters.findIndex((c) => c.id === chapterId)
+  const own = chapters.map((c) => ownTitle(c.title))
+  const ask = at >= 0 && !own[at]
+  const styled = own.some((t, i) => i !== at && !!t)
+  const near = chapters
+    .map((_, i) => i)
+    .sort((a, b) => Math.abs(a - at) - Math.abs(b - at) || a - b)
+    .slice(0, CHAPTER_NAMES_MOST)
+    .sort((a, b) => a - b)
+  const lines = near.map((i) => `Ch ${i + 1}${own[i] ? ` “${clip(own[i], NAME_MOST)}”` : ''}${i === at ? ' (this chapter)' : ''}`)
+  return { lines, trimmed: near.length < chapters.length, ask, styled }
+}
+
 /** The chapter card, a line a part. */
 export function chapterCardText(db: DB, chapterId: ID, name: (id: ID) => string): string {
   const chapter = repo.getChapter(db, chapterId)
@@ -162,7 +191,10 @@ export function chapterCardText(db: DB, chapterId: ID, name: (id: ID) => string)
   return lines.join('\n') || '(No chapter card.)'
 }
 
-/** The planner's opening: the story, the chapter and its card, each scene card, then what the index gives. */
+/**
+ * The planner's opening: the story, its chapters by name, the chapter and its card, each scene card, then what the index
+ * gives; and what to do, with a name for the chapter when it needs one (chapterNames).
+ */
 export function planOpening(o: {
   db: DB
   storyId: ID
@@ -188,8 +220,18 @@ export function planOpening(o: {
     db,
     o.scenes.map((s) => s.id)
   )
+  const names = chapterNames(db, o.storyId, o.chapterId)
+  const todo = [
+    'Look up anything else the chapter needs, all at once; then call write_chapter_plan with every scene.',
+    names.ask
+      ? names.styled
+        ? "This chapter has no name of its own yet: give it one in `title`, in the same style as the other chapters' names above (their length, form and tone)."
+        : 'This chapter has no name of its own yet: give it one in `title`, a few words that fit the story and what this chapter does.'
+      : ''
+  ]
   return [
     part('The story', styleLines.join('\n')),
+    names.lines.length > 1 ? part(`The story's chapters${names.trimmed ? ' (the nearest this one)' : ''}, in order`, list(names.lines)) : '',
     part(`The chapter: ${o.label}`, chapterCardText(db, o.chapterId, name)),
     ...o.scenes.map((s) => {
       const c = cards.get(s.id)
@@ -199,7 +241,7 @@ export function planOpening(o: {
     part('Everyone on the cards, as the chapter begins (from the story so far)', list(o.core.people)),
     part('Open plot threads', list(o.core.threads)),
     part('What may not fit in the cards (found in the story so far)', list(o.core.questions)),
-    part('What to do', 'Look up anything else the chapter needs, all at once; then call write_chapter_plan with every scene.')
+    part('What to do', todo.filter(Boolean).join(' '))
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -217,6 +259,8 @@ export interface RawChapterPlan {
   turn?: string
   scenes: { scene: string; does: string; ends?: string; threads: string[]; changes: { who: string; change: string }[]; keep: string[] }[]
   questions: string[]
+  /** A name for the chapter, when the brief asked for one ('' or left out when not). */
+  title?: string
 }
 
 const texts = (v: unknown): string[] =>
@@ -271,8 +315,31 @@ export function readChapterPlan(v: unknown): RawChapterPlan | null {
     against: squash(r.against ?? r.obstacle ?? r.conflict),
     turn: squash(r.turn ?? r.turns ?? r.twist),
     scenes,
-    questions: texts(r.questions)
+    questions: texts(r.questions),
+    title: squash(r.title ?? r.chapterTitle ?? r.chapter_title ?? r.name)
   }
+}
+
+/**
+ * A chapter name as the planner gave it, made fit to keep: one line, without quotes around it, a "Chapter 3:" or "Ch 3 –"
+ * before it, or a full stop after it; at most NAME_MOST characters, cut at a word. '' when nothing is left, or when it
+ * only says "Chapter 3".
+ */
+export function planName(raw: unknown): string {
+  let t = squash(raw)
+  for (let i = 0; i < 2; i++) {
+    t = t
+      .replace(/^(?:chapter|ch\.?)\s+[\w-]+\s*[:.\-–—]\s*/i, '')
+      .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '')
+      .replace(/(?<!\.)\.$/, '')
+      .trim()
+  }
+  if (t.length > NAME_MOST) {
+    const cut = t.slice(0, NAME_MOST)
+    const at = cut.lastIndexOf(' ')
+    t = (at > NAME_MOST / 2 ? cut.slice(0, at) : cut).replace(/[\s,;:.\-–—]+$/, '')
+  }
+  return ownTitle(t)
 }
 
 /** A scene's part, in the words the writer is given and Adam reads. */
@@ -296,9 +363,14 @@ function fromCard(db: DB, sceneId: ID): string {
 /**
  * The plan checked against the chapter: one part per scene of the chapter, in order (a scene the planner named twice
  * keeps both, one it left out is planned from its card), each list kept short and free of empty lines, and only people
- * who exist (as written in the codex, by name or other name) under what changes. Null when it gives nothing for any scene.
+ * who exist (as written in the codex, by name or other name) under what changes. A name for the chapter is kept only when
+ * `nameWanted` (chapterNames' `ask`: the chapter has none of its own), made fit by planName. Null when it gives nothing
+ * for any scene.
  */
-export function checkChapterPlan(raw: RawChapterPlan, o: { db: DB; scenes: SceneRef[]; people: readonly Pick<EntryState, 'name' | 'aliases'>[] }): ChapterWritingPlan | null {
+export function checkChapterPlan(
+  raw: RawChapterPlan,
+  o: { db: DB; scenes: SceneRef[]; people: readonly Pick<EntryState, 'name' | 'aliases'>[]; nameWanted?: boolean }
+): ChapterWritingPlan | null {
   const parts = new Map<ID, RawChapterPlan['scenes'][number]>()
   raw.scenes.forEach((s, i) => {
     let id: ID | null = null
@@ -354,7 +426,9 @@ export function checkChapterPlan(raw: RawChapterPlan, o: { db: DB; scenes: Scene
   })
   const lead = raw.lead?.trim() ? known(raw.lead.trim()) : null
   const three = { wants: clip(squash(raw.wants), 300), against: clip(squash(raw.against), 300), turn: clip(squash(raw.turn), 300) }
+  const title = o.nameWanted ? planName(raw.title) : ''
   return {
+    ...(title ? { title } : {}),
     overview: clip(raw.overview, 800),
     ...(lead ? { lead } : {}),
     ...(three.wants ? { wants: three.wants } : {}),
@@ -420,15 +494,20 @@ export function chapterPlanText(p: ChapterWritingPlan): string {
 
 /**
  * The plan with Adam's changes: a scene's part he rewrote is his words from then on (what changes keeps only the people
- * his words still name, for the plan check after the draft); a new overview. Parts he left are as they were.
+ * his words still name, for the plan check after the draft); a new overview. The chapter's name as he kept it, when the
+ * plan named the chapter: cleared (or only "Chapter 3"), the chapter keeps the title it has. Parts he left are as they were.
  */
-export function withAnswer(p: ChapterWritingPlan, a: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn'>): ChapterWritingPlan {
+export function withAnswer(p: ChapterWritingPlan, a: Pick<ChapterPlanAnswer, 'scenes' | 'overview' | 'wants' | 'against' | 'turn' | 'title'>): ChapterWritingPlan {
   const by = new Map((a.scenes ?? []).map((s) => [s.sceneId, typeof s.text === 'string' ? s.text.replace(/\r\n?/g, '\n').trim() : '']))
   // What the chapter does, each part he changed (left out: as it was).
   const own = (v: unknown, was: string | undefined): Partial<Record<'v', string>> => (typeof v === 'string' ? { v: clip(squash(v), 600) } : was !== undefined ? { v: was } : {})
   const three = { wants: own(a.wants, p.wants).v, against: own(a.against, p.against).v, turn: own(a.turn, p.turn).v }
+  // His name for the chapter: only where the plan gave one (the review shows the box only then).
+  const { title: planned, ...rest } = p
+  const title = planned === undefined ? '' : typeof a.title === 'string' ? ownTitle(squash(a.title).slice(0, NAME_MOST).trim()) : planned
   return {
-    ...p,
+    ...rest,
+    ...(title ? { title } : {}),
     overview: typeof a.overview === 'string' ? clip(a.overview.trim(), 2000) : p.overview,
     ...(three.wants !== undefined ? { wants: three.wants } : {}),
     ...(three.against !== undefined ? { against: three.against } : {}),
@@ -480,7 +559,7 @@ class Planner {
   private readonly packs = new Set<string>()
 
   constructor(
-    private readonly o: { db: DB; scenes: SceneRef[]; ctx: LookupContext; people: readonly EntryState[] }
+    private readonly o: { db: DB; scenes: SceneRef[]; ctx: LookupContext; people: readonly EntryState[]; nameWanted: boolean }
   ) {}
 
   ended(): string | null {
@@ -552,7 +631,7 @@ class Planner {
       this.askedAgain = true
       throw new Mistake(`Not kept: these scenes have no part yet: ${missing.map((s) => s.label).join(', ')}. Call write_chapter_plan again with every scene, in order.`)
     }
-    const plan = checkChapterPlan(raw, { db: this.o.db, scenes: this.o.scenes, people: this.o.people })
+    const plan = checkChapterPlan(raw, { db: this.o.db, scenes: this.o.scenes, people: this.o.people, nameWanted: this.o.nameWanted })
     if (!plan) throw new Mistake('None of those scenes is in this chapter. Name each as "Sc 1", "Sc 2"…')
     this.plan = plan
     return 'The chapter plan is kept. The author reads it, then each scene is written to its part.'
@@ -596,7 +675,9 @@ export async function makeChapterPlan(d: PlanDeps): Promise<PlanOutcome> {
     hidden,
     ...(d.find ? { find: (query: string, most: number) => d.find!(first, query, most) } : {})
   }
-  const planner = new Planner({ db, scenes: d.scenes, ctx, people })
+  // A chapter with only its number for a title is named in the plan (chapterNames).
+  const nameWanted = chapterNames(db, d.storyId, d.chapterId).ask
+  const planner = new Planner({ db, scenes: d.scenes, ctx, people, nameWanted })
   const messages: ChatMessage[] = [
     { role: 'system', content: planSystem() },
     { role: 'user', content: planOpening({ db, storyId: d.storyId, chapterId: d.chapterId, label: d.label, scenes: d.scenes, prefs: d.prefs, core }) }
@@ -639,7 +720,7 @@ export async function makeChapterPlan(d: PlanDeps): Promise<PlanOutcome> {
   let plan = planner.plan
   if (!plan) {
     const raw = readChapterPlan(done.text)
-    plan = raw ? checkChapterPlan(raw, { db, scenes: d.scenes, people }) : null
+    plan = raw ? checkChapterPlan(raw, { db, scenes: d.scenes, people, nameWanted }) : null
   }
   if (!plan) {
     // Never written: each scene is planned from its card, and Adam is told.

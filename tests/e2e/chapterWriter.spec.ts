@@ -3,7 +3,8 @@
 // nothing in the fake prose, the critic reads the chapter once and its notes on words in the scenes are fixed, each
 // passage rewritten (the fake adds "The rain went on."). Started from the palette's "Whole chapter with AI", which opens
 // Build with AI at the chapter, Write this chapter open in its row (2026-10-20; a dialog before): it lists the scenes;
-// the plan shows there before anything is written, with Write the chapter, Change the plan and Cancel; while it works
+// the plan shows there before anything is written, with the name it picked for Chapter 1 (the next chapter has one of its
+// own), Write the chapter, Change the plan and Cancel; while it works
 // the top bar says so and the open scene can't be typed in; it ends in a message with Show (the report on the chapter
 // card) and Undo (the words before).
 import type { Page } from '@playwright/test'
@@ -49,6 +50,8 @@ async function setUp(win: Page, fake: Awaited<ReturnType<typeof startFake>>): Pr
   await invoke(win, 'updateSceneCard', ferry, { ...card, goal: 'Mara meets Tobin at the ferry.' })
   await invoke(win, 'updateSceneCard', inn, { ...card, beats: ['Mara finds no room at the inn.'] })
   await invoke(win, 'saveSceneText', ferry, null, FERRY)
+  // A chapter after it with a name of its own: Chapter 1, only a number, is named in its style by the plan.
+  await invoke(win, 'createChapter', story.id, { title: 'The Road North' })
   await win.reload()
   await row(win, 'The ferry').click()
   await expect(prose(win)).toContainText(FERRY)
@@ -83,6 +86,11 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     await expect(view.getByTestId('chapter-plan')).toContainText('Sc 1 moves the chapter on.')
     await expect(view.getByTestId('chapter-plan')).toContainText('Ends with: Sc 1 ends on the far bank.')
     await expect(view.getByTestId('chapter-plan')).toContainText("Sc 1's card has Mara at the inn; the memory has her at the ferry.")
+    // A name for the chapter, picked to fit the other chapters', to change; nothing is renamed yet.
+    const name = view.getByRole('textbox', { name: 'Chapter name' })
+    await expect(name).toHaveValue('The Far Bank')
+    await expect(view).toContainText('Picked to fit your story and its other chapters.')
+    expect((await invoke(win, 'getOutline', (await invoke(win, 'listStories'))[0].id)).chapters[0].title).toBe('Chapter 1')
     expect((await invoke(win, 'getScene', inn)).text).toBe('')
     // Left, it waits: the top bar opens it again, at its chapter.
     await toWriting(win)
@@ -93,6 +101,7 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     // Adam changes Sc 2's part, then writes.
     await view.getByTestId('chapter-plan-change').click()
     await view.getByRole('textbox', { name: 'Sc 2 “The inn”: its part of the plan' }).fill('Mara finds no room at the inn and sleeps in the stable.')
+    await name.fill('Across the Water')
     await view.getByTestId('chapter-plan-write').click()
     await expect(view).toBeHidden()
     // Its row says how it is going.
@@ -114,6 +123,10 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     expect(report?.brief).toContain('Keep Sc 1 true to the memory.')
     expect(report?.brief).toContain('Mara finds no room at the inn and sleeps in the stable.')
     expect(report?.plan?.scenes[1].changed).toBe(true)
+    // The chapter has the name Adam kept, from before its scenes were written.
+    const storyId = (await invoke(win, 'listStories'))[0].id
+    expect((await invoke(win, 'getOutline', storyId)).chapters[0].title).toBe('Across the Water')
+    expect(report?.named).toEqual({ from: 'Chapter 1', to: 'Across the Water' })
     // The page shows the run's words, and can be typed in again.
     await expect(prose(win)).toContainText('The rain went on.')
     await expect(prose(win)).not.toContainText(FERRY)
@@ -125,10 +138,12 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     const written = card.getByTestId('chapter-writer-report')
     await expect(written).toContainText('Written and checked: 2 rounds of checks, clean at the end.')
     await expect(written).toContainText('Your scene cards and the memory (1)')
+    await expect(written).toContainText('Named the chapter “Across the Water”.')
 
     // Undo puts the chapter back as it was.
     await written.getByRole('button', { name: 'Undo' }).click()
-    await expect(win.getByText('Put back 2 scenes as they were before the AI wrote the chapter.')).toBeVisible()
+    await expect(win.getByText('Put back 2 scenes and the chapter’s name as they were before the AI wrote the chapter.')).toBeVisible()
+    expect((await invoke(win, 'getOutline', storyId)).chapters[0].title).toBe('Chapter 1')
     expect((await invoke(win, 'getScene', ferry)).text).toBe(FERRY)
     expect((await invoke(win, 'getScene', inn)).text).toBe('')
     await expect(prose(win)).toContainText(FERRY)
@@ -151,6 +166,8 @@ test('Whole chapter with AI: Cancel at the plan changes nothing; once writing, i
     await expect(status(win)).toBeHidden()
     expect((await invoke(win, 'getChapterWriterReport', chapterId))?.status).toBe('cancelled')
     expect((await invoke(win, 'getScene', ferry)).text).toBe(FERRY)
+    // Not even the name the plan picked.
+    expect((await invoke(win, 'getOutline', (await invoke(win, 'listStories'))[0].id)).chapters[0].title).toBe('Chapter 1')
 
     await start(win)
     await planView(win).getByTestId('chapter-plan-write').click({ timeout: 60_000 })

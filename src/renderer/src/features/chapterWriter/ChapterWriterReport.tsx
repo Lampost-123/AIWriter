@@ -1,14 +1,14 @@
 // "Written with AI" on a chapter's card: the way in to Write this chapter with AI, and the latest run's report: how it
-// ended, the things in the scene cards that didn't fit the memory (for Adam: his cards are never changed), what was
-// fixed in each scene and why, anything left, and the chapter plan the scenes were written to (a report kept before
-// 2026-10-19 lists findings set aside, and the brief, instead). Undo puts the chapter back.
+// ended, the name it gave the chapter, the things in the scene cards that didn't fit the memory (for Adam: his cards
+// are never changed), what was fixed in each scene and why, anything left, and the chapter plan the scenes were written
+// to (a report kept before 2026-10-19 lists findings set aside, and the brief, instead). Undo puts the chapter back.
 
 import { useEffect, useState } from 'react'
 import type { ChapterWriterReport as Report } from '@shared/contracts/chapterWriter'
 import type { ID } from '@shared/types'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
-import { costWords, fixedCount, reportHeading } from './chapterWriterLogic'
+import { costWords, fixedCount, namedWords, reportHeading } from './chapterWriterLogic'
 import { openChapterWriter, undoChapterWriter, useChapterWriter } from './chapterWriterStore'
 
 const details = 'rounded-md text-[12.5px] leading-relaxed text-muted [&>summary]:cursor-pointer [&>summary]:rounded [&>summary]:font-medium [&>summary]:text-fg [&>summary]:outline-none [&>summary:focus-visible]:ring-2 [&>summary:focus-visible]:ring-accent/40'
@@ -67,9 +67,11 @@ function ReportBody({ report }: { report: Report }): React.JSX.Element {
   const fixed = fixedCount(report)
   const setAside = report.scenes.reduce((k, s) => k + s.setAside.length, 0)
   const spent = costWords(report.cost).replace(/ so far$/, '')
+  const named = namedWords(report)
   return (
     <div className="flex flex-col gap-2.5 border-t border-line pt-3">
       <p className="text-[13px] font-medium text-fg">{reportHeading(report)}</p>
+      {named ? <p className="text-[12.5px] leading-relaxed text-muted">{named}</p> : null}
       <p className="text-[12px] text-faint">
         {[fixed ? `${fixed} ${fixed === 1 ? 'thing' : 'things'} fixed` : '', setAside ? `${setAside} judged not a problem` : '', spent ? `cost ${spent}` : '']
           .filter(Boolean)

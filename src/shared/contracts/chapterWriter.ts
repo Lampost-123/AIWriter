@@ -68,6 +68,12 @@ export interface ChapterWritingPlan {
    * index's, as the chapter begins, then the scenes' own Keep to lines; no AI call of their own. Left out of older plans.
    */
   kept?: string[]
+  /**
+   * A name for the chapter, in the style of the story's other chapters (Adam, 2026-10-20: "picking a name that fits the
+   * story's other chapters"). Only for a chapter whose title is just its number ("Chapter 3", or none); Adam may change
+   * it or clear it before writing. Left out otherwise, and in older plans.
+   */
+  title?: string
   scenes: ChapterWritingPlanScene[]
   /** Things in Adam's cards that don't fit the story so far (his cards are never changed). */
   questions: string[]
@@ -84,6 +90,8 @@ export interface ChapterPlanAnswer {
   wants?: string
   against?: string
   turn?: string
+  /** The chapter's name as Adam kept it, when the plan named the chapter: '' keeps the title it has. Left out: the plan's. */
+  title?: string
 }
 
 /**
@@ -192,6 +200,11 @@ export interface ChapterWriterReport {
    * (where things stand wasn't ready, say). Left out of reports kept before it was added.
    */
   notes?: string[]
+  /**
+   * The name the run gave the chapter (it had only its number), and its title before, so Undo can put that back. Left out
+   * when it gave none, and in reports kept before it was added.
+   */
+  named?: { from: string; to: string }
   /** The agent's own last words on the chapter. */
   summary: string
   /** True once Undo has put the chapter back. */
@@ -223,8 +236,11 @@ export interface ChapterWriterApi {
   answerChapterPlan(answer: ChapterPlanAnswer): Promise<void>
   /** The latest run's report for a chapter, or null. */
   getChapterWriterReport(chapterId: ID): Promise<ChapterWriterReport | null>
-  /** Puts every scene of the chapter back as it was before the latest run. Returns how many scenes changed. */
-  undoChapterWriter(chapterId: ID): Promise<{ restored: number }>
+  /**
+   * Puts every scene of the chapter back as it was before the latest run, and the chapter's title when the run named it
+   * and the name is still the run's. Returns how many scenes changed, and whether the title was put back.
+   */
+  undoChapterWriter(chapterId: ID): Promise<{ restored: number; renamed?: boolean }>
 }
 
 export interface ChapterWriterEvents {
