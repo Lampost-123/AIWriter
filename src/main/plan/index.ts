@@ -4,9 +4,10 @@
 // whole chapter, and Beat by beat (one plan for the scene, its beats its structure, kept for its later beats). Continue
 // makes no call: it is given the scene's last plan made for the whole of it, its beats on the page marked done and the
 // next marked (planForContinueOf). A look-up may fill in a scene's physical details first, only when quick
-// (fillQuickly). With a continuity brief (long story memory fix 14, brief.ts), what the plan reads besides comes from the
-// world here: as much of the book so far as goes in, how each earlier chapter ended, and the rule checks' findings still
-// open in the scene.
+// (fillQuickly). With a continuity brief (long story memory fix 14, brief.ts), the plan also reads the earlier chapters in
+// short, the scene before and the scene so far word for word, what the record says of the scene (all from the briefing's
+// own input) and the rule checks' findings still open in the scene (from the world here); the whole book so far no longer
+// (2026-10-20).
 
 import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
@@ -25,10 +26,7 @@ import { shortPlace } from '../ai/mustStay'
 import { briefSize, briefWanted, hasEarlierBooks, type ContinuityBrief } from '../ai/brief'
 import type { LookupContext } from '../ai/lookups'
 import { SO_FAR_BLOCK } from '../beats/instructions'
-import { openRuleFindings, sceneTexts } from '../db/checks'
-import { storedSnapshots } from '../db/snapshots'
-import { loadShape } from '../memory/scene'
-import { buildLine, labeler, storyOfScene } from '../memory/line'
+import { openRuleFindings } from '../db/checks'
 import { findInStory } from '../retrieval'
 import type { MemoryModel } from '../keeper/model'
 import { fillSceneForLookup } from '../storyIndex/fill'
@@ -49,22 +47,7 @@ import {
   type PlanMaterial,
   type ScenePlan
 } from './plan'
-import {
-  BOOK_MOST,
-  BOOK_READER,
-  BOOK_SHARE,
-  BRIEF_REPLY_SHARE,
-  WHOLE_SHARE,
-  bookPart,
-  bookWithin,
-  briefFrees,
-  briefMaterial,
-  briefRoom,
-  planThreads,
-  type BookScene,
-  type BriefSources,
-  type ChapterRecord
-} from './brief'
+import { BRIEF_REPLY_SHARE, WHOLE_SHARE, briefFrees, briefMaterial, briefRoom, planThreads, type BriefSources } from './brief'
 
 type DB = Database.Database
 
@@ -149,9 +132,8 @@ const wordsIn = (text: string | undefined): number => (text ?? '').split(/\s+/).
  * (fix 14), the same call also writes the brief. `beat`: Beat by beat, the beat being written: the scene is planned once,
  * as a whole, with its first beat written (or the first after a scene card or direction that changed), and its later
  * beats are given that plan with no call. `brief: false`: never a brief, whatever the setting (Write the whole chapter:
- * its chapter plan has a part for every scene, and the brief's planner reads up to 150,000 tokens of the book for each;
- * token audit, 2026-10-19). `chapter`: Write the whole chapter's part of its plan for this scene, which the scene plan
- * builds on (spec "Write the chapter, reworked", 2026-10-19).
+ * its chapter plan has a part for every scene; token audit, 2026-10-19). `chapter`: Write the whole chapter's part of its
+ * plan for this scene, which the scene plan builds on (spec "Write the chapter, reworked", 2026-10-19).
  */
 export async function planBeforeWriting(
   db: Database.Database,
@@ -404,11 +386,12 @@ export function continueBeatsDone(card: SceneCard, before: string): number {
 
 /**
  * The plan's material with what the continuity brief needs (fix 14): the open plot threads as the memory model's room
- * allows (planThreads) in place of the writer's list, the story record fitted to the room the memory model has, and as
- * much of the book so far as goes in (at most BOOK_MOST tokens, whole chapters, the oldest left out first: bookWithin).
- * Whatever can't be read is left out; with no room for the plan and a brief together (a small memory model), no brief.
- * The brief is asked to be about as long as what goes short beside it frees, between 1,000 tokens and what the writer's
- * room allows, and held to what goes short without who knows what should it say nothing of who knows what.
+ * allows (planThreads) in place of the writer's list, and the record (brief.ts briefMaterial: the earlier chapters in
+ * short, the scene before and the scene so far word for word, what bears on the scene) fitted to the room the memory
+ * model has, at most RECORD_MOST tokens. Whatever can't be read is left out; with no room for the plan and a brief
+ * together (a small memory model), no brief. The brief is asked to be about as long as what goes short beside it frees,
+ * between 1,000 tokens and what the writer's room allows, and held to what goes short without who knows what should it
+ * say nothing of who knows what.
  */
 export function withBrief(
   db: DB,
@@ -427,7 +410,7 @@ export function withBrief(
   const tokensNoKnows = briefSize(scale, frees.always)
   const reply = PLAN_REPLY_TOKENS + Math.ceil(tokens * BRIEF_REPLY_SHARE)
   const own: PlanMaterial = { ...material, threads: planThreads(b.input, contextLength) }
-  const empty = { book: null, record: [], late: [], words: 0, tokens }
+  const empty = { record: [], late: [], words: 0, tokens }
   const base = estimateTokens(
     planMessages({ ...own, brief: empty })
       .map((m) => m.content)
@@ -435,20 +418,11 @@ export function withBrief(
   )
   // No room for the plan and a brief: the plan as it was, with no brief.
   if (base + reply > contextLength * WHOLE_SHARE) return material
-  let book: { scenes: BookScene[]; from: string | null } | null = null
-  if (contextLength >= BOOK_READER) {
-    const scenes = safely(() => bookScenes(db, sceneId, b.input.story.title), null)
-    book = scenes ? bookWithin(scenes, Math.min(BOOK_MOST, Math.floor(contextLength * BOOK_SHARE))) : null
-  }
-  const size = book ? estimateTokens(bookPart(book.scenes, true, book.from)) : null
-  const room = briefRoom({ contextLength, base, reply, book: size })
-  if (!room.book) book = null
   const sources: BriefSources = {
-    book: book?.scenes ?? null,
-    bookFrom: book?.from ?? null,
-    chapters: safely(() => chapterRecords(db, sceneId, b.input.story.title), []),
     findings: safely(() => openRuleFindings(db, sceneId), []),
-    room: room.record,
+    // The chapters "Already happened" tells scene by scene ("Ch 6, Sc 2: …"), not told again in short.
+    covered: [...new Set((own.core?.recent ?? []).map((l) => /^(.*?\bCh \d+)\b/.exec(l)?.[1] ?? '').filter(Boolean))],
+    room: briefRoom({ contextLength, base, reply }),
     tokens,
     tokensNoKnows
   }
@@ -462,52 +436,4 @@ const safely = <T>(fn: () => T, fallback: T): T => {
     console.warn('Could not read part of the story for the plan', e)
     return fallback
   }
-}
-
-/** This story's scenes before this one on its line, in reading order, with where each is and its words (none left out). */
-function bookScenes(db: DB, sceneId: ID, storyTitle: string): BookScene[] | null {
-  const shape = loadShape(db)
-  const story = storyOfScene(shape, sceneId)
-  if (!story) return null
-  const label = labeler(shape)
-  const titles = new Map(story.chapters.flatMap((c) => c.scenes.map((s) => [s.id, s.title] as const)))
-  const steps = buildLine(shape, { storyId: story.id, before: sceneId }).steps.flatMap((s) =>
-    s.type === 'scene' && s.via === 'line' && s.storyId === story.id ? [s] : []
-  )
-  const texts = sceneTexts(
-    db,
-    steps.map((s) => s.sceneId)
-  )
-  const out = steps.flatMap((s) => {
-    const text = (texts.get(s.sceneId) ?? '').trim()
-    if (!text) return []
-    return [
-      {
-        label: shortPlace(label({ storyId: story.id, sceneId: s.sceneId }), storyTitle),
-        title: titles.get(s.sceneId) ?? '',
-        text,
-        chapter: shortPlace(label({ storyId: story.id, chapterId: s.chapterId }), storyTitle)
-      }
-    ]
-  })
-  return out.length ? out : null
-}
-
-/** How each earlier chapter of this story ended, as the memory keeper last worked it out (fix 15), oldest first. */
-function chapterRecords(db: DB, sceneId: ID, storyTitle: string): ChapterRecord[] {
-  const shape = loadShape(db)
-  const story = storyOfScene(shape, sceneId)
-  if (!story) return []
-  const at = story.chapters.findIndex((c) => c.scenes.some((s) => s.id === sceneId))
-  const before = story.chapters.slice(0, Math.max(0, at))
-  if (!before.length) return []
-  const kept = storedSnapshots(
-    db,
-    before.map((c) => c.id)
-  )
-  const label = labeler(shape)
-  return before.flatMap((c) => {
-    const snapshot = kept.get(c.id)?.snapshot
-    return snapshot ? [{ label: shortPlace(label({ storyId: story.id, chapterId: c.id }), storyTitle), snapshot }] : []
-  })
 }

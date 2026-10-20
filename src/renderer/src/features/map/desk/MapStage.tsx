@@ -568,12 +568,20 @@ export function MapStage({
     return best
   }
 
-  // Which names and pills have room: the leads' names first, then the best-connected ties' words, then (nameBox) the
-  // names with no room under their medallions, where there is room elsewhere round them.
+  // Which names and pills have room: the leads' names first, then the words of the ties that arrived last (the strip's
+  // note names them, so they never go unlabelled), the other names, then the best-connected ties' words, then (nameBox)
+  // the names with no room under their medallions, where there is room elsewhere round them.
   const dragging = useRef(false)
   const lastRoom = useRef<Room>({ shown: new Set(), placed: new Map() })
+  /** When each tie first came onto the map: 0 for those there when it opened, then a later turn for each arrival. */
+  const tieTurns = useRef(new Map<string, number>())
+  const tieTurn = useRef(0)
   const room = useMemo((): Room => {
     if (dragging.current) return lastRoom.current
+    const turns = tieTurns.current
+    const turn = turns.size ? ++tieTurn.current : 0
+    for (const t of ties) if (!turns.has(t.key)) turns.set(t.key, turn)
+    const newest = Math.max(0, ...ties.map((t) => turns.get(t.key) ?? 0))
     const discs = nodes.map((n) => ({ key: n.id, x: n.x * k, y: n.y * k, r: (MEDAL[n.rank] * ms) / 2 + 3 }))
     const byRank = [...nodes].sort((p, q) => RANK_ORDER[p.rank] - RANK_ORDER[q.rank] || (deg.get(q.id) ?? 0) - (deg.get(p.id) ?? 0) || p.name.localeCompare(q.name))
     const cast = castBox(nodes, k, ms)
@@ -585,7 +593,12 @@ export function MapStage({
         return { key: `t:${t.key}`, x: m.x, y: m.y, w: Math.min(190, t.words.length * 6.7 + 44), h: 26 }
       })
     const placed = new Map<string, AltPlace>()
-    const shown = roomFor(discs, [...names, ...pills], placed)
+    const arrived = newest > 0 ? new Set(ties.filter((t) => turns.get(t.key) === newest).map((t) => `t:${t.key}`)) : new Set<string>()
+    const shown = roomFor(
+      discs,
+      [...names.slice(0, 1), ...pills.filter((p) => arrived.has(p.key)), ...names.slice(1), ...pills.filter((p) => !arrived.has(p.key))],
+      placed
+    )
     lastRoom.current = { shown, placed }
     return lastRoom.current
   }, [nodes, ties, arcs, k, ms, deg, chrome])

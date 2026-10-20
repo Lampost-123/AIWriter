@@ -181,8 +181,8 @@ export interface DraftBriefing {
  * `plan` (on unless false; Beat by beat plans the scene itself with withPlan, once a scene): the memory model plans
  * the scene first, with one round of look-ups, when Settings › Models says to (plan/), never for long (withPlan). A set of
  * Variants is briefed once, so its drafts share the one plan.
- * `brief: false`: the plan writes no continuity brief (Write the whole chapter, whose chapter plan has a part for every
- * scene; plan/index.ts). `chapterPlan`: Write the whole chapter's part of its plan for this scene, which the scene plan
+ * `brief: false`: the plan writes no continuity brief (none of the app's paths asks for that now: Write the whole chapter
+ * has one too since 2026-10-20; plan/index.ts). `chapterPlan`: Write the whole chapter's part of its plan for this scene, which the scene plan
  * builds on (spec "Write the chapter, reworked", 2026-10-19).
  */
 export async function draftBriefing(

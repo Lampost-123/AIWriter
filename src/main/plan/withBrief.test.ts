@@ -1,7 +1,7 @@
-// The continuity brief's material on the open world (long story memory fix 14, its review): with no room for the plan and
-// a brief together (a small memory model), no brief and the plan as it was; the open plot threads as many as the memory
-// model has room for; and the book so far read from the world, at most BOOK_MOST tokens of its newest whole chapters
-// however much the memory model reads. Invented test text only.
+// The continuity brief's material on the open world (long story memory fix 14, its review; trimmed 2026-10-20): with no
+// room for the plan and a brief together (a small memory model), no brief and the plan as it was; the open plot threads as
+// many as the memory model has room for; and never the book so far, however much the memory model reads: the chapters in
+// short and the scenes around word for word, within RECORD_MOST. Invented test text only.
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../settings', () => ({ getSettings: () => ({ planFirst: true, continuityBrief: true }) }))
@@ -17,7 +17,7 @@ import { estimateTokens } from '../keeper/text'
 import type { ContextInput } from '../ai/context'
 import { openThreadsMost } from '../ai/openThreads'
 import { memoryScale } from '../ai/memoryRoom'
-import { BOOK_MOST, bookPart } from './brief'
+import { RECORD_MOST, partText } from './brief'
 import type { PlanMaterial } from './plan'
 import { withBrief } from './index'
 
@@ -107,26 +107,30 @@ describe('the brief’s material on the open world (fix 14’s review)', () => {
     expect(big.threads!.split('\n').filter((l) => l.startsWith('- ')).length).toBeLessThan(40)
   })
 
-  it('the book so far from the world: its newest whole chapters within BOOK_MOST tokens, however much the model reads', () => {
+  it('never the book so far: the chapters in short (not those "Already happened" tells), the scenes around word for word, within RECORD_MOST however much the model reads (2026-10-20)', () => {
     const db = memoryWorld()
     const story = repo.listStories(db)[0]
     const first = repo.getOutline(db, story.id)
-    const chapters = [first.chapters[0].id, ...[2, 3, 4, 5].map((n) => repo.createChapter(db, story.id, { title: `Chapter ${n}` }).id)]
-    // Chapters 1 to 4: two scenes of about 30,000 tokens each; the scene being written opens chapter 5.
-    for (const [i, chapterId] of chapters.slice(0, 4).entries()) {
-      const scenes =
-        i === 0
-          ? [first.scenes[0].id, repo.createScene(db, chapterId).id]
-          : [repo.createScene(db, chapterId).id, repo.createScene(db, chapterId).id]
-      for (const id of scenes) repo.saveSceneText(db, id, null, `Chapter ${i + 1}. ${'The river ran high. '.repeat(5_500)}`)
+    // A long book in the world: its words are never read for the plan.
+    for (const id of [first.scenes[0].id, repo.createScene(db, first.chapters[0].id).id])
+      repo.saveSceneText(db, id, null, `${'The river ran high. '.repeat(5_500)}`)
+    const here = repo.createScene(db, repo.createChapter(db, story.id, { title: 'Chapter 5' }).id).id
+    const inp = input(here, story.title)
+    const long = Array.from({ length: 400 }, () => 'Wren climbed to the loft and waited for the knock.').join(' ')
+    inp.soFar = long
+    inp.memory.previous = { sceneId: 'p', title: 'The weir', text: long, storyId: 'mill', storyTitle: story.title, label: `${story.title}, Ch 4, Sc 2`, otherStory: null }
+    inp.memory.storySoFar = {
+      ...inp.memory.storySoFar,
+      chapters: [3, 4].map((n) => ({ chapterId: `c${n}`, label: `${story.title}, Ch ${n}`, text: `In chapter ${n} the river ran high.` }))
     }
-    const here = repo.createScene(db, chapters[4]).id
-    const m = withBrief(db, here, briefing(input(here, story.title)), PLAIN, 1_000_000)
-    const book = m.brief!.book!
-    expect(book.map((s) => s.chapter)).toEqual(['Ch 3', 'Ch 3', 'Ch 4', 'Ch 4'])
-    expect(m.brief!.bookFrom).toBe('Ch 3')
-    expect(estimateTokens(bookPart(book, true, m.brief!.bookFrom))).toBeLessThanOrEqual(BOOK_MOST + 50)
-    // A model that reads less than 200,000 tokens never gets the book.
-    expect(withBrief(db, here, briefing(input(here, story.title)), PLAIN, 128_000).brief!.book).toBeNull()
+    const core = { people: [], recent: ['Ch 4, Sc 1: The weir broke.', 'Ch 4, Sc 2: Wren ran.'], threads: [] }
+    const m = withBrief(db, here, briefing(inp), { ...PLAIN, core }, 1_000_000)
+    const parts = [...m.brief!.record, ...m.brief!.late]
+    const all = parts.map((p) => partText(p)).join('\n\n')
+    expect(all).not.toContain('The river ran high.')
+    expect(all).toContain('### Ch 3\nIn chapter 3 the river ran high.')
+    expect(all).not.toContain('### Ch 4')
+    expect(parts.map((p) => p.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^The scene before, word for word \(Ch 4, Sc 2: The weir\)/), 'The scene so far, word for word']))
+    expect(estimateTokens(all)).toBeLessThanOrEqual(RECORD_MOST)
   })
 })

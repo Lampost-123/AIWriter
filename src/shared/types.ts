@@ -472,9 +472,10 @@ export interface Settings {
   sceneContracts?: boolean
   /**
    * Write a continuity brief before each scene (Settings › Models; on by default; long story memory fix 14): the plan
-   * before writing also reads the whole story record (and the book so far when the memory model reads enough) and gives
-   * the writer a short brief of what matters for the scene (src/main/ai/brief.ts, src/main/plan/brief.ts). Needs Plan
-   * before writing. Off: the plan's call and the briefing as before. Left out (settings saved before it): on.
+   * before writing also reads the chapters so far in short, the scene before and the scene so far word for word and what
+   * the story record says of the scene (2026-10-20: no longer the whole book so far), and gives the writer a short brief
+   * of what matters for the scene (src/main/ai/brief.ts, src/main/plan/brief.ts). Needs Plan before writing. Off: the
+   * plan's call and the briefing as before. Left out (settings saved before it): on.
    */
   continuityBrief?: boolean
   /**
