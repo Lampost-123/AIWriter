@@ -91,7 +91,7 @@ describe('the answer format switch (FORMAT)', () => {
       [
         'Reminder:',
         '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
-        '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
+        '- The first line answers. No preambles, no changes written out in words, and never say a change has been made: say it is ready to apply.',
         '- This request asks for ideas: give 3 to 5 options in words and propose nothing until the writer picks one.'
       ].join('\n')
     )

@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { saveProposals, setOptionMark } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
-import { AGENT_ROOM, fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { AGENT_ROOM, fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, startTask, stopTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
 import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
@@ -802,5 +802,65 @@ describe('the runaway guard (chat Phase 3)', () => {
     expect(repeatKey(calls, { results, steps: [step('failed'), step()] })).toBeNull()
     expect(repeatKey(calls, { results, steps: [] })).toBeNull()
     expect(repeatKey([], { results: [], steps: [] })).toBeNull()
+  })
+})
+
+describe('the truth check on every ending (chat-truth R4)', () => {
+  const settle = (reply: string): string => reply.replace(/I've updated/g, "I'd update")
+
+  it('settles the words when the answer ends with a question for the writer (edge case 2)', async () => {
+    const { fetchImpl } = scripted([[text("Done. I've updated the chapter card."), call(0, 'q1', 'ask_user', '{}'), finish('tool_calls')]])
+    let asked = false
+    const req = request(fetchImpl, {
+      run: async (calls) => {
+        asked = true
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'Asked.' })), steps: [] }
+      },
+      ended: () => (asked ? 'Which way?\n\n1. Darker\n2. Lighter' : null),
+      settle
+    })
+    const done = await runTask(req)
+    expect(done.text).toBe("Done. I'd update the chapter card.\n\nWhich way?\n\n1. Darker\n2. Lighter")
+    expect(gens.getGeneration(req.db, done.generationId).response).toBe(done.text)
+  })
+
+  it('settles the text so far when Adam presses Stop, before it is saved (edge case 3)', async () => {
+    const { fetchImpl } = scripted([
+      [text("I've updated the chapter card."), call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text(' (never asked)'), finish('stop')]
+    ])
+    const req: TaskRequest = request(fetchImpl, {
+      run: async (calls) => {
+        void stopTask(req.taskId)
+        return { results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: 'r' })), steps: [] }
+      },
+      settle
+    })
+    const done = await runTask(req)
+    expect(done.text.trimEnd()).toBe("I'd update the chapter card.")
+    expect(gens.getGeneration(req.db, done.generationId).response?.trimEnd()).toBe("I'd update the chapter card.")
+  })
+
+  it('saves only settled text while the answer streams', async () => {
+    let release: () => void = () => undefined
+    const fetchImpl = (async () => {
+      const enc = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(`data: ${JSON.stringify(text("I've updated the chapter card. "))}\n\n`))
+          release = () => {
+            c.enqueue(enc.encode(`data: ${JSON.stringify(finish('stop'))}\n\ndata: [DONE]\n\n`))
+            c.close()
+          }
+        }
+      })
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as unknown as typeof fetch
+    const req = request(fetchImpl, { settle })
+    const { generationId } = startTask(req)
+    await new Promise((r) => setTimeout(r, 800))
+    expect(gens.getGeneration(req.db, generationId).response).toBe("I'd update the chapter card. ")
+    release()
+    await stopTask(req.taskId)
   })
 })

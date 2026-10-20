@@ -197,17 +197,20 @@ describe('the truth check in the chat’s tool loop', () => {
       { place: { wordsInQuestion: true } }
     )
     expect(agent.proposals.map((p) => p.kind)).toEqual(['text'])
-    expect(done.text).toBe('Only change 1 is ready to apply; nothing else was changed.\n\nI’ve tightened the opening. I’d also update Mara’s entry.')
+    expect(done.text).toBe('Only change 1 is ready to apply; nothing else was changed.\n\nChange 1 is ready to apply: tighten the opening. I’d also update Mara’s entry.')
   })
 
-  it('leaves a true answer alone, and an answer that ends with a question for the writer', async () => {
+  it('leaves a true answer alone; an answer that ends with a question is not sent back, but its words are still put right', async () => {
     const { done, sent } = await ask('Is the opening line too long?', [says('It reads well; I’d keep it.')])
     expect(sent).toHaveLength(1)
     expect(done.text).toBe('It reads well; I’d keep it.')
     const { agent } = chat({ intent: 'edit', wordsInQuestion: true })
     agent.run({ id: 'q1', name: 'ask_user', arguments: JSON.stringify({ question: 'Which line?', options: ['The first', 'The last'] }) })
     expect(agent.recheck(CLAIM)).toBeNull()
-    expect(agent.settle(CLAIM)).toBe(CLAIM)
+    // Edge case 2: "Done." then a question for Adam: the claim is put right, the question and its options kept whole.
+    const closing = agent.ended() ?? ''
+    const settled = agent.settle(`Done. I’ve tightened the opening line.\n\n${closing}`)
+    expect(settled).toBe(`${NO_CHANGE_LEAD}, so there’s nothing to apply. Here’s what I’d suggest:\n\nI’d tighten the opening line.\n\n${closing}`)
   })
 
   it('sends its note once an answer at most', () => {
@@ -290,5 +293,31 @@ describe('tool errors say what to fix', () => {
     // The last words never suggest a refusal that didn't happen ("the scene you couldn't read").
     expect(contractLastWords([], 'edit')).not.toMatch(/the scene you couldn’t read/)
     expect(contractLastWords([], 'edit')).toMatch(/never say you couldn’t read, find or reach something no tool turned down/)
+  })
+})
+
+describe('chat-truth: claims matched to their targets, said as waiting, and earlier changes checked (tasks 13-16)', () => {
+  it('a claim backed by a proposal is still never said as made: it is said as waiting', async () => {
+    const { done } = await ask('Tighten the opening line.', [calls('propose_changes', EDIT), says('I’ve tightened the opening line.')], { place: { wordsInQuestion: true } })
+    expect(done.text).toBe('Change 1 is ready to apply: tighten the opening line.')
+  })
+
+  it('a claim naming a scene no proposal changes is put right (edge case 1)', () => {
+    const { agent } = chat({ wordsInQuestion: true })
+    run(agent, 'propose_changes', EDIT)
+    expect(agent.settle('I’ve tightened the opening of scene 1.')).toBe('Change 1 is ready to apply: tighten the opening of scene 1.')
+    expect(agent.settle('I’ve tightened the openings of scenes 1 and 2.')).toBe(
+      'Only change 1 is ready to apply; nothing else was changed.\n\nI’d tighten the openings of scenes 1 and 2.'
+    )
+  })
+
+  it('a claim about an earlier change stands only when Adam applied it (edge case 5)', () => {
+    const earlier = (status: 'pending' | 'applied' | 'declined') =>
+      chat({ earlier: [{ id: '1', status, why: '', kind: 'text', sceneId: 's', sceneLabel: 'Ch 1, Sc 1', find: 'a', replace: 'b' }] }).agent
+    const said = 'As I changed earlier, the opening is tighter.'
+    expect(earlier('applied').settle(said)).toBe(said)
+    expect(earlier('pending').settle(said)).toBe('That earlier change isn’t in the story: it hasn’t been applied.\n\nAs I suggested earlier, the opening is tighter.')
+    // Such a claim is never sent back to the model (nothing this answer could propose makes it true).
+    expect(earlier('pending').recheck(said)).toBeNull()
   })
 })

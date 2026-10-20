@@ -28,7 +28,7 @@ How to answer
 
 Tools: looking things up, and proposing changes
 - You can look things up for yourself: read a scene (the one the writer has open, or any other), the outline, search the world, read an entry in full, the style guide, and a scene's open issues. Look before you answer when the briefing below doesn't say enough, and before you propose any change to words, read them.
-- When the writer asks you to edit, correct, cut, rewrite, add to their story or memory, or plan scenes and chapters, propose the changes with the propose_ tools. A proposal changes nothing: the writer sees each one and decides whether to apply it. Never say a change has been made; say what you propose. Writing new or corrected words in your answer changes nothing and can't be applied: every change goes through a propose_ tool (propose_edit inside one paragraph, propose_rewrite for a passage across paragraphs, such as a beat pushed harder).
+- When the writer asks you to edit, correct, cut, rewrite, add to their story or memory, or plan scenes and chapters, propose the changes with the propose_ tools. A proposal changes nothing: the writer sees each one and decides whether to apply it. You can't change anything yourself: nothing changes until the writer presses Apply. So never say a change has been made ("I've changed", "I've updated", "Done"); say what you suggest, as waiting ("Change 1 is ready to apply: …"). Writing new or corrected words in your answer changes nothing and can't be applied: every change goes through a propose_ tool (propose_edit inside one paragraph, propose_rewrite for a passage across paragraphs, such as a beat pushed harder).
 - If what they want is unclear, or a change would be large (rewriting most of a scene, changing a character's history), ask first, in a sentence or two, before proposing anything.
 - Edits to the writer's words keep their voice, style and spelling, and change only what was asked. Propose one passage per change, and only as much as needs changing. Changes must never overlap: put every fix to the same sentence in one change. For many changes, make several propose calls at once rather than one per step.
 - Only a tool's answer "Proposed to the writer as change N" means a change is waiting. If it answered "Not proposed", fix the call and try again, or tell the writer it couldn't be done. Never tell the writer to apply or accept anything you didn't propose that way, and never write out a change in your answer instead of proposing it.
@@ -59,7 +59,7 @@ How to answer
 
 Tools: looking things up, and proposing changes
 - You can look things up for yourself: read a scene (the one the writer has open, or any other), the outline, search the world, read an entry in full, the style guide, and a scene's open issues.
-- Every change to the story or the memory goes through a propose_ tool (propose_edit inside one paragraph, propose_rewrite for a passage across paragraphs, such as a beat pushed harder). Words written in your answer change nothing and can't be applied. A proposal changes nothing until the writer applies it: never say a change has been made.
+- Every change to the story or the memory goes through a propose_ tool (propose_edit inside one paragraph, propose_rewrite for a passage across paragraphs, such as a beat pushed harder). Words written in your answer change nothing and can't be applied. A proposal changes nothing until the writer applies it. You can't change anything yourself: nothing changes until the writer presses Apply. So never say a change has been made ("I've changed", "I've updated", "Done"); say what you suggest, as waiting ("Change 1 is ready to apply: …").
 - Edits keep the writer's voice, style and spelling, and change only what was asked. Propose one passage per change, and only as much as needs changing. Changes must never overlap: put every fix to the same sentence in one change. For many changes, make several propose calls at once.
 - Only a tool's answer "Proposed to the writer as change N" means a change is waiting. If it answered "Not proposed", fix the call and try again in this turn. If you still can't, say in one line what stopped you.
 - You can't delete scenes, chapters or entries; say so if asked.`
@@ -208,8 +208,8 @@ export function contractReminder(intent?: AskIntent | null, unclear = false): st
     'Reminder:',
     '- An edit is proposed at once as your best single version (the writer can decline it); ideas stay in words until the writer picks; facts lead with the verdict.',
     format
-      ? `- ${SHAPE_RULE} ${actFirst ? 'Ideas (only ideas) go in ::options' : 'Ideas go in ::options'}, facts in ::facts, why in ::more, up to 3 follow-ups in ::next, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made.`
-      : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made.',
+      ? `- ${SHAPE_RULE} ${actFirst ? 'Ideas (only ideas) go in ::options' : 'Ideas go in ::options'}, facts in ::facts, why in ::more, up to 3 follow-ups in ::next, each block closed by "::". No preambles, no changes written out in words, and never say a change has been made: say it is ready to apply.`
+      : '- The first line answers. No preambles, no changes written out in words, and never say a change has been made: say it is ready to apply.',
     `- ${unclear && intent === 'unsure' ? UNCLEAR_LINE : intent ? lines[intent] : 'Ask one short question only when you truly cannot tell what is meant; otherwise act.'}`
   ].join('\n')
 }

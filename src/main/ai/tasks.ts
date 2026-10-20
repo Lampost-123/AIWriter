@@ -174,6 +174,8 @@ interface Running {
   closed: boolean
   /** Not stopped when the window reloads (TaskRequest.outlivesWindow). */
   outlivesWindow: boolean
+  /** The editor chat's truth check (TaskRequest agent.settle): what is saved when the world closes is put right too. */
+  settle?: (reply: string) => string
   done: Promise<TaskResult>
 }
 
@@ -256,6 +258,7 @@ function begin(req: TaskRequest): Running {
     text: '',
     closed: false,
     outlivesWindow: !!req.outlivesWindow,
+    ...(req.agent?.settle ? { settle: req.agent.settle } : {}),
     done: Promise.resolve(null as unknown as TaskResult)
   }
   running.set(req.taskId, r)
@@ -380,7 +383,8 @@ async function stream(
     saveTimer = null
     if (r.closed || !db.open) return
     try {
-      gens.saveResponse(db, r.generationId, r.text)
+      // The editor chat's truth check is pure and cheap: the record never keeps a claim of a change, even mid-answer.
+      gens.saveResponse(db, r.generationId, req.agent?.settle ? req.agent.settle(r.text) : r.text)
     } catch (e) {
       console.error('Could not save the reply so far', e)
     }
@@ -639,8 +643,9 @@ async function stream(
         limit = step + 4
       }
     }
-    // The truth check's last word: a claim still standing is put right before anyone sees the answer as finished.
-    if (agent.settle && !r.controller.signal.aborted) {
+    // The truth check's last word: a claim still standing is put right before anyone sees the answer as finished, and
+    // before a stopped answer's text so far is saved (chat-truth R4: settle is pure, so it runs on every ending).
+    if (agent.settle) {
       const kept = agent.settle(r.text)
       if (kept !== r.text) {
         r.text = kept
@@ -781,7 +786,7 @@ export function stopTasksFor(db: DB): void {
       gens.finishGeneration(db, r.generationId, {
         status: 'stopped',
         error: null,
-        response: r.text,
+        response: r.settle ? r.settle(r.text) : r.text,
         promptTokens: null,
         completionTokens: null,
         cost: null,
