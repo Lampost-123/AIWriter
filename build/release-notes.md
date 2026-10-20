@@ -1,8 +1,9 @@
-<!-- version: 0.8.6 -->
-What's new in 0.8.6:
+<!-- version: 0.8.7 -->
+What's new in 0.8.7:
 
-- Build with AI is tidier: Your idea, Cast and world, Story line and Threads are now tabs, one at a time.
-- The tabs stay on a chapter's or a scene's page, so getting back is one click.
-- Planned chapters show straight in the story line, each with its one next step.
-- How it all connects opens as soon as your world has a character, place or lore.
-- Plan your story has its own idea box, so a new story can be planned right there.
+- Sections open and close smoothly instead of jumping: world pages, check reports, the start screen and Build with AI.
+- On the story board, a card you drop glides into its new place, and the others glide out of its way.
+- Cards and rows on the start screen, recipes and the cast give a small press when you click them.
+- The floating story list slides away when it closes, and the tour glides from one step to the next.
+- A tick draws itself when an import finishes, or when a chapter you watched the AI write is done.
+- Anything you do from the keyboard still happens at once, and Windows' animation effects setting turns it all off.
