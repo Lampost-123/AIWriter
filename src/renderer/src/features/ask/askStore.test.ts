@@ -31,7 +31,8 @@ vi.mock('@/lib/api', () => ({
       main.log.push(`stopTask:${taskId}`)
     },
     listChats: async () => [],
-    getChat: async (chatId: string) => main.chats.get(chatId) ?? []
+    getChat: async (chatId: string) => main.chats.get(chatId) ?? [],
+    setProposalStatus: async () => undefined
   },
   onEvent: (name: string, fn: (payload: unknown) => void) => {
     main.listeners.set(name, fn)
@@ -41,7 +42,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/lib/flush', () => ({ registerDiscarder: () => () => undefined }))
 
 import { setEditorBridge, type EditorBridge } from '@/lib/editorBridge'
-import { ask, howFor, newChat, openChat, pickChoice, sendBox, showStory, stopAnswer, storyOfChat, useAsk, type AskPlace } from './askStore'
+import { ask, howFor, newChat, openChat, pickChoice, sendBox, setProposalStatus, showStory, stopAnswer, storyOfChat, useAsk, type AskPlace } from './askStore'
 
 const place: AskPlace = { worldId: 'w', storyId: 's1', sceneId: null }
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
@@ -320,5 +321,38 @@ describe('saved notes', () => {
     main.chats.set('chat-2', [turn('g-a', note), turn('g-b')])
     await openChat('chat-2')
     expect(useAsk.getState().saved).toEqual({ 'g-a': note })
+  })
+})
+
+describe('a change saved as started when the app closed mid-run (chat-truth)', () => {
+  const record = (generationId: string, status: 'started' | 'applied'): AskTurn => ({
+    generationId,
+    chatId: 'chat-9',
+    question: 'Write the scene',
+    answer: 'Here’s a draft you can start.',
+    status: 'complete',
+    error: null,
+    cost: null,
+    costEstimated: false,
+    cutOff: false,
+    createdAt: '2026-10-20T10:00:00.000Z',
+    proposals: [{ id: 'p1', status, why: '', kind: 'draft', sceneId: 's', sceneLabel: 'Scene 1', mode: 'generate' } as unknown as NonNullable<AskTurn['proposals']>[number]]
+  })
+  it('reads back as waiting, so Apply shows again', async () => {
+    main.chats.set('chat-9', [record('g-old', 'started')])
+    await openChat('chat-9')
+    expect(useAsk.getState().turns[0].proposals?.[0].status).toBe('pending')
+  })
+  it('one started in this session and still running stays started', async () => {
+    useAsk.setState({ chatId: 'chat-x', turns: [record('g-now', 'applied')] })
+    await setProposalStatus('g-now', 'p1', 'started')
+    main.chats.set('chat-9', [record('g-now', 'started')])
+    await openChat('chat-9')
+    expect(useAsk.getState().turns[0].proposals?.[0].status).toBe('started')
+  })
+  it('an applied change stays applied', async () => {
+    main.chats.set('chat-9', [record('g-done', 'applied')])
+    await openChat('chat-9')
+    expect(useAsk.getState().turns[0].proposals?.[0].status).toBe('applied')
   })
 })

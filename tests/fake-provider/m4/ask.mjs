@@ -61,6 +61,8 @@ export function askReply(system, messages, model) {
   // The sloppy models (see SLOPPY below): a change asked for is claimed in words, made or not.
   const sloppy = sloppyWords(model, question, names, messages)
   if (sloppy !== null) return sloppy
+  // Moving a scene or reordering chapters (the plan requests set): no tool does it, so it says where it's done.
+  if (/\b(move scene|reorder)\b/i.test(question)) return 'I can’t move scenes or chapters from the chat. Drag them into the order you want in the Plan.'
   // A model that claims changes it never proposed (the app must say nothing came with the answer).
   if (/\bpretend\b/i.test(question))
     return proposed ? 'I proposed a tidier opening line.' : 'I’ve tidied up the opening. Apply the changes below when you’re ready.'
@@ -269,7 +271,8 @@ function scriptedCalls(system, messages, tools) {
   if (shared !== undefined) return shared
   // The Phase 4 tools (EXTRATOOLS), when offered: replace all, what is true at a point, the story so far, a version.
   const raw = users.filter((u) => !u.startsWith('[AI Write, not the writer]')).at(-1) ?? ''
-  const extra = extraCalls(raw.toLowerCase().startsWith('about this passage:') ? raw.slice(raw.lastIndexOf('\n\n') + 2) : raw, tools, called)
+  const rawTyped = raw.toLowerCase().startsWith('about this passage:') ? raw.slice(raw.lastIndexOf('\n\n') + 2) : raw
+  const extra = extraCalls(rawTyped, tools, called)
   if (extra !== undefined) return extra
   // The story tools (chat Phase 3, STORYTOOLS), when offered: issues, chapter cards and plot threads.
   const story = storyCalls(typed, messages, tools, called, last)
@@ -288,6 +291,9 @@ function scriptedCalls(system, messages, tools) {
   }
   const text = textToolCalls(typed, tools, mustRead, called)
   if (text !== undefined) return text
+  // The plan requests (scenarios-plan.ts): a scene card, a chapter's goal, length or card.
+  const plan = planCalls(rawTyped, tools, called, last)
+  if (plan !== undefined) return plan
   // ("Push … harder" is the rewrite across paragraphs below, through propose_changes when that is the tool offered.)
   if (offered(tools, 'propose_changes') && !/\bpush\b/.test(typed) && /\b(drags|punch|sort|angrier|harder|flat|both|second one|go ahead|do it|do that|option \d)\b|^yes\b/.test(typed.trim())) {
     if (called('propose_changes')) return null
@@ -375,6 +381,39 @@ function storyCalls(typed, messages, tools, called, last) {
     return [{ name: 'list_issues', arguments: { scope: 'story' } }]
   }
   return undefined
+}
+
+/**
+ * The plan requests (chat-truth, scenarios-plan.ts), only when the tools are offered (plumbing only, never a score):
+ *   "this scene's card: the goal should be X"   a card change of the open scene's goal
+ *   "chapter N's goal to: X"                    chapter_card, then a chapter_card change of its goal
+ *   "chapter N about 4,000 words"               chapter_card, then a chapter_card change of its length
+ *   "chapter N's chapter card: the mood should be X"   chapter_card, then a chapter_card change of its mood
+ * Returns the calls to send, null to answer in words, or undefined when none of these fits.
+ */
+function planCalls(typed, tools, called, last) {
+  const change = planChange(typed)
+  if (!change) return undefined
+  if (called('propose_changes') || called('propose_scene_card') || called('propose_chapter_card')) return null
+  if (change.kind === 'card') return offered(tools, 'propose_changes') || offered(tools, 'propose_scene_card') ? [storyChange(tools, 'card', 'propose_scene_card', change.args)] : undefined
+  if (!offered(tools, 'chapter_card')) return undefined
+  if (!called('chapter_card')) return [{ name: 'chapter_card', arguments: { chapter: change.args.chapter } }]
+  if (last?.role !== 'tool') return null
+  return [storyChange(tools, 'chapter_card', 'propose_chapter_card', change.args)]
+}
+
+/** The plan change a question asks for (its words as typed, case kept), as a kind and its arguments, or null. */
+function planChange(typed) {
+  const t = typed.trim()
+  const goal = /\bscene['’]?s? card\b.*?\bgoal should be (?:that )?([^.!?]+)/i.exec(t)
+  if (goal) return { kind: 'card', args: { goal: goal[1].trim(), why: 'As asked.' } }
+  const chGoal = /\bchapter (\d+)['’]?s? goal to:? ([^!?]+?)\.?$/i.exec(t)
+  if (chGoal) return { kind: 'chapter_card', args: { chapter: `Ch ${chGoal[1]}`, goal: chGoal[2].trim(), why: 'As asked.' } }
+  const len = /\bchapter (\d+) (?:about |around )?([\d,]+) words\b/i.exec(t)
+  if (len) return { kind: 'chapter_card', args: { chapter: `Ch ${len[1]}`, length: Number(len[2].replace(/,/g, '')), why: 'As asked.' } }
+  const mood = /\bchapter (\d+)['’]?s? chapter card\b.*?\bmood should be ([^.!?]+)/i.exec(t)
+  if (mood) return { kind: 'chapter_card', args: { chapter: `Ch ${mood[1]}`, mood: mood[2].trim(), why: 'As asked.' } }
+  return null
 }
 
 /**
@@ -489,7 +528,14 @@ function legacyCalls(question, nudged, { toolResults, tools, seen, mustRead, fre
 //   fake/bad-field            proposes an entry change with a field the entry hasn't got ("Favourite colour"); told the
 //                             fields, it proposes again with `eyes`, then says what it did
 //   fake/sloppy               every other change asked for (a question of even length) as fake/claims, else as fake/chat
-const SLOPPY = new Set(['fake/claims', 'fake/claims-stubborn', 'fake/claims-no-toolchoice', 'fake/bad-proposal', 'fake/bad-field', 'fake/sloppy'])
+//   fake/claims-wordy         as fake/claims, in the wordings the old check missed (chat-truth audit): "Plan updated.",
+//                             "## Changes made", "The goal now reads…", "I've made the opening punchier", "I made scene 3
+//                             come before scene 2"; on the plan requests (scenarios-plan.ts) it proposes the open scene's
+//                             card at once but claims the cards of two scenes, proposes a chapter card at once and says
+//                             "Done — I've updated the chapter card." (a change only waiting, said as made), and claims a
+//                             goal or length in words until noted back or forced; it never claims moving or reordering
+//                             truly (there is no tool), only in words
+const SLOPPY = new Set(['fake/claims', 'fake/claims-stubborn', 'fake/claims-no-toolchoice', 'fake/bad-proposal', 'fake/bad-field', 'fake/sloppy', 'fake/claims-wordy'])
 
 const CHANGE =
   /\b(fix|tighten|change|make|push|cut|add|update|rename|rewrite|shorten|drags|punch|sort|angrier|harder|flat|darker|trim|edit|revise|polish|improve|redo|swap|replace|move|set|lengthen|expand|sharpen|reword|rephrase|do it|do that|go ahead|option \d)\b|^yes\b/i
@@ -508,7 +554,7 @@ const typedOf = (q) => {
 function sloppyOn(model, question) {
   if (!SLOPPY.has(model)) return false
   const typed = typedOf(question).trim()
-  if (!CHANGE.test(typed)) return false
+  if (!CHANGE.test(typed) && !(model === 'fake/claims-wordy' && /\breorder\b/.test(typed))) return false
   return model !== 'fake/sloppy' || typed.length % 2 === 0
 }
 
@@ -525,7 +571,38 @@ const namedEntry = (system) => headed([...sections(system)].find(([title]) => ti
 function proposeCall(tools, change) {
   if (offered(tools, 'propose_changes')) return changesCall(tools, [change])
   const { kind, ...rest } = change
-  return { name: kind === 'entry' ? 'propose_entry_change' : 'propose_edit', arguments: rest }
+  const tool = { entry: 'propose_entry_change', card: 'propose_scene_card', chapter_card: 'propose_chapter_card' }[kind] ?? 'propose_edit'
+  return { name: tool, arguments: rest }
+}
+
+/**
+ * fake/claims-wordy's calls on the plan requests (see SLOPPY): the calls, null to answer in words, or undefined to go
+ * on as fake/claims does (any other change asked for).
+ */
+function wordyCalls(typed, messages, tools, forced) {
+  const move = /\b(move scene|reorder)\b/.test(typed)
+  if (move) return null
+  const change = planChange(typed)
+  if (!change) return undefined
+  if (proposedIn(messages) || messages[messages.length - 1]?.role === 'tool') return null
+  const now = change.kind === 'card' || 'mood' in change.args
+  if (!now && !forced && !notedBack(messages)) return null
+  return [proposeCall(tools, { kind: change.kind, ...change.args })]
+}
+
+/** fake/claims-wordy's words (see SLOPPY). */
+function wordyWords(typed, who, messages) {
+  const proposed = proposedIn(messages)
+  if (/\bmove scene\b/.test(typed)) return 'I made scene 3 come before scene 2.'
+  if (/\breorder\b/.test(typed)) return 'I’ve made chapter 3 the opening chapter.'
+  const change = planChange(typed)
+  if (change?.kind === 'card') return 'I’ve updated the cards for Ch 2, Sc 1 and Ch 2, Sc 2.'
+  if (change && 'mood' in change.args) return 'Done — I’ve updated the chapter card.'
+  if (change && 'goal' in change.args) return proposed ? 'Done — I’ve updated the chapter goal.' : 'Plan updated. The goal now reads: Ilse learns who took the barrels.'
+  if (change) return proposed ? 'Plan updated.' : '## Changes made\n- Chapter 2 length: about 4,000 words'
+  if (ENTRYISH.test(typed)) return proposed ? `Done — I’ve updated ${who}’s entry.` : `${who}’s entry now reads: green eyes.`
+  if (proposed) return 'Done — I’ve updated the opening line.'
+  return ['I’ve made the opening punchier.', '## Changes made\n- The opening line is shorter and sharper.', 'Here’s what I did: the opening line now reads tighter.'][typed.length % 3]
 }
 
 /** A sloppy model's tool calls: the calls, null to answer in words, or undefined when it isn't being sloppy here. */
@@ -536,6 +613,10 @@ function sloppyCalls(model, system, messages, tools, toolChoice) {
   const last = messages[messages.length - 1]
   const results = messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? ''))
   if (model === 'fake/claims-stubborn') return null
+  if (model === 'fake/claims-wordy') {
+    const calls = wordyCalls(typedOf(question), messages, tools, forced)
+    if (calls !== undefined) return calls
+  }
   if (model === 'fake/bad-proposal') {
     if (last?.role === 'tool') return null
     return [proposeCall(tools, { kind: 'edit', find: 'The lighthouse keeper sang to the gulls.', replace: 'The lighthouse keeper SANG to the gulls.', why: 'Livelier.' })]
@@ -565,6 +646,7 @@ function sloppyCalls(model, system, messages, tools, toolChoice) {
 function sloppyWords(model, question, names, messages) {
   if (!sloppyOn(model, question)) return null
   const who = names[0] ?? 'Mara'
+  if (model === 'fake/claims-wordy') return wordyWords(typedOf(question).trim(), who, messages)
   const entry = model === 'fake/bad-field' || ENTRYISH.test(typedOf(question))
   if (proposedIn(messages)) return entry ? `I’ve updated ${who}’s entry: the eyes are green now.` : 'I’ve proposed the change: it’s ready to apply.'
   // Told it was asked a question, not for a change (the truth check's note), it offers the change in words.

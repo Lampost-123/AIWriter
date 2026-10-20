@@ -21,7 +21,8 @@ import type { Node as PMNode, Schema } from '@tiptap/pm/model'
 import type { AgentStep } from '@shared/types'
 import type { Proposal } from '@shared/contracts/ask'
 import { CHAT_SWITCHES, chatSwitchOn, chatSwitchVar } from '@shared/askIntent'
-import { claimsUnmade } from '@shared/askTruth'
+// This checkout's truth check, never --root's: the same judge for every run (score.ts unmade).
+import { checkClaims } from '../../src/shared/askTruth'
 import { appEvents } from '../traps/fakeElectron'
 import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
@@ -356,7 +357,9 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
         providerName = `file bridge (${cfg.bridgeDir}): a stand-in, not a real model`
         settings.updateSettings({ models: { writer: { providerId: p.id, modelId: model, label: model, ...big } } } as never)
       } else if (cfg.backend === 'deepseek') {
-        const p = providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: DEEPSEEK.baseUrl, apiKey: cfg.apiKey! })
+        // CHAT_EVAL_DEEPSEEK_URL: the same models through another OpenAI-compatible address.
+        const baseUrl = process.env.CHAT_EVAL_DEEPSEEK_URL?.trim() || DEEPSEEK.baseUrl
+        const p = providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl, apiKey: cfg.apiKey! })
         const id = cfg.model ?? DEEPSEEK.model
         spend.cap = cfg.maxUsd!
         spend.priceIn = DEEPSEEK.priceIn
@@ -636,8 +639,8 @@ export interface TurnResult {
   /** The intent the app recorded on the turn (params.intent), when it records one. */
   intent?: string | null
   /**
-   * The answer as kept claims a change none of its proposals is (shared/askTruth.ts, the truth check): it said it
-   * edited, changed or proposed something it didn't. Older reports lack it (the score reads it again from the answer).
+   * The answer as kept claims a change none of its proposals is, or says a change only waiting was made (shared/askTruth.ts,
+   * the truth check, this checkout's). Older reports lack it (the score reads it again from the answer).
    */
   claimsUnmade?: boolean
 }
@@ -789,7 +792,7 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
         : (params.steps ?? []).map((st) => ({ name: st.tool, arguments: st.arguments })),
       forced: sent.map((r) => forcedChoice(r.body.tool_choice)).filter((c): c is string => !!c),
       intent: typeof params.intent === 'string' ? params.intent : null,
-      claimsUnmade: claimsUnmade(row?.response ?? '', proposals)
+      claimsUnmade: checkClaims(row?.response ?? '', proposals).some((c) => !c.ok || (c.claim.made && !c.claim.earlier))
     })
     if (app.stopped()) break
   }

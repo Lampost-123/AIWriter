@@ -207,6 +207,20 @@ export const chatOfTurn = (generationId: ID): ID | undefined => get().turns.find
 
 // ---------- Which chat is on show ----------
 
+/** The changes started in this session (`<answer>:<change>`): a draft or in-page fix that may still be running. */
+const startedHere = new Set<string>()
+
+/**
+ * Turns as read from their records: a change saved as started that wasn't started in this session was cut short when
+ * the app closed, so it waits again (Apply shows) rather than seeming to run for ever.
+ */
+const readBack = (turns: AskTurn[]): AskTurn[] =>
+  turns.map((t) =>
+    t.proposals?.some((p) => p.status === 'started' && !startedHere.has(`${t.generationId}:${p.id}`))
+      ? { ...t, proposals: t.proposals.map((p) => (p.status === 'started' && !startedHere.has(`${t.generationId}:${p.id}`) ? { ...p, status: 'pending' as const } : p)) }
+      : t
+  )
+
 /** The notes saved this session, with those the turns' records keep (saved before a restart). */
 const withSaved = (turns: AskTurn[]): Record<ID, SavedNote> => {
   const kept = Object.fromEntries(turns.filter((t) => t.saved).map((t) => [t.generationId, t.saved as SavedNote]))
@@ -225,7 +239,7 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
     const chats = await api.listChats(place.storyId)
     if (get().storyKey !== key) return
     const last = chats[0]
-    const turns = last ? await api.getChat(last.chatId) : []
+    const turns = readBack(last ? await api.getChat(last.chatId) : [])
     if (get().storyKey !== key) return
     rememberOptions(turns)
     set({ chats, chatId: last?.chatId ?? null, turns, loading: false, saved: withSaved(turns) })
@@ -236,6 +250,8 @@ export async function showStory(place: Pick<AskPlace, 'worldId' | 'storyId'>, ag
 
 /** The editor chat: what Adam made of a proposed change, shown at once and kept with the answer. */
 export async function setProposalStatus(generationId: ID, proposalId: string, status: ProposalStatus): Promise<void> {
+  if (status === 'started') startedHere.add(`${generationId}:${proposalId}`)
+  else startedHere.delete(`${generationId}:${proposalId}`)
   set({
     turns: get().turns.map((t) =>
       t.generationId === generationId && t.proposals
@@ -259,7 +275,7 @@ export async function openChat(chatId: ID): Promise<void> {
   stopAnswer()
   const key = get().storyKey
   try {
-    const turns = await api.getChat(chatId)
+    const turns = readBack(await api.getChat(chatId))
     if (get().storyKey !== key) return
     rememberOptions(turns)
     set({ chatId, turns, running: null, loadError: null, saved: withSaved(turns) })

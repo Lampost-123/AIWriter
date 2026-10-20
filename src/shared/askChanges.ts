@@ -35,7 +35,7 @@ export const asksForChanges = (question: string): boolean =>
  * True when an answer clearly says it made or proposed changes, or hands over rewritten words: these patterns, or any
  * claim the truth check reads (shared/askTruth.ts: "I've updated Mara's entry", "the change is ready", "Done.").
  */
-export const claimsChanges = (answer: string): boolean => CLAIMS.some((re) => re.test(answer)) || changeClaims(answer).length > 0
+export const claimsChanges = (answer: string): boolean => CLAIMS.some((re) => re.test(answer)) || changeClaims(answer).some((c) => !c.earlier)
 
 /** Sent back to a model whose answer claims changes it never proposed (once). */
 export const PROPOSE_NOW =
@@ -67,7 +67,7 @@ export function contractLastWords(proposed: string[], intent?: AskIntent | null,
   const turned = failure ? ` A proposal was turned down: ${failure.replace(/\s+/g, ' ').trim().slice(0, 300)}` : ''
   if (proposed.length) {
     const list = proposed.map((id) => `change ${id}`).join(', ')
-    return `${AI} No more tools can be used for this answer. Proposed: ${list}. Answer the writer now: the first line says how many changes are ready; mention only these and don't repeat them in words. If something you meant to change is missing, say in one line what stopped it.${turned}`
+    return `${AI} No more tools can be used for this answer. Proposed: ${list}. Answer the writer now: the first line says how many changes are ready to apply (never that anything was changed: nothing changes until the writer applies it); mention only these and don't repeat them in words. If something you meant to change is missing, say in one line what stopped it.${turned}`
   }
   const stop = "nothing was proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything, don't say you changed or proposed anything, and don't write a change out in words."
   if (intent === 'answer' || intent === 'brainstorm') return `${AI} No more tools can be used for this answer. Answer the writer now from what you have found; ${stop}${turned}`

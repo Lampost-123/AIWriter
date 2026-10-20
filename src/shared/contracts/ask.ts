@@ -103,8 +103,11 @@ export interface ParaAnchor {
 /** How a proposed draft is written (propose_draft, lab switch DRAFT): the writer's own jobs. */
 export type DraftMode = 'generate' | 'add_below' | 'continue' | 'redo_beat'
 
-/** What Adam made of a proposed change. */
-export type ProposalStatus = 'pending' | 'applied' | 'declined'
+/**
+ * What Adam made of a proposed change. 'started': a draft or an in-page issue fix that is being written (or waits for
+ * Accept in the page); it turns 'applied' when it lands, or back to 'pending' when it fails, is stopped or rejected.
+ */
+export type ProposalStatus = 'pending' | 'started' | 'applied' | 'declined'
 
 /**
  * The parts of a scene card the editor chat may propose. The point of view, the characters present and the location
@@ -175,6 +178,8 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       patch: CardProposal
       /** The names the point of view, characters present and location stand for (STORYTOOLS), as the card shows them. */
       names?: PartChange[]
+      /** The parts it changes as the card had them when proposed: Apply turns down a card changed since (once). */
+      before?: CardProposal
     }
   | {
       /**
@@ -209,6 +214,13 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       patch: Partial<ChapterCard>
       lines: PartChange[]
       scenes: number
+      /**
+       * The chapter's goal as it would be (chat-truth R5): written to the chapter itself (updateChapter), not its card.
+       * The chapter's length is `patch.totalWords`. Left out: the goal stays.
+       */
+      goal?: string
+      /** The parts it changes (and the goal) as they were when proposed: Apply turns down a chapter changed since (once). */
+      before?: Partial<Omit<ChapterCard, 'totalWords'>> & { goal?: string; totalWords?: number | null }
     }
   | {
       /**

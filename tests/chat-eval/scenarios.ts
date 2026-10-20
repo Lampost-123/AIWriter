@@ -7,13 +7,14 @@
 // bit"), question (6 questions and brainstorms: must NOT propose), ambiguous (4: should ask one question first),
 // followup (4 two-turn follow-ups: "option 2", "yes"). These 40 are the "core" set; real.ts holds the "real" set
 // (Phase 1: long chats, a big briefing, vague phrasing, follow-ups, "write the next bit", questions saying "change").
-// --scenarios core (the default) | real | all | subset | E01,R05,...
+// --scenarios core (the default) | real | plan | all | subset | E01,R05,...
 
 import { askAboutQuote, SCENES, vigilParagraphs } from './world'
 import { REAL } from './real'
 import { P3TEXT } from './scenarios-p3text'
 import { P3STORY } from './scenarios-p3story'
 import { P4 } from './scenarios-p4'
+import { PLAN } from './scenarios-plan'
 
 export type Group =
   | 'edit'
@@ -30,6 +31,7 @@ export type Group =
   | 'p3-text'
   | 'p3-story'
   | 'p4-extra'
+  | 'plan'
 
 /** What should happen at a turn. */
 export type Outcome =
@@ -199,13 +201,13 @@ export const CORE: Scenario[] = [
 
 /**
  * Every scenario: the core 40, the real set, then Phase 3's text tools (scenarios-p3text.ts) and story tools
- * (scenarios-p3story.ts), and Phase 4's (scenarios-p4.ts).
+ * (scenarios-p3story.ts), Phase 4's (scenarios-p4.ts) and the plan requests (scenarios-plan.ts).
  */
-export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3TEXT, ...P3STORY, ...P4]
+export const SCENARIOS: Scenario[] = [...CORE, ...REAL, ...P3TEXT, ...P3STORY, ...P4, ...PLAN]
 
 /**
  * The scenarios a --scenarios value names: core (also the default), real, p3 (both Phase 3 sets), p3text, p3story,
- * p4, all, subset, or ids.
+ * p4, plan, all, subset, or ids.
  */
 export function pickScenarios(only: string[] | null): Scenario[] {
   if (!only?.length) return CORE
@@ -216,6 +218,7 @@ export function pickScenarios(only: string[] | null): Scenario[] {
     P3TEXT,
     P3STORY,
     P4,
+    PLAN,
     ALL: SCENARIOS,
     SUBSET: CORE.filter((s) => SUBSET.includes(s.id))
   }

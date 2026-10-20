@@ -39,7 +39,9 @@ describe('Update the plan', () => {
     setCard(db, s2, { when: 'Day 1, morning', goal: 'Wren climbs the tower.', beats: ['She counts the steps'] })
     const events: { name: keyof AppEvents }[] = []
     const emit: Emit = (name) => void events.push({ name })
-    const { generationId } = startPlanUpdate({ db, model: model(), emit }, { taskId: 'u1', storyId: story.id, sceneIds: [s2, s1] })
+    const { generationId, sceneIds } = startPlanUpdate({ db, model: model(), emit }, { taskId: 'u1', storyId: story.id, sceneIds: [s2, s1] })
+    // The scenes it really asked about, in the order of the cards it asked for (chat truth R10): the written one isn't.
+    expect(sceneIds).toEqual([s2])
     const t0 = Date.now()
     while (!events.some((e) => e.name === 'task:done')) {
       if (Date.now() - t0 > 10_000) throw new Error('The job never finished')

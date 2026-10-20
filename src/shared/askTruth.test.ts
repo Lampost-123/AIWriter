@@ -137,10 +137,10 @@ describe('honestReply: a claim never shown as made', () => {
     )
     expect(claimsUnmade(out, [])).toBe(false)
   })
-  it('keeps nothing of an answer that was only a claim but the plain line', () => {
+  it('drops “Done.” and keeps a summary list as what it suggests, said plainly', () => {
     const answer = 'Done.\n\n- Tightened the opening\n- Reworded the second sentence'
     const out = honestReply(answer, unbackedClaims(answer, []), { proposed: [] })
-    expect(out).toBe(`${NO_CHANGE_LEAD}, so there’s nothing to apply.`)
+    expect(out).toBe(`${NO_CHANGE_LEAD}, so there’s nothing to apply. Here’s what I’d suggest:\n\n- Tighten the opening\n- Reword the second sentence`)
   })
   it('with some changes proposed, says which are ready and that nothing else was changed', () => {
     const answer = 'I’ve tightened the opening. I’ve also updated Mara’s entry.'

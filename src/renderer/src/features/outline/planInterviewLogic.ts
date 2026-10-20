@@ -84,3 +84,16 @@ export function askingLine(kind: 'scene' | 'chapter', number: number): string {
   if (number > 1) return 'Thinking of the next question…'
   return kind === 'scene' ? 'Reading the scene card…' : 'Reading the chapter…'
 }
+
+/** The toast when filling the card was stopped before anything was put in. */
+export const STOPPED_FILL = 'Stopped. Nothing on the scene card was changed.'
+
+/** Longest suggested goal quoted in the toast; a longer one would crowd it out. */
+const QUOTED_GOAL = 80
+
+/** The toast when a chapter's plan came with a goal but the chapter already had one, which stays. */
+export function keptGoalMessage(suggested: string): string {
+  const goal = suggested.replace(/\s+/g, ' ').trim()
+  const kept = 'The plan suggested a goal, but the chapter already has one, so it was kept.'
+  return goal && goal.length <= QUOTED_GOAL ? `${kept} The plan’s goal was: “${goal}”.` : kept
+}

@@ -145,6 +145,27 @@ const snapshotLabels = new Map<ID, string>()
  */
 const outside = new Map<ID, { stop: () => void; gone?: (reason: GoneReason | 'scene') => void }>()
 
+/** How many ended changes are remembered (changeEnded): enough for any chat card still waiting on one. */
+const ENDED_KEPT = 50
+/**
+ * How the latest changes ended, by id, so a part waiting on one (the chat's Apply, ask/applyDraft.ts) hears how it went
+ * even once the page has moved on (another scene opened straight after Accept or Reject).
+ */
+const ended = new Map<ID, GoneReason | 'scene'>()
+
+function endedAs(id: ID, reason: GoneReason | 'scene'): void {
+  ended.delete(id)
+  ended.set(id, reason)
+  while (ended.size > ENDED_KEPT) {
+    const oldest = ended.keys().next().value
+    if (oldest === undefined) break
+    ended.delete(oldest)
+  }
+}
+
+/** How the change `id` ended (accepted, rejected, dropped...), or null when it hasn't (or ended too long ago). */
+export const changeEnded = (id: ID): GoneReason | 'scene' | null => ended.get(id) ?? null
+
 /** Tells the part writing a change from outside that it went, once. */
 function tellGone(id: ID, reason: GoneReason | 'scene'): void {
   const o = outside.get(id)
@@ -165,6 +186,12 @@ const current = (): Suggestion | null => {
 
 /** The suggestion waiting in the page, if any. */
 export const waitingSuggestion = current
+
+/**
+ * The change `id` is still here: in the page, being written, or kept for its scene while Adam is in another. False once
+ * it is accepted, rejected or dropped (another scene opened on a ready change, the page closed...).
+ */
+export const changeAlive = (id: ID): boolean => live?.taskId === id || outside.has(id) || current()?.id === id
 
 /** The interface's part: moving the keyboard to Alternatives' versions, and showing the suggestion. */
 export function setLayerHooks(h: typeof hooks): void {
@@ -192,8 +219,10 @@ export function attachEditor(e: Editor): () => void {
     if (editor !== e) return
     // The page is going (another world, or the window closing): a change still being written stops.
     if (live && !live.ended) void api.stopTask(live.taskId).catch(noop)
+    if (live) endedAs(live.taskId, 'scene')
     clearLive()
     for (const [id, o] of [...outside]) {
+      endedAs(id, 'scene')
       o.stop()
       tellGone(id, 'scene')
     }
@@ -226,6 +255,7 @@ function sceneName(sceneId: ID): string {
 /** Stops the change kept for a scene Adam left, and forgets it. */
 function letGoAway(l: Live): void {
   if (!l.ended) void api.stopTask(l.taskId).catch(noop)
+  endedAs(l.taskId, 'scene')
   if (live === l) clearLive()
 }
 
@@ -292,6 +322,7 @@ function notice(why: 'scene' | null = null): void {
       // Another scene opened while the AI writes the change: it goes on, and shows again when Adam is back (backInScene).
       l.away = true
     } else {
+      endedAs(id, reason)
       if (l) {
         if (!l.ended) void api.stopTask(id).catch(noop)
         clearLive()
@@ -325,6 +356,7 @@ function patch(id: ID, p: Partial<Suggestion>): void {
 
 /** Takes the suggestion away without keeping it (nothing came, or it couldn't start). */
 function drop(id: ID): void {
+  endedAs(id, 'cleared')
   if (live?.taskId === id) clearLive()
   if (known === id) known = null
   tellGone(id, 'cleared')
@@ -785,6 +817,7 @@ export async function accept(id?: ID): Promise<void> {
     toast('The new words couldn’t be put in. Try Accept again.')
     return
   }
+  endedAs(s.id, 'accepted')
   if (live?.taskId === s.id) clearLive()
   known = null
   outside.delete(s.id)
@@ -919,6 +952,7 @@ export function reject(id?: ID, how: 'button' | 'key' | 'undo' = 'button'): void
   const kept = s.versions ? s.versions.some((x) => x.trim()) : !!s.text.trim()
   if (live?.taskId === s.id && !live.ended) void api.stopTask(s.id).catch(noop)
   if (writing) outside.get(s.id)?.stop()
+  endedAs(s.id, 'rejected')
   if (live?.taskId === s.id) clearLive()
   known = null
   tellGone(s.id, 'rejected')
@@ -954,6 +988,8 @@ export function restore(): void {
   }
   v.dispatch(tr)
   known = current()?.id ?? null
+  // Back in the page: it hasn't ended after all.
+  if (known) ended.delete(known)
   dropRejectedToast()
   if (useApp.getState().view.kind === 'write') v.focus()
   hooks?.reveal()

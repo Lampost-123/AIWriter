@@ -241,6 +241,49 @@ describe('chapter cards', () => {
     expect(changes(agent, { kind: 'chapter_card', chapter: 'Ch 2', mood: 'Calm', why: 'x' })).toMatch(/already says that/)
   })
 
+  it('proposes the chapter’s goal and its length, keeping what they said; turns down an empty goal, a silly length and no change (R5)', () => {
+    switchOn('TOOLCHOICE', 'STORYTOOLS')
+    const w = world()
+    repo.updateChapter(w.db, w.ch1, { goal: 'Get to the ford.' })
+    const { agent } = agentAt(w)
+    const out = changes(agent, { kind: 'chapter_card', chapter: 'Ch 1', goal: ' Reach the ford before the tide. ', length: 4000, why: 'As asked.' })
+    expect(out).toMatch(/^Proposed to the writer: 1 of 1/)
+    expect(out).toContain('only the chapter changes')
+    const p = last(agent) as Extract<Proposal, { kind: 'chapterCard' }>
+    expect(p).toMatchObject({ kind: 'chapterCard', chapterId: w.ch1, goal: 'Reach the ford before the tide.', patch: { totalWords: 4000 }, scenes: 0 })
+    expect(p.before).toStrictEqual({ goal: 'Get to the ford.', totalWords: null })
+    expect(p.lines).toEqual([
+      { label: 'What the chapter achieves', from: 'Get to the ford.', to: 'Reach the ford before the tide.' },
+      { label: 'Length of the chapter', from: '', to: '4,000 words' }
+    ])
+    // A length as written ("4,500 words") is read as its number.
+    expect(changes(agent, { kind: 'chapter_card', chapter: 'Ch 2', length: '4,500 words', why: 'x' })).toMatch(/^Proposed/)
+    expect(last(agent)).toMatchObject({ patch: { totalWords: 4500 } })
+    expect(changes(agent, { kind: 'chapter_card', chapter: 'Ch 2', goal: '   ', why: 'x' })).toMatch(/Not proposed.*goal in words/)
+    for (const length of [50, 900_000, 'lots'])
+      expect(changes(agent, { kind: 'chapter_card', chapter: 'Ch 2', length, why: 'x' }), String(length)).toMatch(/Not proposed.*between 500 and 200,000 words/)
+    repo.saveChapterCard(w.db, w.ch2, { ...repo.getChapterCard(w.db, w.ch2), totalWords: 3000 })
+    repo.updateChapter(w.db, w.ch2, { goal: 'Ring the bell.' })
+    expect(changes(agent, { kind: 'chapter_card', chapter: 'Ch 2', goal: 'Ring the bell.', length: 3000, why: 'x' })).toMatch(/already says that, so there’s nothing to change/)
+  })
+
+  it('records what a card said when proposed, for Apply’s changed-since check', () => {
+    switchOn('TOOLCHOICE', 'STORYTOOLS')
+    const w = world()
+    repo.saveChapterCard(w.db, w.ch1, { ...repo.getChapterCard(w.db, w.ch1), mood: 'Grey' })
+    repo.updateSceneCard(w.db, w.sc1, { ...repo.getScene(w.db, w.sc1).card, goal: 'Old goal.' })
+    const { agent } = agentAt(w)
+    changes(agent, { kind: 'chapter_card', chapter: 'Ch 1', mood: 'Tense', why: 'x' })
+    expect((last(agent) as Extract<Proposal, { kind: 'chapterCard' }>).before).toEqual({ mood: 'Grey' })
+    changes(agent, { kind: 'card', goal: 'New goal.', pov: 'Bram', why: 'x' })
+    expect((last(agent) as Extract<Proposal, { kind: 'card' }>).before).toEqual({ goal: 'Old goal.', povId: null })
+    // The plain propose_scene_card (the story tools off) records it too, as the card reads (its mood follows the chapter's).
+    switchOn()
+    const plain = agentAt(w).agent
+    call(plain, 'propose_scene_card', { goal: 'Newer goal.', mood: 'Wet', why: 'x' })
+    expect((last(plain) as Extract<Proposal, { kind: 'card' }>).before).toEqual({ goal: 'Old goal.', mood: 'Grey' })
+  })
+
   it('lets a scene card change set the point of view and who is present by name', () => {
     switchOn('TOOLCHOICE', 'STORYTOOLS')
     const w = world()

@@ -7,10 +7,10 @@
 import type Database from 'better-sqlite3'
 import type { AskChoice, CardProposal, DraftMode, EntryProposal, ParaAnchor, Proposal } from '@shared/contracts/ask'
 import type { AskIntent } from '@shared/askIntent'
-import { claimWords, honestReply, unbackedClaims, writerReason, type Claim } from '@shared/askTruth'
+import { changeTarget, claimWords, settleAnswer, unbackedClaims, writerReason, type ChangeTarget, type Claim } from '@shared/askTruth'
 import { effectiveStyle } from '@shared/style'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
-import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
+import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, SceneCard, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
 import { argSummary, changesSummary, counted, shortReason, toolKind, type ToolActivity, type ToolKind, type ToolStatus } from '@shared/toolActivity'
 import type { SearchHit } from '@shared/contracts/search'
 import type { AppearanceHow } from '@shared/contracts/entryViews'
@@ -796,6 +796,11 @@ export interface AgentPlace {
   unclear?: boolean
   /** The open world's History (compare_version, EXTRATOOLS); left out or null, there are no earlier versions to read. */
   history?: SnapshotSource | null
+  /**
+   * The proposals of the chat's earlier answers, with what the writer made of each (chat-truth R3): a claim in this
+   * answer about an earlier change ("as I changed earlier") stands only when that change was applied.
+   */
+  earlier?: Proposal[]
 }
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
@@ -1364,7 +1369,7 @@ export class EditorAgent {
   lastWords(): string {
     const list = this.proposals.map((p) => `change ${p.id}`).join(', ')
     return this.proposals.length
-      ? `[AI Write, not the writer] No more tools can be used for this answer. Proposed so far: ${list}. Answer the writer now, mentioning only these; if you meant to propose more, say what they would be and that the writer can ask for them.`
+      ? `[AI Write, not the writer] No more tools can be used for this answer. Proposed so far: ${list}. Answer the writer now, mentioning only these, as ready to apply (never as made: nothing changes until the writer applies them); if you meant to propose more, say what they would be and that the writer can ask for them.`
       : "[AI Write, not the writer] No more tools can be used for this answer, and no changes were proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything. Answer now; if you meant to propose changes, say what they would be and that the writer can ask again."
   }
 
@@ -1383,7 +1388,8 @@ export class EditorAgent {
    */
   recheck(reply: string): string | null {
     if (this.truthSent || this.choice) return null
-    const claims = unbackedClaims(reply, this.proposals)
+    // Claims about an earlier answer's change are left to settle: nothing proposed now makes them true.
+    const claims = unbackedClaims(reply, this.targets())
     if (!claims.length) return null
     this.truthSent = true
     this.mustCall = this.truthTool(claims)
@@ -1391,15 +1397,40 @@ export class EditorAgent {
   }
 
   /**
-   * The reply as Adam sees it (ai/tasks.ts settle): any claim of a change still not made is put right in plain words
-   * (shared/askTruth.ts honestReply), with why, when a check turned the change down. Never an AI call.
+   * The reply as Adam sees it (ai/tasks.ts settle, on every ending: finished, stopped, a question for the writer, and the
+   * saves while it streams): any claim of a change not proposed is put right in plain words, with why when a check
+   * turned the change down; a claim a proposal backs is said as waiting, since nothing in the chat is applied by it; a
+   * claim about an earlier change stands only if the writer applied it (shared/askTruth.ts settleAnswer). The question
+   * the answer ended with (ask_user) is kept whole. Pure: never an AI call.
    */
   settle(reply: string): string {
-    if (this.choice) return reply
-    const claims = unbackedClaims(reply, this.proposals)
-    if (!claims.length) return reply
+    const closing = this.ended()
+    const ends = !!closing && reply.endsWith(closing)
+    const words = ends && closing ? reply.slice(0, reply.length - closing.length) : reply
     const failed = this.lastFailure()
-    return honestReply(reply, claims, { proposed: this.proposals.map((p) => p.id), failure: failed ? writerReason(failed) : null })
+    const settled = settleAnswer(words.replace(/\s+$/, ''), this.targets(), {
+      failure: failed ? writerReason(failed) : null,
+      earlier: this.place.earlier?.map(changeTarget) ?? []
+    })
+    if (!ends) return settled === words.replace(/\s+$/, '') ? reply : settled
+    if (settled === words.replace(/\s+$/, '')) return reply
+    return `${settled}${settled ? '\n\n' : ''}${closing}`
+  }
+
+  /** What this answer's proposals change, for the truth check: with each scene's number in the story too. */
+  private targets(): ChangeTarget[] {
+    let order: ID[] = []
+    try {
+      order = this.place.storyId ? this.outline().scenes.map((s) => s.id) : []
+    } catch {
+      order = []
+    }
+    return this.proposals.map((p) => {
+      const t = changeTarget(p)
+      const sceneId = 'sceneId' in p ? p.sceneId : null
+      const n = sceneId ? order.indexOf(sceneId) : -1
+      return n >= 0 && t.scenes?.length ? { ...t, scenes: t.scenes.map((s) => ({ ...s, inStory: n + 1 })) } : t
+    })
   }
 
   /**
@@ -1415,7 +1446,7 @@ export class EditorAgent {
     if (this.switches.toolChoice) return 'propose_changes'
     if (targets.size !== 1) return null
     const only = [...targets][0]
-    return only === 'entry' ? 'propose_entry_change' : only === 'card' ? 'propose_scene_card' : only === 'title' ? 'propose_rename' : only === 'words' ? 'propose_edit' : null
+    return only === 'entry' ? 'propose_entry_change' : only === 'card' || only === 'beats' ? 'propose_scene_card' : only === 'title' ? 'propose_rename' : only === 'words' ? 'propose_edit' : null
   }
 
   /** The question may want a change: routed as an edit or unsure, or not routed (routing off). */
@@ -2699,7 +2730,10 @@ export class EditorAgent {
         if (beats) patch.beats = beats
         if (!Object.keys(patch).length) throw new Mistake('Give at least one part of the card to change.')
         const label = sceneLabelIn(this.outline(), id)
-        return [`Proposing a change to the card of ${label}`, this.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, why: text('why') })]
+        // As each part was, for Apply's changed-since check.
+        const card = repo.getScene(this.db, id).card
+        const before = Object.fromEntries(Object.keys(patch).map((k) => [k, card[k as keyof SceneCard]])) as CardProposal
+        return [`Proposing a change to the card of ${label}`, this.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, before, why: text('why') })]
       }
       case 'propose_entry_change': {
         const seen = this.entry(a.name)

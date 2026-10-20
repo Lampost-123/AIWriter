@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptySceneCard } from '@shared/defaults'
-import { fillOnCard, filledMessage, listNames, planNote, unfill } from './planInterviewLogic'
+import { fillOnCard, filledMessage, keptGoalMessage, listNames, planNote, STOPPED_FILL, unfill } from './planInterviewLogic'
 import { parseOutline } from './parse'
 import { keepPlan, outlineTree } from './tree'
 
@@ -75,5 +75,21 @@ describe('a chapter’s plan', () => {
       }
     ])
     expect(keepPlan(tree, decisions, {}, 'all').map((i) => i.kind)).toEqual(['scene', 'scene'])
+  })
+})
+
+describe('Interview me says plainly what didn’t change', () => {
+  it('says a stopped fill left the card as it was', () => {
+    expect(STOPPED_FILL).toBe('Stopped. Nothing on the scene card was changed.')
+  })
+
+  it('says the chapter’s own goal was kept, with a short suggestion quoted', () => {
+    expect(keptGoalMessage('  Mara  learns the truth ')).toBe(
+      'The plan suggested a goal, but the chapter already has one, so it was kept. The plan’s goal was: “Mara learns the truth”.'
+    )
+  })
+
+  it('leaves out a long suggestion', () => {
+    expect(keptGoalMessage('x'.repeat(200))).toBe('The plan suggested a goal, but the chapter already has one, so it was kept.')
   })
 })
