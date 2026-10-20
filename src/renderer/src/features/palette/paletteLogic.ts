@@ -275,7 +275,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'tab-context', label: 'Scene context', also: 'Scene panel › Context', keywords: 'briefing what the ai sees knows details drawer', away: toWriting, when: hasScene },
   { id: 'tab-cast', label: 'Scene cast', also: 'Scene panel › Cast', keywords: 'characters people who is in it details drawer', away: toWriting, when: hasScene },
   { id: 'tab-issues', label: 'Scene issues', also: 'Scene panel › Issues', keywords: 'problems mistakes consistency found details drawer', away: toWriting, when: hasScene },
-  { id: 'tab-critique', label: 'Scene critique', also: 'Scene panel › Critique', keywords: 'critic feedback notes craft editor details drawer', away: toWriting, when: hasScene },
+  { id: 'tab-critique', label: 'Scene critique', also: 'Issues › Craft notes', keywords: 'critic feedback notes craft editor details drawer critique', away: toWriting, when: hasScene },
   { id: 'tab-drafts', label: 'Scene drafts', also: 'Scene panel › Drafts', keywords: 'ai versions written generated details drawer', away: toWriting, when: hasScene },
   {
     id: 'settings-models',
@@ -431,8 +431,9 @@ export const ACTIONS: ActionDef[] = [
     away: true
   },
   // ----- Milestone 5 -----
-  // Checking runs in the background (a quiet line in the binder), so these stay where Adam is.
-  { id: 'check-scene', label: 'Check this scene', keywords: 'consistency issues mistakes contradictions facts ai', when: hasScene },
+  // The one Check (features/check): a scene's opens its Issues list beside the page; a chapter's or the story's runs in the
+  // background (the top bar's Check and a quiet line in the binder say how it goes), so these stay where Adam is.
+  { id: 'check-scene', label: 'Check this scene', keywords: 'consistency issues mistakes contradictions facts ai slips questions', when: hasScene },
   { id: 'check-chapter', label: 'Check this chapter', keywords: 'consistency issues mistakes contradictions facts ai', when: hasScene },
   { id: 'check-story', label: 'Check this story', keywords: 'consistency issues mistakes contradictions facts ai whole book', when: hasStory },
   {
@@ -443,7 +444,7 @@ export const ACTIONS: ActionDef[] = [
     away: true,
     when: hasStory
   },
-  // The scene and chapter critic: shown in the Critique tab, so these go to the page.
+  // The scene and chapter critic: shown in the Issues list's Craft notes, so these go to the page.
   {
     id: 'critique-scene',
     label: 'Critique this scene',

@@ -13,6 +13,9 @@
 //           memory model while left as "Same as the memory model" (which is the writer model until Adam picks one).
 //   chapter "Chapter writer" (Write the whole chapter's agent, which uses tools): its own model, or the chat and
 //           brainstorm model while left as "Same as the chat and brainstorm model" (the writer model until Adam picks one).
+//   director "Director" (Directed writing, src/main/director: short notes to the writer between stretches): its own
+//           model, or the memory model while left as "Same as the memory model" (the writer model until Adam picks one),
+//           so a stronger model can direct while a cheaper one writes.
 // Each job asks its model to think as that job's own Thinking says (Off unless Adam changes it).
 // No Electron imports: the caller passes the settings and the providers.
 
@@ -29,11 +32,11 @@ import {
 } from './errors'
 import { UserError } from '../util'
 
-export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
+export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter' | 'director'
 
-/** A job's model and how to reach it. */
+/** A job's model and how to reach it ('memory': the memory model, for the plan before writing and its look-ups). */
 export interface JobModel {
-  job: ModelJob
+  job: ModelJob | 'memory'
   target: ChatTarget & { id: ID }
   choice: ModelChoice
   /** How much the model is asked to think (the job's own Thinking in Settings › Models). */
@@ -56,7 +59,8 @@ export const MODEL_NAMES: Record<Job, string> = {
   world: 'world builder model',
   check: 'consistency check model',
   recipe: 'recipe maker model',
-  chapter: 'chapter writer model'
+  chapter: 'chapter writer model',
+  director: 'director model'
 }
 
 /** Where each job's model comes from while Adam hasn't picked one of its own, nearest first. */
@@ -67,7 +71,8 @@ const FALLBACKS: Record<ModelJob, Job[]> = {
   world: ['world', 'builder', 'writer'],
   check: ['check', 'memory', 'writer'],
   recipe: ['recipe', 'memory', 'writer'],
-  chapter: ['chapter', 'chat', 'writer']
+  chapter: ['chapter', 'chat', 'writer'],
+  director: ['director', 'memory', 'writer']
 }
 
 /** The job's model, or a plain-words UserError saying what to set up in Settings › Models. */

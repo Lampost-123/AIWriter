@@ -1,21 +1,28 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ID } from '@shared/types'
-import type { ChapterWriterProgress } from '@shared/contracts/chapterWriter'
+import type { ChapterWriterProgress, ChapterWritingPlan } from '@shared/contracts/chapterWriter'
 import { ALL_CHECKS } from '@shared/contracts/checks'
+import { writerTemperature } from '@shared/defaults'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
+import * as gens from '../db/generations'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
 import { checkScene } from '../checks/run'
 import { runCritique } from '../critique/run'
+import { loadCritique } from '../critique/store'
+import { sceneWords } from '../ask/agent'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
-import { ChapterRun, LATER_START, cardReady, type RunDeps } from './run'
-import { LOOKUPS_ALLOWED, studySystem } from './prompts'
-import { ChapterSession, type Finding } from './tools'
+import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, STATE_CHECKS, cardReady, contractMisses, issueFindings, planMisses, type RunDeps } from './run'
+import { checkChapterPlan, readChapterPlan, withAnswer } from './plan'
+import { passageFor, replyPassage } from './fix'
+import { CHAPTER_MARKER, PLAN_STEPS } from './prompts'
+import { sceneNamed } from './tools'
 import { loadBefore, loadReport } from './store'
 import { critiqueAsk } from '../critique/prompts'
+import { CHAPTER_WRITER_LIMITS } from '@shared/contracts/chapterWriter'
 
 let fake: FakeProvider
 beforeAll(async () => {
@@ -46,20 +53,21 @@ function world() {
   const s1 = outline.scenes[0].id
   repo.updateScene(db, s1, { title: 'The ferry' })
   const s2 = repo.createScene(db, chapterId, { title: 'The inn' }).id
-  repo.createEntry(db, 'character', { name: 'Mara', summary: 'Runs the ferry.' })
+  const mara = repo.createEntry(db, 'character', { name: 'Mara', summary: 'Runs the ferry.' }).id
   repo.createEntry(db, 'character', { name: 'Tobin', summary: 'A ferryman.' })
   repo.updateSceneCard(db, s1, { ...repo.getScene(db, s1).card, goal: 'Mara meets Tobin at the ferry.' })
   repo.updateSceneCard(db, s2, { ...repo.getScene(db, s2).card, beats: ['Mara finds no room at the inn.'] })
   repo.saveSceneText(db, s1, null, 'Old words in the first scene.')
-  return { db, storyId: story.id, chapterId, s1, s2 }
+  return { db, storyId: story.id, chapterId, s1, s2, mara }
 }
 
-function deps(db: RunDeps['db'], o: { again?: boolean; agent?: string; progress?: ChapterWriterProgress[] } = {}): RunDeps {
+function deps(db: RunDeps['db'], o: { agent?: string; fixer?: string; progress?: ChapterWriterProgress[] } = {}): RunDeps {
   let n = 0
   const order = new Map<ID, number>()
   return {
     db,
     agentModel: model(o.agent ?? 'fake/writer'),
+    writer: { model: model(o.fixer ?? 'fake/writer', 'writer'), temperature: writerTemperature('balanced'), topP: 0.95 },
     prefs: PREFS,
     taskEmit: () => undefined,
     progress: (p) => o.progress?.push(p),
@@ -71,15 +79,51 @@ function deps(db: RunDeps['db'], o: { again?: boolean; agent?: string; progress?
     save: (sceneId, page) => {
       repo.saveSceneText(db, sceneId, page.doc, page.text)
     },
-    check: async (sceneId) => {
-      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [] }, sceneId, ALL_CHECKS)
+    check: async (sceneId, _signal, checks = ALL_CHECKS) => {
+      const r = await checkScene({ db, model: model('fake/writer', 'check'), prefs: PREFS, stopped: () => false, retryDelays: [], together: true }, sceneId, checks)
       return r.status === 'error' ? { status: 'error', error: r.error } : { status: r.status }
     },
     critique: (target, again) =>
-      runCritique({ db, model: model('fake/writer', 'writer'), prefs: PREFS, emit: () => undefined, retryDelays: [] }, { taskId: crypto.randomUUID(), target, again: o.again === false ? false : again, by: 'chapter-writer' }),
+      runCritique({ db, model: model('fake/writer', 'writer'), prefs: PREFS, emit: () => undefined, retryDelays: [] }, { taskId: crypto.randomUUID(), target, again, by: 'chapter-writer' }),
     limitNote: () => null,
     closed: () => false,
     retryDelays: []
+  }
+}
+
+/** The run's own requests (the plan and the fixes), as kept: system prompt, first user message, and params. */
+function chapterRecords(db: RunDeps['db']) {
+  return (db.prepare("SELECT id FROM generations WHERE job = 'chapter' ORDER BY created_at").all() as { id: ID }[]).map((r) => {
+    const g = gens.getGeneration(db, r.id)
+    return { system: g.messages[0]?.content ?? '', user: g.messages[1]?.content ?? '', params: g.params }
+  })
+}
+
+/**
+ * A check that finds a slip about these words of a scene each time it reads it (the words, what it says and which check
+ * found it, as given at each read).
+ */
+function slipEachTime(
+  d: RunDeps,
+  db: RunDeps['db'],
+  storyId: ID,
+  sceneId: ID,
+  words: (k: number) => string,
+  message: (k: number) => string,
+  by: (k: number) => 'facts' | 'timeline' | 'knowledge' = () => 'facts'
+): void {
+  const check = d.check
+  let k = 0
+  d.check = async (id, signal, checks) => {
+    if (id !== sceneId) return check(id, signal, checks)
+    k++
+    cdb.saveFound(
+      db,
+      cdb.sceneIssueRows(db, sceneId),
+      [{ sceneId, storyId, kind: 'fact', severity: 'warning', quote: words(k), message: message(k), key: `k-${k}`, payload: { key: `k-${k}`, by: 'check', check: by(k) } }],
+      () => false
+    )
+    return { status: 'done' }
   }
 }
 
@@ -138,7 +182,7 @@ describe('a finding that keeps coming back', () => {
     expect(wordsOverlap('The ferry came in.', 'A ferry went out.')).toBe(false)
   })
 
-  it('is given twice at most, once when it is on words the AI wrote, and never again once set aside', () => {
+  it('is given twice at most, once when it is on words the AI wrote', () => {
     const t = new Tries()
     expect(t.verdict(f(), false)).toBe('give')
     t.given(f())
@@ -146,9 +190,6 @@ describe('a finding that keeps coming back', () => {
     expect(t.verdict(f({ what: 'Still late.' }), true)).toBe('leave')
     t.given(f({ what: 'Still late.' }))
     expect(t.verdict(f(), false)).toBe('leave')
-    const other = f({ what: 'Her eyes are grey.', kind: 'must fix · facts', quote: 'Her eyes were grey.' })
-    t.setAside(other)
-    expect(t.verdict(other, false)).toBe('skip')
   })
 })
 
@@ -186,26 +227,246 @@ describe('a scene card ready to write from', () => {
   })
 })
 
+describe('the planner’s instruction packs (overhaul phase 2)', () => {
+  it('lists check-continuity in its instructions and loads it with its look-ups, once, not as a look-up', { timeout: 30_000 }, async () => {
+    const { db, chapterId } = world()
+    const run = new ChapterRun(deps(db, { agent: 'fake/agent-packs' }), 'run-packs', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    const plan = chapterRecords(db)[0]
+    expect(plan.system).toContain('Instruction packs')
+    expect(plan.system).toContain('- check-continuity: ')
+    expect(plan.system).not.toContain('- plan-a-scene: ')
+    const steps = (plan.params as { steps?: { label: string; tool: string; result: string }[] }).steps ?? []
+    const loaded = steps.filter((s) => s.tool === 'load_instructions')
+    expect(loaded).toHaveLength(1)
+    expect(loaded[0].label).toBe('Reading the instructions for checking continuity')
+    expect(loaded[0].result.startsWith('Checking continuity')).toBe(true)
+    // The look-up made beside it was answered as usual.
+    expect(steps.some((s) => s.tool === 'state_of' && s.label === 'Looking up Mara')).toBe(true)
+    expect(report.brief).toContain('Sc 1 moves the chapter on.')
+  })
+})
+
+describe('the chapter plan, read and checked', () => {
+  const scenes = [
+    { id: 's1', n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' },
+    { id: 's2', n: 2, title: 'The inn', label: 'Sc 2 “The inn”' }
+  ]
+
+  it('names scenes however the AI writes them', () => {
+    expect(sceneNamed(scenes, 'Sc 2')).toBe('s2')
+    expect(sceneNamed(scenes, 'Sc 1 “The ferry”')).toBe('s1')
+    expect(sceneNamed(scenes, 'Ch 3, Sc 2')).toBe('s2')
+    expect(sceneNamed(scenes, 'The inn')).toBe('s2')
+    expect(() => sceneNamed(scenes, 'Sc 9')).toThrow(/isn't a scene of this chapter/)
+  })
+
+  it('keeps a part for every scene, in order, plans a scene left out from its card, and keeps only people who exist', () => {
+    const { db, s1, s2 } = world()
+    const refs = [
+      { ...scenes[0], id: s1 },
+      { ...scenes[1], id: s2 }
+    ]
+    const raw = readChapterPlan(
+      `Here it is: {"overview": "Mara crosses.", "scenes": [{"scene": "Sc 1", "does": "Mara meets Tobin.", "threads": ["The ledger: Mara hears of it"], "changes": [{"who": "Mara", "change": "ends up on the ferry"}, {"who": "Nobody Real", "change": "arrives"}, "Tobin: learns she is late"], "keep": ["Mara's coat is grey (since Ch 1, Sc 1)"]}], "questions": ["Is Tobin her brother?"]}`
+    )!
+    const plan = checkChapterPlan(raw, { db, scenes: refs, people: repo.listEntries(db).filter((e) => e.kind === 'character') })!
+    expect(plan.overview).toBe('Mara crosses.')
+    expect(plan.scenes.map((s) => s.sceneId)).toEqual([s1, s2])
+    expect(plan.scenes[0].changes).toEqual([
+      { who: 'Mara', change: 'ends up on the ferry' },
+      { who: 'Tobin', change: 'learns she is late' }
+    ])
+    expect(plan.scenes[0].text).toBe(
+      "What it must do: Mara meets Tobin.\nThreads it moves on:\n- The ledger: Mara hears of it\nWhat changes by its end:\n- Mara: ends up on the ferry\n- Tobin: learns she is late\nKeep to:\n- Mara's coat is grey (since Ch 1, Sc 1)"
+    )
+    // Sc 2 was left out: planned from its card.
+    expect(plan.scenes[1].does).toBe('Mara finds no room at the inn.')
+    expect(plan.questions).toEqual(['Is Tobin her brother?'])
+    expect(readChapterPlan('Not JSON at all.')).toBeNull()
+  })
+
+  it('takes Adam’s changes to a part as his words, keeping what changes only for people they still name', () => {
+    const plan: ChapterWritingPlan = {
+      overview: 'Mara crosses.',
+      questions: [],
+      scenes: [
+        { sceneId: 's1', label: 'Sc 1', does: 'Mara meets Tobin.', threads: [], changes: [{ who: 'Mara', change: 'ends on the ferry' }, { who: 'Tobin', change: 'learns she is late' }], keep: [], text: 'What it must do: Mara meets Tobin.' },
+        { sceneId: 's2', label: 'Sc 2', does: 'The inn.', threads: [], changes: [], keep: [], text: 'What it must do: The inn.' }
+      ]
+    }
+    const changed = withAnswer(plan, { scenes: [{ sceneId: 's1', text: 'Mara misses the ferry and walks.' }], overview: 'Mara walks.' })
+    expect(changed.overview).toBe('Mara walks.')
+    expect(changed.scenes[0]).toMatchObject({ text: 'Mara misses the ferry and walks.', changed: true, changes: [{ who: 'Mara', change: 'ends on the ferry' }] })
+    expect(changed.scenes[1]).toBe(plan.scenes[1])
+  })
+})
+
+describe('a flagged passage', () => {
+  it('is the whole paragraphs its words are in, found tolerantly, and the writer’s reply is its words alone', () => {
+    const { db, s1 } = world()
+    repo.saveSceneText(db, s1, null, 'One two three. Four five six.\n\nSeven eight nine. Ten eleven twelve.\n\nThirteen.')
+    const s = sceneWords(db, s1)!
+    expect(passageFor(s, 'four five six')?.marked).toBe('One two three. Four five six.')
+    expect(passageFor(s, 'Six.\n\nSeven eight')?.marked).toBe('One two three. Four five six.\n\nSeven eight nine. Ten eleven twelve.')
+    expect(passageFor(s, 'Nowhere in the scene at all')).toBeNull()
+    expect(passageFor(s, '')).toBeNull()
+    expect(replyPassage('```\nNew words.\n```')).toBe('New words.')
+    expect(replyPassage('"""\nNew words.\n"""')).toBe('New words.')
+    expect(replyPassage('Here is the new passage:\n\nNew words.')).toBe('New words.')
+  })
+})
+
 describe('writing a whole chapter', () => {
-  it('studies, drafts each scene, fixes what the checks and the critic find, proofreads, and ends clean', { timeout: 30_000 }, async () => {
-    const { db, chapterId, s1, s2 } = world()
+  it('plans the chapter first, writes each scene to its part, checks it, fixes only what was flagged, and ends clean', { timeout: 30_000 }, async () => {
+    const { db, storyId, chapterId, s1, s2 } = world()
+    repo.updateStory(db, storyId, { style: { proseStyle: 'Spare and wry, with salt in it.', samplePassage: 'The estuary kept its own hours.' } })
     const progress: ChapterWriterProgress[] = []
-    const run = new ChapterRun(deps(db, { progress }), 'run-1', chapterId)
+    const d = deps(db, { progress })
+    const notes = new Map<ID, string>()
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      notes.set(sceneId, o.notes)
+      return draft(sceneId, o)
+    }
+    const checked: string[] = []
+    const check = d.check
+    d.check = async (sceneId, signal, checks) => {
+      checked.push(`${sceneId === s1 ? 's1' : 's2'}: ${checks?.join(', ')}`)
+      return check(sceneId, signal, checks)
+    }
+    const asked: string[] = []
+    const critique = d.critique
+    d.critique = (target, again, signal) => {
+      asked.push(`${target.scope}${again ? ' again' : ''}`)
+      return critique(target, again, signal)
+    }
+    const run = new ChapterRun(d, 'run-1', chapterId)
     run.prepare()
     // The words before the run are kept for Undo.
     expect(loadBefore(db, chapterId).find((b) => b.sceneId === s1)?.text).toBe('Old words in the first scene.')
     const report = await run.run()
     expect(report.status).toBe('done')
     expect(report.message).toBe('')
-    expect(report.brief).toContain('Keep Sc 1 true to the memory.')
+    // 1. The plan, first: a part for each scene, with what it looked up; Adam's cards' questions kept.
+    expect(progress[0].stage).toBe('planning')
+    expect(report.plan?.scenes.map((s) => s.sceneId)).toEqual([s1, s2])
+    expect(report.brief).toContain('Sc 1 moves the chapter on.')
     expect(report.questions).toEqual(["Sc 1's card has Mara at the inn; the memory has her at the ferry."])
-    // Round 1 found the critic's notes; round 2 (a re-read) found nothing; the proofread changed nothing.
+    const records = chapterRecords(db)
+    expect(records[0].system.startsWith(`${CHAPTER_MARKER} plan`)).toBe(true)
+    expect(records[0].user).toContain('### Sc 1 “The ferry”\nGoal: Mara meets Tobin at the ferry.')
+    // 2. Each scene is written to its part of the plan; a later one starts where the scene before ends.
+    expect(notes.get(s1)).toContain('The chapter: A fake chapter plan.')
+    expect(notes.get(s1)).toContain('What it must do: Sc 1 moves the chapter on.')
+    expect(notes.get(s1)).toContain('Keep Sc 1 true to the memory.')
+    expect(notes.get(s1)).not.toContain(LATER_START)
+    expect(notes.get(s2)).toContain('What it must do: Sc 2 moves the chapter on.')
+    expect(notes.get(s2)).toContain(LATER_START)
+    // 3. The state check reads each scene once, in one request; the critic reads the chapter once, never again.
+    expect(checked.slice(0, 2)).toEqual([`s1: ${STATE_CHECKS.join(', ')}`, `s2: ${STATE_CHECKS.join(', ')}`])
+    expect(asked).toEqual(['chapter'])
+    // 4. Only the flagged passages were rewritten, in the writer's voice: the critic's notes on Sc 1's second sentence
+    // and Sc 2's first; the small note and the one with no words are left for Adam.
     expect(report.rounds).toBe(2)
-    expect(report.scenes.find((s) => s.sceneId === s1)?.fixed[0]?.why).toBe('Tightened the middle.')
-    expect(repo.getScene(db, s1).text).toContain('The rain went on.')
-    expect(repo.getScene(db, s2).text.startsWith('The inn was full')).toBe(true)
-    expect(progress.map((p) => p.stage)).toEqual(expect.arrayContaining(['study', 'drafting', 'checking', 'reviewing', 'proofreading']))
+    expect(repo.getScene(db, s1).text).toBe(
+      'The ferry came in late under a low sky. Mara stood at the rail and counted the lamps on the shore. The rain went on.\n\n"You\'re late," said Tobin. He did not look up from the rope.'
+    )
+    expect(repo.getScene(db, s2).text.startsWith('The inn was full and loud. Nobody made room for her at the fire. The rain went on.')).toBe(true)
+    expect(report.scenes.find((s) => s.sceneId === s1)?.fixed).toEqual([
+      { why: 'The critic: The middle slows', words: 'The ferry came in late under a low sky. Mara stood at the rail and counted the lamps on the shore. The rain went on.' }
+    ])
+    const fixes = records.filter((r) => r.system.startsWith(`${CHAPTER_MARKER} fix`))
+    expect(fixes).toHaveLength(2)
+    expect(fixes[0].system).toContain('Spare and wry, with salt in it.')
+    expect(fixes[0].system).toContain('The estuary kept its own hours.')
+    expect(fixes[0].params.temperature).toBe(writerTemperature('balanced'))
+    expect(fixes[0].user).toContain('## This scene’s part of the chapter plan\nWhat it must do: Sc 1 moves the chapter on.')
+    expect(fixes[0].user).toContain('The words it is about: “Mara stood at the rail and counted the lamps on the shore.”')
+    // The notes acted on are marked done in the Critique tab.
+    expect(loadCritique(db, { scope: 'chapter', id: chapterId })?.notes.filter((n) => n.status === 'done').map((n) => n.title)).toEqual([
+      'The middle slows',
+      'The ending could pull harder'
+    ])
+    expect(report.notes?.at(-1)).toBe('The critic has one more note on the chapter that the AI didn\'t act on (“A quote from nowhere”). They are in the Critique tab for you to weigh.')
+    expect(progress.map((p) => p.stage)).toEqual(expect.arrayContaining(['planning', 'drafting', 'checking', 'fixing']))
     expect(loadReport(db, chapterId)?.status).toBe('done')
+  })
+
+  it('shows Adam the plan before writing, writes to his changes, and doesn’t count the time he takes', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1, s2 } = world()
+    const d = deps(db)
+    let t = 0
+    d.clock = () => t
+    const shown: ChapterWritingPlan[] = []
+    const progress: ChapterWriterProgress[] = []
+    d.progress = (p) => progress.push(p)
+    d.review = async (plan) => {
+      shown.push(plan)
+      // Two hours over the plan: not counted against the hour.
+      t += 120 * 60_000
+      return { scenes: [{ sceneId: s2, text: 'Mara sleeps in the stable instead.' }] }
+    }
+    const notes = new Map<ID, string>()
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      notes.set(sceneId, o.notes)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-review', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(shown).toHaveLength(1)
+    expect(shown[0].scenes.map((s) => s.sceneId)).toEqual([s1, s2])
+    // The window was given the plan while it waited, and only then.
+    const review = progress.find((p) => p.stage === 'review')
+    expect(review?.plan?.scenes).toHaveLength(2)
+    expect(progress.filter((p) => p.stage !== 'review').every((p) => !p.plan)).toBe(true)
+    expect(notes.get(s1)).toContain('Sc 1 moves the chapter on.')
+    expect(notes.get(s2)).toContain('Mara sleeps in the stable instead.')
+    expect(notes.get(s2)).not.toContain('Sc 2 moves the chapter on.')
+    expect(report.plan?.scenes[1]).toMatchObject({ text: 'Mara sleeps in the stable instead.', changed: true })
+    expect(report.status).toBe('done')
+  })
+
+  it('changes nothing when Adam cancels at the plan', async () => {
+    const { db, chapterId, s1 } = world()
+    const d = deps(db)
+    let drafted = 0
+    d.draft = async () => {
+      drafted++
+      return { status: 'complete', text: 'Never written.', error: null }
+    }
+    d.review = async () => null
+    const run = new ChapterRun(d, 'run-cancel', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('cancelled')
+    expect(report.message).toBe('Cancelled before writing: nothing in the chapter changed.')
+    expect(drafted).toBe(0)
+    expect(repo.getScene(db, s1).text).toBe('Old words in the first scene.')
+  })
+
+  it('makes the plan from the cards when the AI never writes one, and goes on', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1 } = world()
+    const d = deps(db, { agent: 'fake/agent-words' })
+    const notes = new Map<ID, string>()
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      notes.set(sceneId, o.notes)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-words', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    expect(notes.get(s1)).toContain('What it must do: Mara meets Tobin at the ferry.')
+    expect(report.questions).toContain('The AI couldn’t make a plan for this chapter, so each scene is planned from its card alone.')
+    // A request with the tools, the nudge's, then the last one: within its steps.
+    expect(chapterRecords(db).filter((r) => r.system.startsWith(`${CHAPTER_MARKER} plan`))).toHaveLength(1)
+    expect(PLAN_STEPS).toBeLessThanOrEqual(4)
   })
 
   it('waits for the memory to finish the scene before drafting the next, and says so', async () => {
@@ -232,30 +493,9 @@ describe('writing a whole chapter', () => {
     expect(progress.some((p) => /^Updating memory with .+ before writing /.test(p.note))).toBe(true)
   })
 
-  it('asks the critic in the first round only, then once more at the end for Adam, so a critic never satisfied still settles', async () => {
-    const { db, chapterId, s1, s2 } = world()
-    // A critic that never finds the chapter ready (live test, 2026-10-16: new notes at every re-read, 14 rounds).
-    const d = deps(db, { again: false })
-    const asked: string[] = []
-    const critique = d.critique
-    d.critique = (target, again, signal) => {
-      asked.push(`${target.scope === 'chapter' ? 'chapter' : target.id === s1 ? 's1' : 's2'}${again ? ' again' : ''}`)
-      return critique(target, again, signal)
-    }
-    const run = new ChapterRun(d, 'run-2', chapterId)
-    run.prepare()
-    const report = await run.run()
-    expect(report.status).toBe('done')
-    expect(report.rounds).toBe(2)
-    // Round 1 reads every scene and the chapter; round 2 none; the last read, the scenes changed and the chapter.
-    expect(asked).toEqual(['s1', 's2', 'chapter', 's1 again', 's2 again', 'chapter again'])
-    expect(report.notes?.at(-1)).toMatch(/^The critic read the changed scenes once more at the end and has \d+ more notes \(Sc 1 “The ferry”: \d+, Sc 2 “The inn”: \d+, the chapter: \d+\)\. They are in the Critique tab for you to weigh: the AI didn't act on them\.$/)
-    expect(repo.getScene(db, s2).text).toContain('The rain went on.')
-  }, 30_000)
-
   it('never asks the critic when Adam has switched it off, and still checks and finishes the chapter (2026-10-17)', async () => {
     const { db, chapterId } = world()
-    const d = deps(db, { again: false })
+    const d = deps(db)
     let asked = 0
     let checked = 0
     const check = d.check
@@ -263,9 +503,9 @@ describe('writing a whole chapter', () => {
       asked++
       throw new Error('the critic should not be asked')
     }
-    d.check = (sceneId, signal) => {
+    d.check = (sceneId, signal, checks) => {
       checked++
-      return check(sceneId, signal)
+      return check(sceneId, signal, checks)
     }
     d.critic = () => false
     const progress: ChapterWriterProgress[] = []
@@ -280,33 +520,50 @@ describe('writing a whole chapter', () => {
     expect(report.notes?.some((n) => /critic/i.test(n)) ?? false).toBe(false)
   }, 30_000)
 
-  it('stops after three rounds of fixes, listing what is still open', async () => {
+  it(`stops after ${CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes, listing what is still open`, async () => {
     const { db, storyId, chapterId, s1 } = world()
     const d = deps(db)
-    const check = d.check
-    let k = 0
-    // A check that finds something new in Sc 1 every time it reads it.
-    d.check = async (sceneId, signal) => {
-      if (sceneId !== s1) return check(sceneId, signal)
-      k++
-      cdb.saveFound(
-        db,
-        cdb.sceneIssueRows(db, s1),
-        [{ sceneId: s1, storyId, kind: 'fact', severity: 'warning', quote: '', message: `Slip number ${k} of many.`, key: `k-${k}`, payload: { key: `k-${k}`, by: 'check', check: 'facts' } }],
-        () => false
-      )
-      return { status: 'done' }
-    }
+    d.critic = () => false
+    // A check that finds something new in Sc 1 every time it reads it, of another kind, on words the fixes before haven't
+    // touched: its second paragraph, then its first, then its second again.
+    slipEachTime(
+      d,
+      db,
+      storyId,
+      s1,
+      (k) => (k % 2 ? 'He did not look up from the rope.' : 'The ferry came in late'),
+      (k) => `Slip number ${k} of many.`,
+      (k) => (['facts', 'timeline', 'knowledge'] as const)[(k - 1) % 3]
+    )
     const run = new ChapterRun(d, 'run-cap', chapterId)
     run.prepare()
     const report = await run.run()
+    expect(CHAPTER_WRITER_LIMITS.fixRounds).toBe(2)
     expect(report.status).toBe('stuck')
-    expect(report.rounds).toBe(4)
-    expect(report.message).toMatch(/^The AI stopped after 3 rounds of fixes, as it always does, so it never runs on for hours\. (One thing is|\d+ things are) still open: listed below, and in the Issues and Critique tabs\.$/)
-    expect(report.left.some((l) => l.includes('Slip number 4 of many.'))).toBe(true)
+    expect(report.rounds).toBe(3)
+    expect(report.message).toMatch(/^The AI stopped after 2 rounds of fixes, as it always does, so it never runs on for hours\. (One thing is|\d+ things are) still open: listed below, and in the Issues and Critique tabs\.$/)
+    expect(report.left.some((l) => l.includes('Slip number 3 of many.'))).toBe(true)
   }, 30_000)
 
-  it('starts no round of fixes after an hour', async () => {
+  it('tries each problem twice at most, then leaves it for Adam', async () => {
+    const { db, storyId, chapterId, s1 } = world()
+    // The writer sends every fix back unchanged: the slip stays.
+    const d = deps(db, { fixer: 'fake/fix-same' })
+    d.critic = () => false
+    slipEachTime(d, db, storyId, s1, () => 'The ferry came in late', () => 'The ferry can’t be late here.')
+    let fixes = 0
+    const run = new ChapterRun(d, 'run-twice-tried', chapterId)
+    run.prepare()
+    const report = await run.run()
+    fixes = chapterRecords(db).filter((r) => r.system.startsWith(`${CHAPTER_MARKER} fix`)).length
+    expect(fixes).toBe(2)
+    expect(report.status).toBe('stuck')
+    expect(report.message).toBe('The AI fixed what it could, but one thing came back after it had tried, so it left it for you: listed below, and in the Issues and Critique tabs.')
+    expect(report.left).toHaveLength(1)
+    expect(report.left[0]).toContain('The ferry can’t be late here.')
+  }, 30_000)
+
+  it('starts no round of fixes after an hour of work', async () => {
     const { db, chapterId } = world()
     const d = deps(db)
     let t = 0
@@ -323,25 +580,15 @@ describe('writing a whole chapter', () => {
     expect(report.rounds).toBe(1)
     expect(report.message).toMatch(/^The AI stopped after about an hour of work, as it always does/)
     expect(report.left.length).toBeGreaterThan(0)
+    expect(chapterRecords(db).some((r) => r.system.startsWith(`${CHAPTER_MARKER} fix`))).toBe(false)
   }, 30_000)
 
   it('leaves for Adam a finding that comes back on words the AI itself wrote', async () => {
     const { db, storyId, chapterId, s1 } = world()
     const d = deps(db)
-    const check = d.check
-    let k = 0
-    // The checks find the same thing about the opening every time, each time in other words; the fix keeps them.
-    d.check = async (sceneId, signal) => {
-      if (sceneId !== s1) return check(sceneId, signal)
-      k++
-      cdb.saveFound(
-        db,
-        cdb.sceneIssueRows(db, s1),
-        [{ sceneId: s1, storyId, kind: 'timeline', severity: 'warning', quote: 'The ferry came in late under a low sky.', message: `The ferry can't be late here (${k}).`, key: `t-${k}`, payload: { key: `t-${k}`, by: 'check', check: 'timeline' } }],
-        () => false
-      )
-      return { status: 'done' }
-    }
+    d.critic = () => false
+    // The checks find the same thing about the opening every time, each time in other words; the fix keeps the words.
+    slipEachTime(d, db, storyId, s1, () => 'The ferry came in late under a low sky.', (k) => `The ferry can't be late here (${k}).`)
     const run = new ChapterRun(d, 'run-own', chapterId)
     run.prepare()
     const report = await run.run()
@@ -355,9 +602,68 @@ describe('writing a whole chapter', () => {
     expect(report.left[0]).toContain("The ferry can't be late here (2).")
   }, 30_000)
 
+  it('writes a scene that misses its part of the plan again, once, and leaves what it still misses for Adam', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s2, mara } = world()
+    // Sc 2's card has Mara there: the plan has her change there, and its draft never names her.
+    repo.updateSceneCard(db, s2, { ...repo.getScene(db, s2).card, presentIds: [mara] })
+    const d = deps(db)
+    d.critic = () => false
+    const directions: string[] = []
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      if (sceneId === s2) directions.push(o.direction)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-miss', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.plan?.scenes[1].changes).toEqual([{ who: 'Mara', change: 'ends Sc 2 further on her way' }])
+    expect(directions).toEqual([
+      '',
+      'The scene as first written missed its part of the chapter plan. Write it again so that it does all of its part, above all: The chapter plan has Mara here (ends Sc 2 further on her way), but the scene never names Mara.'
+    ])
+    expect(report.scenes.find((s) => s.sceneId === s2)?.rewritten).toHaveLength(1)
+    // Written again, it still never names her: not written a third time.
+    expect(report.status).toBe('stuck')
+    expect(report.left).toHaveLength(1)
+    expect(report.left[0]).toContain('plan · who is there')
+    expect(planMisses(db, s2, report.plan!, 'Mara walks in.')).toEqual([])
+    // The point of view may tell a scene without once being named: never a miss.
+    repo.updateSceneCard(db, s2, { ...repo.getScene(db, s2).card, presentIds: [], povId: mara })
+    expect(planMisses(db, s2, report.plan!, 'I walk in.')).toEqual([])
+  })
+
+  it('writes again a scene whose contract says what it must change and its words don’t show (a plan miss), never patching it in', () => {
+    const { db, storyId, s1 } = world()
+    repo.saveSceneText(db, s1, null, 'Mara stood at the rail.')
+    cdb.saveFound(
+      db,
+      [],
+      [
+        {
+          sceneId: s1,
+          storyId,
+          kind: 'fact',
+          severity: 'warning',
+          quote: '',
+          message: 'This scene was planned to show: Mara finds the ledger.',
+          key: 'contract:change:mara finds the ledger',
+          payload: { key: 'contract:change:mara finds the ledger', by: 'check', check: 'facts', contract: { part: 'change', text: 'Mara finds the ledger', missing: true } }
+        }
+      ],
+      () => false
+    )
+    expect(contractMisses(db, s1)).toEqual([
+      expect.objectContaining({ from: 'plan', kind: 'plan · not shown', what: 'This scene was planned to show: Mara finds the ledger.', quote: '' })
+    ])
+    // Never a passage to patch.
+    expect(issueFindings(db, s1)).toEqual([])
+  })
+
   it('takes out a sentence printed twice in a row before checking, and says so', async () => {
     const { db, chapterId, s2 } = world()
     const d = deps(db)
+    d.critic = () => false
     const draft = d.draft
     const twice = 'Nobody made room for her at the fire.'
     d.draft = async (sceneId, o) => {
@@ -391,7 +697,7 @@ describe('writing a whole chapter', () => {
     expect(repo.getScene(db, s1).text).toBe('Old words in the first scene.')
   })
 
-  it('checks the scene after one a review changed, and the next chapter’s first scene, noting what it finds there', { timeout: 30_000 }, async () => {
+  it('checks the scene after one a fix changed, and the next chapter’s first scene, noting what it finds there', { timeout: 30_000 }, async () => {
     const { db, storyId, chapterId, s1, s2 } = world()
     const next = repo.createChapter(db, storyId, { title: 'The road' })
     // An empty scene first: the one after it looks back past it, so it is the one checked.
@@ -401,8 +707,10 @@ describe('writing a whole chapter', () => {
     const d = deps(db)
     const real = { check: d.check, critique: d.critique }
     const checked: ID[] = []
-    d.check = async (sceneId, signal) => {
+    const asked: string[] = []
+    d.check = async (sceneId, signal, checks = ALL_CHECKS) => {
       checked.push(sceneId)
+      asked.push(checks.join(', '))
       // The next chapter's scene: the check finds its opening no longer follows on.
       if (sceneId === road) {
         cdb.saveFound(
@@ -413,14 +721,12 @@ describe('writing a whole chapter', () => {
         )
         return { status: 'done' }
       }
-      return real.check(sceneId, signal)
+      return real.check(sceneId, signal, checks)
     }
-    // The critic has notes for Sc 1 only, so only Sc 1's review changes anything.
-    d.critique = (target, again, signal) => {
-      if (target.scope === 'chapter' || target.id !== s1) {
-        return Promise.resolve({ status: 'complete', critique: { scope: target.scope, targetId: target.id, summary: '', strengths: [], notes: [], at: '', textHash: '', shortened: false, generationId: null } })
-      }
-      return real.critique(target, again, signal)
+    // The critic's note on Sc 1 alone (its second sentence): only Sc 1 is fixed.
+    d.critique = async (target, again, signal) => {
+      const c = await real.critique(target, again, signal)
+      return c.status === 'complete' ? { ...c, critique: { ...c.critique, notes: c.critique.notes.filter((n) => n.sceneId === s1) } } : c
     }
     const run = new ChapterRun(d, 'run-5', chapterId)
     run.prepare()
@@ -429,9 +735,13 @@ describe('writing a whole chapter', () => {
     // Round 1 checks both scenes, then the next chapter's first scene with words (its last scene was just written);
     // round 2 checks Sc 2 again although only Sc 1 changed: its opening follows on from Sc 1's new end.
     expect(checked).toEqual([s1, s2, road, s1, s2])
+    // A scene that didn't change itself is checked for what is so only (token audit, 2026-10-19).
+    const state = STATE_CHECKS.join(', ')
+    const follow = FOLLOW_ON_CHECKS.join(', ')
+    expect(asked).toEqual([state, state, follow, state, follow])
     // The next chapter's scene is never changed: what its check found is noted for Adam.
     expect(repo.getScene(db, road).text).toBe('Mara walked on in the blue dress, wet through.')
-    expect(report.notes).toEqual(['Ch 2, Sc 2 may no longer follow on: Mara took the blue dress off at the inn. (“in the blue dress”)'])
+    expect(report.notes?.[0]).toBe('Ch 2, Sc 2 may no longer follow on: Mara took the blue dress off at the inn. (“in the blue dress”)')
   })
 
   it('never keeps a cut-off draft or a refusal as the scene', async () => {
@@ -451,28 +761,6 @@ describe('writing a whole chapter', () => {
     }
   })
 
-  it('asks the study where everyone starts for the first scene only, and tells later scenes to start where the one before ends', async () => {
-    expect(studySystem()).toMatch(/for the chapter's first scene only, where everyone and everything starts/)
-    expect(studySystem()).not.toMatch(/who knows what, where everyone and everything starts/)
-    const { db, chapterId, s1, s2 } = world()
-    const d = deps(db)
-    const notes = new Map<ID, string>()
-    const draft = d.draft
-    let run: ChapterRun | null = null
-    d.draft = async (sceneId, o) => {
-      notes.set(sceneId, o.notes)
-      if (sceneId === s2) void run!.stop()
-      return draft(sceneId, o)
-    }
-    run = new ChapterRun(d, 'run-8', chapterId)
-    run.prepare()
-    await run.run()
-    expect(notes.get(s1)).toContain('Keep Sc 1 true to the memory.')
-    expect(notes.get(s1)).not.toContain(LATER_START)
-    expect(notes.get(s2)).toContain('Keep Sc 2 true to the memory.')
-    expect(notes.get(s2)).toContain(LATER_START)
-  })
-
   it('notes for Adam what a scene’s draft said about how it was written', async () => {
     const { db, chapterId } = world()
     const d = deps(db)
@@ -482,9 +770,9 @@ describe('writing a whole chapter', () => {
     run.prepare()
     // Stopped once both scenes are written: the notes are kept with the report.
     const check = d.check
-    d.check = async (id, signal) => {
+    d.check = async (id, signal, checks) => {
       void run.stop()
-      return check(id, signal)
+      return check(id, signal, checks)
     }
     const report = await run.run()
     expect(report.notes).toEqual(['Sc 1 “The ferry”: Where everyone was wasn’t ready in time.', 'Sc 2 “The inn”: Where everyone was wasn’t ready in time.'])
@@ -494,77 +782,5 @@ describe('writing a whole chapter', () => {
     const { db, chapterId, s1, s2 } = world()
     for (const id of [s1, s2]) repo.updateSceneCard(db, id, { ...repo.getScene(db, id).card, goal: '', beats: [] })
     expect(() => new ChapterRun(deps(db), 'run-4', chapterId).prepare()).toThrow(/scene card to write from/)
-  })
-})
-
-describe('setting a finding aside', () => {
-  const session = (db: RunDeps['db'], storyId: ID, chapterId: ID, s1: ID, findings: Finding[]) =>
-    new ChapterSession({
-      db,
-      job: 'review',
-      storyId,
-      chapterId,
-      sceneId: s1,
-      scenes: [{ id: s1, n: 1, title: 'The ferry', label: 'Sc 1 “The ferry”' }],
-      prefs: PREFS,
-      findings,
-      nextFinding: () => 'F9',
-      brief: () => '',
-      save: (id, page) => repo.saveSceneText(db, id, page.doc, page.text),
-      rewrite: async () => ({ ok: false, error: 'no' }),
-      checkAgain: async () => [],
-      setAside: () => undefined,
-      wrote: () => undefined,
-      noted: { fix: () => undefined, setAside: () => undefined, rewritten: () => undefined }
-    })
-
-  it('needs words quoted from the story or the memory, and then marks the issue ignored', async () => {
-    const { db, storyId, chapterId, s1 } = world()
-    repo.saveSceneText(db, s1, null, 'Mara stood at the rail. Her eyes were grey in the lamplight.')
-    cdb.saveFound(
-      db,
-      [],
-      [{ sceneId: s1, storyId, kind: 'fact', severity: 'warning', quote: 'Her eyes were grey', message: 'Mara’s eyes are blue in the memory.', key: 'k1', payload: { key: 'k1', by: 'check', check: 'facts' } }],
-      () => false
-    )
-    const row = cdb.sceneIssueRows(db, s1).find((r) => r.status === 'open')!
-    const f: Finding = { id: 'F1', sceneId: s1, from: 'check', issueId: row.id as ID, kind: 'worth a look · facts', what: 'Eyes', quote: 'Her eyes were grey', advice: '', status: 'open' }
-    const s = session(db, storyId, chapterId, s1, [f])
-    const call = (args: Record<string, unknown>) => s.runAll([{ id: 'c', name: 'not_a_problem', arguments: JSON.stringify(args) }])
-    let r = await call({ finding: 'F1', why: 'It is fine.' })
-    expect(r.results[0].content).toMatch(/^Not set aside: quote/)
-    r = await call({ finding: 'F1', why: 'The memory says "made up words here" so it fits.' })
-    expect(r.results[0].content).toMatch(/aren’t in the story or the memory/)
-    r = await call({ finding: 'F1', why: 'The scene says "eyes were grey in the lamplight" so it is the light.' })
-    expect(r.results[0].content).toMatch(/is set aside/)
-    expect(f.status).toBe('set-aside')
-    expect(cdb.issueRow(db, row.id as ID)?.status).toBe('ignored')
-  })
-
-  it('never sends the scene it was shown again unchanged, and stops looking things up past its look-ups', async () => {
-    const { db, storyId, chapterId, s1 } = world()
-    repo.saveSceneText(db, s1, null, 'Mara stood at the rail. Her eyes were grey in the lamplight.')
-    const s = session(db, storyId, chapterId, s1, [])
-    const one = async (name: string, args: Record<string, unknown> = {}) => (await s.runAll([{ id: 'c', name, arguments: JSON.stringify(args) }])).results[0].content
-    expect(await one('read_scene')).toBe("Sc 1 “The ferry” hasn't changed since you were last shown it: its words are above. Use them.")
-    // A change: read again in full, then not again.
-    expect(await one('revise', { start: 'Mara stood', end: 'the rail.', new_words: 'Mara leaned on the rail.', why: 'Tighter.' })).toMatch(/without reading the scene again/)
-    repo.saveSceneText(db, s1, null, 'Mara leaned on the rail. Her eyes were grey in the lamplight. The rain went on.')
-    expect(await one('read_scene')).toContain('The rain went on.')
-    expect(await one('read_scene')).toMatch(/hasn't changed/)
-    for (let i = 1; i < LOOKUPS_ALLOWED.review; i++) expect(await one('get_entry', { name: 'Mara' })).not.toMatch(/No more look-ups/)
-    expect(await one('get_entry', { name: 'Mara' })).toMatch(/^No more look-ups in this session/)
-    expect(await one('timeline')).toMatch(/^No more look-ups in this session/)
-  })
-
-  it('turns done down while findings are open, twice, then lets it end', async () => {
-    const { db, storyId, chapterId, s1 } = world()
-    const f: Finding = { id: 'F1', sceneId: s1, from: 'critic', issueId: null, kind: 'critic · pacing · high', what: 'Slow', quote: '', advice: '', status: 'open' }
-    const s = session(db, storyId, chapterId, s1, [f])
-    const done = () => s.runAll([{ id: 'd', name: 'done', arguments: '{"summary":"All done."}' }])
-    expect((await done()).results[0].content).toMatch(/^Not done: still open: F1/)
-    expect((await done()).results[0].content).toMatch(/^Not done/)
-    expect((await done()).results[0].content).toMatch(/^Done\./)
-    expect(s.ended()).toBe('All done.')
   })
 })

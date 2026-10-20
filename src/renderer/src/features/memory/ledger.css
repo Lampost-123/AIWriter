@@ -113,6 +113,14 @@
   font-size: 12.5px;
 }
 
+/* Fill in the whole story (StoryFillCard.tsx), under how the memory is doing. */
+[data-arrangement='desk'] .lg-fill {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--surface-3) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--desk-line-2);
+}
+
 /* The tally: what the list holds, each a filter. */
 [data-arrangement='desk'] .lg-tally {
   display: flex;

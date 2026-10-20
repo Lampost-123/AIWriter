@@ -168,6 +168,16 @@ export function wasRefused(db: DB, kind: RefusedKind, sceneId: ID, hash: string,
   return !!r && r.hash === hash && r.model === model
 }
 
+/**
+ * What this model turned down of the scene's words as they are now (`hash`): its reading first (the memory then doesn't
+ * know what happens in it), else its summary; null when neither (the calm overhaul: Issues › Memory says so).
+ */
+export function refusedKind(db: DB, sceneId: ID, hash: string, model: string | null): RefusedKind | null {
+  if (wasRefused(db, 'read', sceneId, hash, model)) return 'read'
+  if (wasRefused(db, 'summary', sceneId, hash, model)) return 'summary'
+  return null
+}
+
 /** Try again: what was turned down (for one scene, or every scene) is asked for once more. */
 export function clearRefused(db: DB, sceneId?: ID): void {
   if (!db.open) return

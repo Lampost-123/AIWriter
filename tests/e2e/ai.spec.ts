@@ -4,7 +4,7 @@
 // Models page's key checks.
 import type { Page } from '@playwright/test'
 import type { FakeProvider, FakeProviderOptions } from '../fake-provider/server.mjs'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, sceneTitle, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -45,7 +45,7 @@ test('a draft keeps writing while another page is open, and every word reaches t
 
     await generateButton(win).click()
     await expect(prose(win)).toContainText('The rain')
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect(win.getByRole('heading', { name: 'No characters yet' })).toBeVisible()
     // The top bar says a draft is still being written, and Esc on this page leaves it alone.
     const writing = topBar(win).getByRole('button', { name: 'Writing…' })
@@ -55,7 +55,7 @@ test('a draft keeps writing while another page is open, and every word reaches t
     await expect(prose(win)).toBeVisible()
     await expect(generateButton(win)).toBeHidden()
 
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
     await expect(writing).toBeHidden()
     const [gen] = await invoke(win, 'listGenerations', sceneId)
@@ -83,7 +83,7 @@ test('a draft keeps writing into its own scene while another scene is open, says
     await generateButton(win).click()
     await expect(prose(win)).toContainText('The rain')
     await row('The Ferry').click()
-    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
     await expect(prose(win)).not.toContainText('The rain')
     // The top bar can take Adam back to it from here.
     await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeVisible()
@@ -94,7 +94,8 @@ test('a draft keeps writing into its own scene while another scene is open, says
     expect(await invoke(win, 'listGenerations', other.id)).toEqual([])
 
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
-    const done = toasts(win).getByText('The draft of “Scene 1” is finished.')
+    // The draft's one note (the calm overhaul) names the scene it was written in.
+    const done = toasts(win).getByText('Draft of “Scene 1” written')
     await expect(done).toBeVisible()
     await expect(topBar(win).getByRole('button', { name: 'Writing…' })).toBeHidden()
     const [gen] = await invoke(win, 'listGenerations', sceneId)
@@ -103,8 +104,8 @@ test('a draft keeps writing into its own scene while another scene is open, says
     expect((await invoke(win, 'getScene', other.id)).text).toBe('')
 
     // Show goes to it; the whole draft is one step there, as if Adam had stayed.
-    await toasts(win).locator(':scope > div').filter({ hasText: 'The draft of “Scene 1” is finished.' }).getByRole('button', { name: 'Show' }).click()
-    await expect(win.locator('main header').getByRole('button', { name: 'Scene 1' })).toBeVisible()
+    await toasts(win).locator(':scope > div').filter({ hasText: 'Draft of “Scene 1” written' }).getByRole('button', { name: 'Show' }).click()
+    await expect(sceneTitle(win, 'Scene 1')).toBeVisible()
     await expect(prose(win)).toContainText('The rain')
     await prose(win).click()
     await win.keyboard.press('Control+z')
@@ -170,7 +171,7 @@ test('deleting the scene a draft is writing into stops the draft, nothing is lef
       toasts(win).getByText('Drafting stopped because the scene was deleted. Undo brings it back with the text so far.')
     ).toBeVisible()
     await expect(toasts(win).getByText('“Scene 1” deleted.')).toBeVisible()
-    await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+    await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
     expect((await invoke(win, 'listGenerations', sceneId))[0].status).toBe('stopped')
 
     // Nothing keeps trying to save into the deleted scene, and the open one saves as usual.
@@ -253,6 +254,47 @@ test('error and cut-off messages offer the right next step', async ({ launch }) 
     await toasts(win).getByRole('button', { name: 'What the AI saw' }).click()
     await expect(win.getByRole('heading', { level: 1, name: 'What the AI saw' })).toBeVisible()
     await expect(win.getByText(/ran out of room before the end of the scene/).first()).toBeVisible()
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a draft that stops short offers to carry on from where it stopped', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    const sceneId = await firstScene(win)
+    await useWriter(win, fake, 'fake/length')
+    await generateButton(win).click()
+    await expect(toasts(win).getByText(/ran out of room before the end of the scene/)).toBeVisible()
+    await expect(toasts(win).getByRole('button', { name: 'What the AI saw' })).toBeVisible()
+    await expect.poll(async () => ((await invoke(win, 'getScene', sceneId)).text as string).length).toBeGreaterThan(0)
+    const drafted = (await invoke(win, 'getScene', sceneId)).text as string
+
+    // Continue writes on from the end of the scene, as a change to accept or reject.
+    await toasts(win).getByRole('button', { name: 'Continue from here' }).click()
+    const change = win.getByRole('group', { name: 'The AI’s change' })
+    await expect(change).toBeVisible()
+    await expect(change).toContainText('Continue')
+    await expect(prose(win).locator('.aw-sugg-words').first()).toBeVisible()
+    // Nothing more is in the scene until the change is accepted.
+    expect((await invoke(win, 'getScene', sceneId)).text).toBe(drafted)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a draft whose connection drops part-way offers to carry on too', async ({ launch }) => {
+  const fake = await fakeProvider()
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Alpha')
+    await useWriter(win, fake, 'fake/drop')
+    await generateButton(win).click()
+    await expect(toasts(win).getByText(/dropped before the draft was finished\. The text that arrived is kept\./)).toBeVisible()
+    await expect(toasts(win).getByRole('button', { name: 'Continue from here' })).toBeVisible()
+    await expect(toasts(win).getByRole('button', { name: 'What the AI saw' })).toBeVisible()
   } finally {
     await fake.close()
   }
@@ -354,7 +396,7 @@ test('Models page: a rejected key is marked Not working, also after coming back;
     await expect(card).toBeVisible()
     await expect(win.getByText(/Click Edit and paste it again/)).toBeVisible()
 
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await openSettings(win, 'Models')
     await expect(card).toBeVisible()
   } finally {

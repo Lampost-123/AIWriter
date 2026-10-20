@@ -27,6 +27,7 @@ import { newId, UserError } from '../util'
 import { entryOf, fieldOf, readCheckReply, severityOf } from './parse'
 import { issueKey, sceneQuote } from './quote'
 import { retryMessage, storySystem } from './prompts'
+import { withCorrection } from '../repair/retry'
 import { CHECK_TEMPERATURE, type CheckOptions } from './run'
 
 type DB = Database.Database
@@ -167,10 +168,11 @@ export async function compareStories(
     .filter(Boolean)
     .join('\n\n')
   const system = storySystem(c.kind)
-  let messages: ChatMessage[] = [
+  const request: ChatMessage[] = [
     { role: 'system', content: system },
     { role: 'user', content: user }
   ]
+  let messages = request
   let items: Record<string, unknown>[] | null = null
   let complete = true
   for (let attempt = 0; attempt < 2 && !items; attempt++) {
@@ -180,6 +182,7 @@ export async function compareStories(
     let done
     try {
       done = await runTask({
+        background: true,
         db,
         taskId,
         job: 'check',
@@ -220,7 +223,8 @@ export async function compareStories(
       items = reply.items
       complete = reply.complete
     }
-    else messages = [...messages, { role: 'assistant', content: done.text }, { role: 'user', content: retryMessage(reply.why) }]
+    // Asked once more: the same request with a line on what was wrong, never the reply (2026-10-19, repair/retry.ts).
+    else messages = withCorrection(request, retryMessage(reply.why))
   }
   if (!items) {
     return {

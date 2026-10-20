@@ -11,7 +11,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { expect, invoke, test } from './helpers'
 
 const DESK = { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' }
-const NO_SCROLL_BARS = join(__dirname, 'classic.spec.css')
+const NO_SCROLL_BARS = join(__dirname, 'no-scroll-bars.css')
 const SNAPSHOTS = join(__dirname, 'desk.visual.spec.ts-snapshots')
 
 /** Everything settled: fonts loaded, nothing arriving, two frames drawn. */
@@ -47,7 +47,7 @@ for (const theme of ['light', 'dark', 'sepia'] as const) {
       !existsSync(join(SNAPSHOTS, `write-${theme}-${process.platform}.png`)) && !updating,
       `No ${process.platform} baselines for the desk yet (take them with --update-snapshots).`
     )
-    // One display scale everywhere (Adam's PC is at 150%, CI at 100%), as classic.spec does.
+    // One display scale everywhere (Adam's PC is at 150%, CI at 100%).
     const { app, win } = await launch({ env: DESK, args: ['--force-device-scale-factor=1'] })
     await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
     await invoke(win, 'openSampleWorld')

@@ -11,7 +11,7 @@
 // is reloaded so it shows it, and everything checked is done through the interface.
 import type { Page } from '@playwright/test'
 import type { ID } from '@shared/types'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, startFake, test, useFakeModel, type PageName } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const nameBox = (win: Page) => win.getByRole('textbox', { name: 'Name', exact: true })
@@ -34,12 +34,12 @@ async function reload(win: Page): Promise<void> {
   await expect(binder(win)).toBeVisible()
 }
 
-async function openList(win: Page, list: string): Promise<void> {
-  await binder(win).getByRole('button', { name: list }).click()
+async function openList(win: Page, list: PageName): Promise<void> {
+  await openPage(win, list)
   await expect(main(win).getByRole('heading', { name: list, exact: true })).toBeVisible()
 }
 
-async function openEntry(win: Page, list: string, name: string): Promise<void> {
+async function openEntry(win: Page, list: PageName, name: string): Promise<void> {
   await openList(win, list)
   await entryRows(win).filter({ hasText: name }).first().click()
   await expect(nameBox(win)).toHaveValue(name)
@@ -57,6 +57,13 @@ async function choose(win: Page, picker: string, option: string): Promise<void> 
   await main(win).getByRole('combobox', { name: picker, exact: true }).click()
   await win.getByRole('option', { name: option, exact: true }).click()
   await expect(main(win).getByRole('combobox', { name: picker, exact: true })).toHaveText(option)
+}
+
+/** Picks one of the codex's kind pills (All, or a kind the world has); the one picked is filled. */
+async function pickKind(win: Page, kind: string): Promise<void> {
+  const pill = main(win).getByRole('group', { name: 'Kind' }).getByRole('button', { name: kind, exact: true })
+  await pill.click()
+  await expect(pill).toHaveAttribute('aria-pressed', 'true')
 }
 
 /** The names on the codex's cards in one kind's group, in order. */
@@ -240,7 +247,7 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   const picture = (await win.evaluate(givePicture(mara.id))) as string
   await reload(win)
 
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
   await expect(main(win).getByText('Everything the AI remembers about your world.')).toBeVisible()
   // Every entry but the plot thread (it has its own board), grouped by kind, by name to begin with.
@@ -253,7 +260,9 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await expect(maraCard).toContainText('Runs the night ferry')
   await expect(maraCard).toContainText('Protagonist')
   await expect(maraCard).toContainText('family')
-  await expect(maraCard).toContainText('In 2 scenes · last in Book 1, Ch 1, Sc 2')
+  // Where it appears, as two small chips: how many scenes, and the last one (without its story's name).
+  await expect(maraCard).toContainText('2 scenes')
+  await expect(maraCard).toContainText('last Ch 1, Sc 2')
   await expect(main(win).getByRole('button', { name: 'Kell', exact: true })).toContainText('Not in a scene yet')
 
   // Sorts.
@@ -263,10 +272,10 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   expect(await cardNames(win, 'Characters')).toEqual(['Tobin', 'Mara', 'Kell'])
 
   // Filters, each on its own and then cleared.
-  await choose(win, 'Kind', 'Places')
+  await pickKind(win, 'Places')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(1)
   expect(await cardNames(win, 'Places')).toEqual(['Eelmouth'])
-  await choose(win, 'Kind', 'All kinds')
+  await pickKind(win, 'All')
   await choose(win, 'Tag', 'the north')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(2)
   expect(await cardNames(win, 'Characters')).toEqual(['Tobin'])
@@ -294,7 +303,7 @@ test('the codex shows every entry with its portrait, filters and sorts them, and
   await win.keyboard.press('Enter')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(5)
   await expect(search).toBeFocused()
-  await choose(win, 'Kind', 'Places')
+  await pickKind(win, 'Places')
   await search.fill('Mara')
   await expect(main(win).getByText('Nothing in the codex matches your search and this filter.')).toBeVisible()
   await main(win).getByRole('button', { name: 'Clear filters' }).last().click()
@@ -328,7 +337,7 @@ test('a long codex is where Adam left it when he comes back, with the card he op
     }
   })
   await reload(win)
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(300)
 
   // The codex scrolls in its own view, with the toolbar staying at the top of it.
@@ -345,12 +354,19 @@ test('a long codex is where Adam left it when he comes back, with the card he op
     main(win)
       .locator(`[data-codex-card="${id}"]`)
       .evaluate((c) => c.getBoundingClientRect().top - c.closest('.overflow-y-auto')!.getBoundingClientRect().top)
-  /** Scrolls the codex, and waits for the cards come into view to be drawn. */
+  /**
+   * Scrolls the codex, and waits for the cards come into view to be drawn. Not while the page is still fading in after
+   * Back to the codex (features/look/viewTransition.ts, 280ms), as no one could: a card clicked then waits for the fade,
+   * and Playwright scrolls the list about while it waits, so the card is put back where it was clicked, not where it
+   * was found.
+   */
   const scrollTo = (y: number): Promise<unknown> =>
     toolbar.evaluate(async (bar, y) => {
-      bar.closest('.overflow-y-auto')!.scrollTop = y
       const w = globalThis as unknown as { requestAnimationFrame(next: () => void): number }
-      for (let i = 0; i < 3; i++) await new Promise<void>((r) => w.requestAnimationFrame(() => r()))
+      const frame = (): Promise<void> => new Promise<void>((r) => w.requestAnimationFrame(() => r()))
+      while (bar.ownerDocument.documentElement.dataset.vt) await frame()
+      bar.closest('.overflow-y-auto')!.scrollTop = y
+      for (let i = 0; i < 3; i++) await frame()
     }, y)
 
   for (const [y, below] of [
@@ -371,9 +387,9 @@ test('a long codex is where Adam left it when he comes back, with the card he op
   // Leaving another way, the codex is still as it was left.
   await scrollTo(6000)
   const was = await cardInView()
-  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await openPage(win, 'Characters')
   await expect(main(win).getByRole('heading', { name: 'Characters', exact: true })).toBeVisible()
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(main(win).locator(`[data-codex-card="${was.id}"]`)).toBeVisible()
   expect(Math.abs((await topOf(was.id)) - was.top)).toBeLessThan(2)
 })
@@ -381,7 +397,7 @@ test('a long codex is where Adam left it when he comes back, with the card he op
 test('an empty codex explains what entries are for and offers a way to start', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Empty')
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await expect(main(win).getByRole('heading', { name: 'Nothing in the codex yet' })).toBeVisible()
   await expect(main(win).getByText('given to the AI when a scene needs it')).toBeVisible()
   await expect(main(win).getByRole('button', { name: 'Quick start from a few notes' })).toBeVisible()
@@ -396,7 +412,7 @@ test('an empty codex explains what entries are for and offers a way to start', a
   // Quick start goes to the builder.
   const empty = await launch()
   await createWorldFromWelcome(empty.win, 'Empty too')
-  await binder(empty.win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(empty.win, 'Codex')
   await main(empty.win).getByRole('button', { name: 'Quick start from a few notes' }).click()
   await expect(main(empty.win).getByRole('heading', { name: 'Nothing in the codex yet' })).toHaveCount(0)
 })
@@ -528,7 +544,7 @@ test('in a small window the as-of bar and the page’s buttons keep their room, 
   await openEntry(win, 'Characters', 'Mara')
   await expect(binder(win)).toBeVisible()
   await expect(entryRows(win).filter({ hasText: 'Mara' })).toBeVisible()
-  const builder = main(win).getByRole('button', { name: 'Open in the builder' })
+  const builder = main(win).getByRole('button', { name: 'Build with AI' })
   // The buttons under the name can be clicked: when they take two rows, their row grows to hold them.
   const inRow = (): Promise<boolean> =>
     builder.evaluate((b) => b.getBoundingClientRect().bottom <= b.parentElement!.getBoundingClientRect().bottom + 0.5)

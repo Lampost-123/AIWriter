@@ -8,6 +8,8 @@ import { Transform } from '@tiptap/pm/transform'
 import { sceneExtensions } from '@/features/editor/extensions'
 import { withParagraphIds } from '@/features/editor/paragraphIds'
 import {
+  AMBIGUOUS,
+  quoteCount,
   CUT_ALL,
   CUT_CHANGED,
   CUT_PLAIN,
@@ -230,16 +232,26 @@ describe('anchors (where the chat says the words stand)', () => {
     expect(findEditAt(doc, 'The lamp went out.', { paragraph: 3, pid: 'c', offset: 4 })?.from).toBe(posOfPara(4))
   })
 
-  it('falls back to the first place the words are when the anchor no longer holds', () => {
-    expect(findEditAt(doc, 'The lamp went out.', { paragraph: 9, pid: 'gone', offset: 0 })?.from).toBe(posOfPara(0))
-    expect(findEditAt(doc, 'The lamp went out.')?.from).toBe(posOfPara(0))
+  it('falls back to the one place the words are when the anchor no longer holds; never guesses between several', () => {
+    // Three places and no anchor to say which: not guessed (the first was taken until 2026-10-19, which could change
+    // the wrong one); planText says why.
+    expect(findEditAt(doc, 'The lamp went out.', { paragraph: 9, pid: 'gone', offset: 0 })).toBeNull()
+    expect(findEditAt(doc, 'The lamp went out.')).toBeNull()
+    expect(quoteCount(doc, 'The lamp went out.', 5)).toBe(3)
+    expect(planText(doc, 'The lamp went out.', 'It guttered.')).toEqual({ why: AMBIGUOUS })
+    // Words in one place only are found there, anchor or not.
+    expect(findEditAt(doc, 'Hesper waited.', { paragraph: 9, pid: 'gone', offset: 0 })?.from).toBe(posOfPara(3))
+    expect(planText(doc, 'No such words.', 'x')).toEqual({ why: NOT_FOUND })
   })
 
   it('finds a passage by its start and end anchors', () => {
     const at = { start: { paragraph: 2, pid: 'b', offset: 'Hesper waited. '.length }, end: { paragraph: 3, pid: 'c', offset: 'The lamp went out.'.length } }
     expect(findPassageAt(doc, 'The lamp', 'went out.', at)).toEqual({ from: posOfPara(3) + at.start.offset, to: posOfPara(4) + 'The lamp went out.'.length })
-    // Without anchors: as before, from the first start words to the end words after them.
-    expect(findPassageAt(doc, 'The lamp', 'went out.')).toEqual({ from: posOfPara(0), to: posOfPara(0) + 'The lamp went out.'.length })
+    // Without anchors: from start words that stand in one place only to the end words after them; start words in
+    // several places aren't guessed at.
+    expect(findPassageAt(doc, 'Hesper waited.', 'Then dark.')).toEqual({ from: posOfPara(3), to: posOfPara(3) + 'Hesper waited. The lamp went out. Then dark.'.length })
+    expect(findPassageAt(doc, 'The lamp', 'went out.')).toBeNull()
+    expect(planPassage(doc, 'The lamp', 'went out.', 'It guttered.')).toEqual({ why: AMBIGUOUS })
   })
 })
 

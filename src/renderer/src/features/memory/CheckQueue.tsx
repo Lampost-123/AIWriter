@@ -46,7 +46,8 @@ export function CheckQueue({
   items,
   entries,
   onChange,
-  onReload
+  onReload,
+  bare = false
 }: {
   items: MemoryCheckItem[]
   entries: Map<ID, Entry>
@@ -54,6 +55,8 @@ export function CheckQueue({
   onChange: (next: MemoryCheckItem[]) => void
   /** Reads the list again (after an Undo, or when something failed). */
   onReload: () => void
+  /** Without its "Worth a look" heading, inside a section of its own (a scene's Issues list › Memory). */
+  bare?: boolean
 }): React.JSX.Element | null {
   const navigate = useApp((s) => s.navigate)
   const groups = groupChecks(items)
@@ -127,6 +130,25 @@ export function CheckQueue({
     }
     const entry = row.entryId ? entries.get(row.entryId) : undefined
     if (entry) navigate({ kind: 'entries', entryKind: entry.kind, entryId: entry.id })
+  }
+
+  if (bare) {
+    return (
+      <div className="flex flex-col gap-4 animate-fade-in" data-memory-checks>
+        {groups.map((g) => (
+          <Group
+            key={g.id}
+            group={g}
+            canOpen={(row) => (row.group === 'summary' ? !!row.sceneId : !!row.entryId && entries.has(row.entryId))}
+            onShow={show}
+            onKeep={(rows) => void keep(rows)}
+            onFix={fix}
+            onRemove={(row) => void remove(row)}
+            onLater={(row, chapter) => void later(row, chapter)}
+          />
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -331,7 +353,9 @@ function Row({
                 : row.group === 'alias'
                   ? `The AI will know ${name || 'them'} by “${offeredName(row)}” in every scene`
                   : promise
-                    ? 'Leave it open as it is. You won’t be asked about it again for now.'
+                    ? row.fact.kind === 'promise' && row.fact.why === 'paid-before'
+                      ? 'Keep it paid off here. You won’t be asked about it again.'
+                      : 'Leave it open as it is. You won’t be asked about it again for now.'
                     : 'Keep it as it is. It becomes yours and stops depending on the words.'
           }
         >

@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, statSync } from 'node:fs'
 import type { DeepPartial, Settings, ThemeName, WritingPrefs } from '@shared/types'
 import { DESK_READY, defaultSettings, defaultWritingPrefs } from '@shared/defaults'
 import { withReadingLimits } from '@shared/readingLimits'
-import { ARRANGEMENTS, LOOKS, arrangementNoteDue, lookNoteDue, lookOf, type Arrangement, type Look } from '@shared/contracts/look'
+import { ARRANGEMENTS, LOOKS, arrangementNoteDue, classicNoteDue, lookNoteDue, type Arrangement } from '@shared/contracts/look'
 import { defaultLibraryDir, userDataDir } from './paths'
 import { readJson, writeFileAtomic } from './util'
 import { cleanPrefsTargets } from '@shared/lengths'
+import { cleanFavourites, withFavourite } from '@shared/directions'
 
 let cached: Settings | null = null
 
@@ -29,12 +30,16 @@ export function getSettings(): Settings {
     const existed = existsSync(file)
     const stored = readJson<Partial<Settings>>(file, {})
     cached = merge(defaultSettings(defaultLibraryDir()), stored)
-    // The New look is the default, with a one-time note offering Classic to anyone who used AI Write before it.
-    // App tests choose the look they start in (AIWRITE_LOOK) and never see the note unless they ask for it.
-    if (!('look' in stored)) {
-      const forced = lookFromEnv()
-      if (forced) cached.look = forced
-      cached.lookNote = !forced && lookNoteDue(existed ? (stored as Record<string, unknown>) : null)
+    // The New look is the only look: Classic was retired (Adam, 2026-10-19). Someone who used AI Write before the New
+    // look is told about it once; someone still on Classic is moved to it, every other setting kept, and told once
+    // that Classic has been retired. App tests start with no note (AIWRITE_LOOK) unless they ask for what Adam gets.
+    const kept = existed ? (stored as Record<string, unknown>) : null
+    const quiet = testLook()
+    cached.look = 'new'
+    if (!('look' in stored)) cached.lookNote = !quiet && lookNoteDue(kept)
+    if (classicNoteDue(kept)) {
+      cached.lookNote = false
+      cached.classicNote = !quiet
     }
     // The theme: Dark for anyone who never chose one (the default). App tests choose the theme they start in
     // (AIWRITE_THEME), so their pictures stay as they were taken.
@@ -49,10 +54,10 @@ export function getSettings(): Settings {
     // the panels to anyone who used them. App tests choose the layout they start in (AIWRITE_ARRANGEMENT).
     if (!('arrangement' in stored)) {
       const forced = arrangementFromEnv()
-      const desk = forced ? forced === 'desk' : deskReady() && lookOf(cached.look) === 'new'
+      const desk = forced ? forced === 'desk' : deskReady()
       cached.arrangement = desk ? 'desk' : 'panels'
       if (desk) cached.layout = { ...cached.layout, binderOpen: false, inspectorOpen: false }
-      cached.arrangementNote = desk && !forced && arrangementNoteDue(existed ? (stored as Record<string, unknown>) : null)
+      cached.arrangementNote = desk && !forced && arrangementNoteDue(kept)
     }
     cached = withPublishedLimits(cached)
     // A library on a drive that isn't plugged in must not stop AI Write starting:
@@ -62,10 +67,12 @@ export function getSettings(): Settings {
   return cached
 }
 
-/** The look app tests start in (AIWRITE_LOOK=new or classic); undefined for everyone else. */
-function lookFromEnv(): Look | undefined {
-  const v = process.env.AIWRITE_LOOK
-  return (LOOKS as readonly string[]).includes(v ?? '') ? (v as Look) : undefined
+/**
+ * True in app tests that start without the one-time notes about the look (AIWRITE_LOOK=new; a leftover 'classic' means
+ * the same, as Classic is retired). They ask for what Adam gets with AIWRITE_LOOK=''.
+ */
+function testLook(): boolean {
+  return (LOOKS as readonly string[]).includes(process.env.AIWRITE_LOOK ?? '')
 }
 
 /** The theme app tests start in (AIWRITE_THEME=system, light, dark or sepia); undefined for everyone else. */
@@ -112,7 +119,8 @@ function withPublishedLimits(s: Settings): Settings {
 
 export function updateSettings(patch: DeepPartial<Settings>): Settings {
   const current = getSettings()
-  const next = withPublishedLimits(merge(current, patch))
+  // Classic is retired: nothing can choose it again.
+  const next = { ...withPublishedLimits(merge(current, patch)), look: 'new' as const }
   const text = JSON.stringify(next, null, 2)
   // Opening a scene or a panel often changes nothing that is stored: don't rewrite the file then.
   if (text === JSON.stringify(current, null, 2)) return current
@@ -129,7 +137,31 @@ export function getWritingPrefs(): WritingPrefs {
 }
 
 export function setWritingPrefs(prefs: WritingPrefs): WritingPrefs {
-  const clean = cleanPrefsTargets(prefs)
+  // The starred directions are kept by setDirectionFavourite alone: a page holding the preferences as they were when it
+  // opened never takes back a star given since (or gives back one taken away).
+  const { favouriteDirections: _theirs, ...rest } = prefs
+  const starred = directionFavourites()
+  const clean = cleanPrefsTargets({ ...rest, ...(starred.length ? { favouriteDirections: starred } : {}) })
   writeFileAtomic(prefsFile(), JSON.stringify(clean, null, 2))
   return clean
+}
+
+/** The preferences file as it is (an object; nothing else counts). */
+function storedPrefs(): Partial<WritingPrefs> {
+  const raw = readJson<unknown>(prefsFile(), {})
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Partial<WritingPrefs>) : {}
+}
+
+/** The directions Adam starred in the direction composer, most recently starred first (contracts/direction.ts). */
+export function directionFavourites(): string[] {
+  return cleanFavourites(storedPrefs().favouriteDirections)
+}
+
+/** Stars a direction or takes its star away, keeping every other preference as it is in the file. */
+export function setDirectionFavourite(text: string, on: boolean): string[] {
+  if (typeof text !== 'string') return directionFavourites()
+  const stored = storedPrefs()
+  const favouriteDirections = withFavourite(cleanFavourites(stored.favouriteDirections), text, on === true)
+  writeFileAtomic(prefsFile(), JSON.stringify({ ...stored, favouriteDirections }, null, 2))
+  return favouriteDirections
 }

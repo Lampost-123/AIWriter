@@ -103,7 +103,7 @@ AI Write opens on **the desk**:
 - Press **?** (when you're not typing) to see every keyboard shortcut.
 
 If you'd rather have the areas down the left and the scene panel always beside the page, choose **Panels** in
-**Settings › Appearance › Layout**. In the **Classic** look, the same places are listed in the binder instead.
+**Settings › Appearance › Layout**.
 
 ## Write your first scene
 

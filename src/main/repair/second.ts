@@ -123,13 +123,26 @@ export interface MissingNote {
 }
 
 /**
+ * A second opinion asked in a request that opens as others do (the consistency checks', checks/run.ts, 2026-10-19): their
+ * instructions (`system`) and their opening (`opening`: the material and the scene, with its blocks), then the second
+ * opinion's own instructions (`task`) and the notes, so a provider's cache serves the opening it has just read.
+ */
+export interface SharedOpening {
+  system: string
+  opening: string
+  blocks: ContextBlock[]
+  task: string
+}
+
+/**
  * The request for the second opinion on `slips`, then on what isn't shown yet (numbered from 1, in order). `system`: other
- * instructions in the same reply format (a whole check's findings, checks/run.ts findingsRuling); a slip with no line
+ * instructions in the same reply format (a whole check's findings, checks/run.ts findingsRuling); `shared`: asked after
+ * another request's opening instead (`material` is then only where the notes' lines are looked up). A slip with no line
  * cites none.
  */
 export function secondRequest(
   slips: Claim[],
-  o: { material: string; leadIn: string; newWords: string; system?: string },
+  o: { material: string; leadIn: string; newWords: string; system?: string; shared?: SharedOpening },
   missing: MissingNote[] = []
 ): { messages: ChatMessage[]; blocks: ContextBlock[] } {
   const notes = [
@@ -138,6 +151,18 @@ export function secondRequest(
   ]
     .map((n, i) => `${i + 1}. ${n}`)
     .join('\n')
+  const block = (id: string, title: string, text: string, priority: number): ContextBlock => ({ id, priority, title, text, tokens: estimateTokens(text), entryIds: [], dropped: false })
+  if (o.shared) {
+    const sh = o.shared
+    const user = `${sh.opening}\n\n${sh.task}\n\n## The notes to check\n${notes}\n\nReply with the JSON verdicts, one per note.`
+    return {
+      messages: [
+        { role: 'system', content: sh.system },
+        { role: 'user', content: user, cacheUpTo: sh.opening.length }
+      ],
+      blocks: [...sh.blocks, block('task', 'The task', sh.task, 10), block('notes', 'The notes to check', notes, 10)]
+    }
+  }
   const sections = [
     { id: 'material', title: 'What the check was given', text: o.material },
     ...(o.leadIn.trim() ? [{ id: 'lead-in', title: 'The words just before the new ones', text: `"""\n…${o.leadIn.trim()}\n"""` }] : []),
@@ -150,7 +175,7 @@ export function secondRequest(
       { role: 'system', content: o.system ?? secondSystem(slips.some((c) => /^C\d+$/.test(c.line)) || missing.length > 0, missing.length > 0) },
       { role: 'user', content: user }
     ],
-    blocks: sections.map((s, i) => ({ id: s.id, priority: Math.min(10, i + 1), title: s.title, text: s.text, tokens: estimateTokens(s.text), entryIds: [], dropped: false }))
+    blocks: sections.map((s, i) => block(s.id, s.title, s.text, Math.min(10, i + 1)))
   }
 }
 
@@ -193,7 +218,7 @@ export async function secondOpinion(
   o: { db: Database.Database; model: MemoryModel; signal?: AbortSignal; closed: () => boolean; fetchImpl?: typeof fetch; retryDelays?: number[] },
   sceneId: ID,
   claims: Claim[],
-  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string>; system?: string },
+  w: { newWords: string; leadIn: string; material: string; lines: ReadonlySet<string>; system?: string; shared?: SharedOpening },
   missing: MissingNote[] = []
 ): Promise<SecondOutcome> {
   const ground = groundedSlips(claims, w)

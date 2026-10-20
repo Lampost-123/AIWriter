@@ -38,7 +38,8 @@ import { insertSceneBreak, pasteAsPlainText, toggleBlockQuote, toggleBold, toggl
 import { openFindInScene, openFindInStory } from '@/features/find/open'
 import { openWordCounts } from '@/features/goals/WordCounts'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
-import { checkChapter, checkScene, checkStory, openConsistency } from '@/features/consistency/checkStore'
+import { openConsistency } from '@/features/consistency/checkStore'
+import { runCheck } from '@/features/check/runCheck'
 import { currentChapterId, openExportBible, openExportStory } from '@/features/transfer/exportStore'
 import { copyWorld, exportWorld, importWorld } from '@/features/transfer/worldFiles'
 import { offerMemory, startImport } from '@/features/importing/importStore'
@@ -346,19 +347,20 @@ export async function runAction(id: ActionId): Promise<void> {
         openWorldBuilder()
         return
       // ----- Milestone 5 -----
+      // The one Check (features/check/runCheck.ts), as the top bar's.
       case 'check-scene':
-        if (a.sceneId && a.storyId) await checkScene(a.sceneId, a.storyId)
+        if (a.sceneId && a.storyId) await runCheck('scene')
         return
       case 'check-chapter': {
         if (!a.sceneId || !a.storyId) return
         const chapterId = (await outlineOf(a.storyId)).scenes.find((s) => s.id === a.sceneId)?.chapterId
-        if (chapterId) await checkChapter(chapterId, a.storyId)
+        if (chapterId) await runCheck('chapter', { chapterId })
         return
       }
       case 'check-story': {
         // On a story's Consistency page, that story.
         const storyId = a.view.kind === 'consistency' ? a.view.storyId : a.storyId
-        if (storyId) await checkStory(storyId)
+        if (storyId) await runCheck('story', { storyId })
         return
       }
       case 'go-consistency':

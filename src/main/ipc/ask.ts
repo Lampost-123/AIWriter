@@ -2,12 +2,12 @@
 // docs/ARCHITECTURE.md, "Milestone 4". The work is done in src/main/ask/*; this file connects it to
 // the open world, the settings, the chat and brainstorm model and the window.
 import type { Handlers } from './index'
-import { contractLastWords } from '@shared/askChanges'
 import type { AskIntent } from '@shared/askIntent'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatExp } from '../ask/exp'
-import { compactBlocks, pastAnswer, stepPreamble } from '../ask/history'
-import { asksForNewProse, bareRequest, editorNudge, MAX_EDIT_NUDGES, routeIntent, temperatureFor } from '../ask/route'
+import { compactBlocks, pastAnswer } from '../ask/history'
+import { asksForNewProse, bareRequest, routeIntent, temperatureFor } from '../ask/route'
+import { chatLoop } from '../ask/loop'
 
 /**
  * An earlier answer as the model is shown it again: with the changes it proposed through its tools, so it sees itself
@@ -40,7 +40,7 @@ import { EDIT_BRIEFING_CAP, finishAsk, PAGE_BLOCK, prepareAsk } from '../ask/con
 import { aboutTheWords, pageText } from '../ask/page'
 import { chatInStory, chatTurns, listChats, newChatId, toTurn } from '../ask/chats'
 import { saveNote, undoNote } from '../ask/note'
-import { EditorAgent, MAX_STEPS } from '../ask/agent'
+import { EditorAgent } from '../ask/agent'
 import { proposalsOf, saveProposals, setOptionMark, setSavedNote } from '../db/ask'
 import { currentHistory } from '../history'
 
@@ -190,38 +190,9 @@ export const askHandlers: Handlers<keyof AskApi> = {
       extra: { chatId },
       emit: send,
       onKeyRejected: notes.onKeyRejected,
-      agent: {
-        // The same list on every request of the answer (the lab switches are read once, by the agent).
-        tools: agent.tools,
-        maxSteps: MAX_STEPS,
-        ended: () => agent.ended(),
-        forceTool: () => agent.forceTool(),
-        // With the contract on, a short "I'll read the scene first" written before tool calls is left out of the reply.
-        ...(contract ? { dropBeforeTools: stepPreamble } : {}),
-        run: (calls, step, info) => agent.runAll(calls, step, info?.cutOff ?? false),
-        onCallStart: (slot, name, step) => agent.callStarted(slot, name, step),
-        // With the contract on, the last words say what was proposed or what blocked it (never "ask again").
-        lastWords: () => (contract ? contractLastWords(agent.proposals.map((x) => x.id), intent) : agent.lastWords()),
-        // An answer with no proposals is asked once more when it claims changes or the writer asked for edits; with
-        // routing on, an edit is asked again whatever its wording, twice at most, and an answer or ideas never are.
-        // Never once the chat has asked the writer a question with options (ask_user ends the answer).
-        maxNudges: route ? MAX_EDIT_NUDGES : 1,
-        nudge: (answer, attempt) =>
-          editorNudge({
-            answer,
-            attempt,
-            question,
-            proposed: agent.proposals.length,
-            intent,
-            route,
-            contract,
-            asked: !!agent.choice,
-            // With a scene open, an edit's question before reading is sent back to read first (ACTFIRST).
-            ...(actFirst && input.sceneId ? { read: agent.knowsWords() } : {})
-          }),
-        // The proposals and the question it ended with (agent.extraParams), and the routed intent.
-        extraParams: () => ({ ...agent.extraParams(), ...(intent ? { intent } : {}) })
-      }
+      // The tools, the notes sent back, the last words and the truth check (ask/loop.ts). With a scene open, an edit's
+      // question before reading is sent back to read first (ACTFIRST).
+      agent: chatLoop(agent, { question, intent, route, contract, readFirst: actFirst && !!input.sceneId })
     }))
     const row = chatTurnRow(db, generationId)
     const turn: AskTurn = row

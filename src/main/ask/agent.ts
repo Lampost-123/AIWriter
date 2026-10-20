@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3'
 import type { AskChoice, CardProposal, DraftMode, EntryProposal, ParaAnchor, Proposal } from '@shared/contracts/ask'
 import type { AskIntent } from '@shared/askIntent'
+import { claimWords, honestReply, unbackedClaims, writerReason, type Claim } from '@shared/askTruth'
 import { effectiveStyle } from '@shared/style'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
 import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
@@ -27,9 +28,11 @@ import { lineAt } from '../memory/asOf'
 import { labeler } from '../memory/line'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
+import { LOOKUP_TOOLS, runLookup, type LookupContext } from '../ai/lookups'
+import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
-import { proposedTail } from './prompts'
+import { ASK_PACKS, proposedTail } from './prompts'
 import {
   SCENE_CARD_WITH_NAMES,
   STORY_CHANGE_KINDS,
@@ -90,6 +93,13 @@ const SEARCH_HITS = 12
  * that long is propose_draft's.
  */
 export const MAX_ITEM_WORDS = 600
+
+/** What a new event's `scene` is (2026-10-19): where it happens, so it sits there on the timeline. */
+export const EVENT_SCENE_WORDS =
+  'the scene it happens in ("Ch 2, Sc 1" or its title; left out, the open one), or "before the story" for one that happened before the story begins.'
+
+/** A new event's `scene` saying it happened before the story: it is made at no scene. */
+const BEFORE_STORY = /^\s*(?:before|none|no scene|backstory|earlier|in the past)\b/i
 
 const wordsIn = (s: string): number => (s.match(/[\p{L}\p{N}’']+/gu) ?? []).length
 
@@ -254,7 +264,15 @@ export const EDITOR_TOOLS: ToolSpec[] = [
     description: 'Propose a new entry in the memory. The writer decides.',
     parameters: {
       type: 'object',
-      properties: { kind: { type: 'string', enum: [...ENTRY_KINDS] }, name: str, summary: str, description: str, why: str },
+      properties: {
+        kind: { type: 'string', enum: [...ENTRY_KINDS] },
+        name: str,
+        summary: str,
+        description: str,
+        when: { ...str, description: 'An event: when it happens, as the story dates its scenes.' },
+        scene: { ...str, description: EVENT_SCENE_WORDS },
+        why: str
+      },
       required: ['kind', 'name', 'why']
     }
   },
@@ -299,6 +317,10 @@ export interface ToolSwitches {
   storyTools?: boolean
   /** EXTRATOOLS (chat Phase 4): scene_state, story_so_far, compare_version and the replace_all change. */
   extraTools?: boolean
+  /** LOOKUPS (overhaul phase 2): the story index's look-ups every agent shares (askLookupTools). */
+  lookups?: boolean
+  /** PACKS (overhaul phase 2): load_instructions, and the rarer kinds' details in propose_changes moved into their packs. */
+  packs?: boolean
 }
 
 export const toolSwitches = (): ToolSwitches => ({
@@ -309,7 +331,9 @@ export const toolSwitches = (): ToolSwitches => ({
   actFirst: chatExp('ACTFIRST'),
   textTools: chatExp('TEXTTOOLS'),
   storyTools: chatExp('STORYTOOLS'),
-  extraTools: chatExp('EXTRATOOLS')
+  extraTools: chatExp('EXTRATOOLS'),
+  lookups: chatExp('LOOKUPS'),
+  packs: chatExp('PACKS')
 })
 
 const num = { type: 'number' } as const
@@ -390,6 +414,34 @@ export const CHANGE_KINDS = {
 } as const
 export type ChangeKind = keyof typeof CHANGE_KINDS
 
+/**
+ * Other names a model gives a kind of change (its tool's name without propose_, or one near it), and the kind each is
+ * taken as, so a change isn't turned down for its kind's name alone.
+ */
+/** The "- issue_fix: " a kind's line in propose_changes' description starts with. */
+const KIND_LEAD = /^-\s*[\w_]+:\s*/
+
+export const KIND_ALIASES: Record<string, string> = {
+  text: 'edit',
+  replace: 'edit',
+  passage: 'rewrite',
+  scene_card: 'card',
+  card_change: 'card',
+  entry_change: 'entry',
+  change_entry: 'entry',
+  update_entry: 'entry',
+  edit_entry: 'entry',
+  entry_update: 'entry',
+  new_title: 'rename',
+  title: 'rename',
+  insert_paragraph: 'insert',
+  cut_paragraph: 'cut',
+  fix_issue: 'issue_fix',
+  issue: 'issue_fix',
+  plot_thread: 'thread',
+  replace_everywhere: 'replace_all'
+}
+
 /** What the tools' descriptions say of a change's size (the runaway guard; checked by checkItemSize). */
 export const SIZE_LINE = `A rewrite's or insert's new words: at most about ${MAX_ITEM_WORDS} words per change (a longer reply is cut off and lost). Split a longer change into several, one passage each; new prose that long goes through propose_draft, when you have it.`
 
@@ -401,7 +453,7 @@ export const ASK_KIND = 'ask'
  * an item can be a question for the writer instead, as ask_user asks it, so a request made to propose can still ask
  * when the request could mean clearly different things. An ask goes alone: given with changes, it isn't asked.
  */
-function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false, extra = false): ToolSpec {
+function proposeChangesTool(anchor: boolean, ask = false, text = false, story = false, extra = false, packs = false): ToolSpec {
   const words = anchor
     ? "edit: `paragraph` (its [n] from read_scene), `find` (the words there; quotes and spacing needn't match exactly), `occurrence` if they occur more than once in it, `replace` ('' cuts). One paragraph only, and it can't add or remove italics.\n- rewrite: `replace_paragraphs: [from, to]` for whole paragraphs, or `start` + `paragraph` and `end` for a passage that starts or ends inside one; `replace` is the whole new passage, a blank line between paragraphs and *asterisks* for italics."
     : "edit: `find` (copied exactly from the scene, inside one paragraph, long enough to occur once) and `replace` ('' cuts). It can't add or remove italics.\n- rewrite: `start` and `end` (the passage's first and last few words, copied exactly; `start` must occur once) and `replace`, the whole new passage, a blank line between paragraphs and *asterisks* for italics."
@@ -414,13 +466,13 @@ function proposeChangesTool(anchor: boolean, ask = false, text = false, story = 
       `  ${SIZE_LINE}`,
       "- card: new values for parts of a scene's card (`goal`, `conflict`, `outcome`, `mood`, `when`, `notes`, `beats` as the whole list).",
       '- entry: an existing entry by `name`, with new `summary`, `description`, `aliases` or `fields` (by the keys get_entry shows).',
-      '- new_entry: `entry_kind`, `name`, and `summary` / `description` if you have them.',
+      `- new_entry: \`entry_kind\`, \`name\`, and \`summary\` / \`description\` if you have them. An event also \`when\` if you know it, and \`scene\`: ${EVENT_SCENE_WORDS}`,
       '- new_scene: at the end of `chapter` ("Ch 2" or its title), with `title`, and `goal` / `beats` if you have them.',
       '- new_chapter: `title`, at the end of this story.',
       '- rename: a `scene` or a `chapter`, and its new title as `to`.',
       ...(text ? textKindLines(anchor) : []),
-      ...(story ? STORY_KIND_LINES : []),
-      ...(extra ? EXTRA_KIND_LINES : []),
+      ...(story ? (packs ? STORY_KIND_SHORT : STORY_KIND_LINES) : []),
+      ...(extra ? (packs ? EXTRA_KIND_SHORT : EXTRA_KIND_LINES) : []),
       ...(ask
         ? [
             "- ask: instead of proposing, ask the writer one short question, only when you can't tell which passage is meant or two readings would give clearly different changes (never to ask permission). Give `question` and 2 to 4 `options`, each with a short `label` (and `detail` if it needs one); `recommended` is the number of the option you would pick (1 = the first); `multi` is true when more than one may be picked. No `why`. It ends your answer: their pick comes back as their next message. An ask goes alone, as the only item: given with changes, it is not asked and the changes are checked as usual."
@@ -561,12 +613,81 @@ export function editorTools(s: ToolSwitches): ToolSpec[] {
   if (s.storyTools && !s.toolChoice) out.push(...storyProposeTools())
   // EXTRATOOLS (Phase 4) without TOOLCHOICE: replace_all as its own propose_ tool.
   if (s.extraTools && !s.toolChoice) out.push(...extraProposeTools())
-  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools, !!s.extraTools))
+  if (s.toolChoice) out.push(proposeChangesTool(s.anchor, s.askUser, s.textTools, !!s.storyTools, !!s.extraTools, !!s.packs))
   if (s.draft) out.push(PROPOSE_DRAFT)
   if (s.askUser) out.push(ASK_USER)
   if (s.textTools) out.push(FIND_MENTIONS)
   if (s.extraTools) out.push(...extraReadTools())
+  // Overhaul phase 2: the look-ups every agent shares, and the instruction packs (last, the same on every request).
+  if (s.lookups) out.push(...askLookupTools(s))
+  if (s.packs) out.push(loadInstructionsTool(ASK_PACKS))
   return out
+}
+
+// ---------- LOOKUPS and PACKS (overhaul phase 2): the shared look-ups, and the instruction packs ----------
+
+/**
+ * The look-ups the chat takes from the set every agent shares (ai/lookups), answered from the story index at no cost as
+ * things stand at the open scene (or the story's end). Left out where the chat has its own: get_entry (the chat's gives
+ * the field keys its entry changes use, and labels what comes later) and find_in_story (its search); what_happened
+ * where story_so_far is offered (EXTRATOOLS), open_threads where list_threads is (STORYTOOLS).
+ */
+export function askLookupTools(s: ToolSwitches): ToolSpec[] {
+  const own = new Set(['get_entry', 'find_in_story', ...(s.extraTools ? ['what_happened'] : []), ...(s.storyTools ? ['open_threads'] : [])])
+  return LOOKUP_TOOLS.filter((t) => !own.has(t.name))
+}
+
+/**
+ * A look-up's answer in the chat's own tools' names: what it says to try next names the chat's tool that does the same
+ * (its search for find_in_story; story_so_far and list_threads where the shared ones aren't offered).
+ */
+export function inChatWords(text: string, s: ToolSwitches): string {
+  const own: [string, string][] = [['find_in_story', 'search']]
+  if (s.extraTools) own.push(['what_happened', 'story_so_far'])
+  if (s.storyTools) own.push(['open_threads', 'list_threads'])
+  return own.reduce((t, [shared, mine]) => t.replace(new RegExp(String.raw`\b${shared}\b`, 'g'), mine), text)
+}
+
+/**
+ * With PACKS, propose_changes says the story kinds and replace_all in a line each, naming their fields; how to use them
+ * is in the packs (fix-a-slip, plan-a-scene), to which the chat adds the kinds' full lines (askPackExtra).
+ */
+const STORY_KIND_SHORT = [
+  '- issue_fix: an issue list_issues shows, by `issue_id`, with `how` text or memory (the fix-a-slip pack has the details).',
+  '- chapter_card: a chapter card’s parts, by `chapter`; thread: a plot thread on a scene’s card, by `thread` and `action` (the plan-a-scene pack has the details of both).',
+  '- card may also set `pov`, `characters` (the whole list) and `location`, by name.'
+]
+const EXTRA_KIND_SHORT = ['- replace_all: every place `find` stands in this story’s scenes, as `replace` (the fix-a-slip pack has the details).']
+
+/**
+ * What the chat adds to a pack for its own tools (load_instructions' `extra`): the kinds' full lines that propose_changes
+ * no longer carries with PACKS, or the separate tools that make those changes without TOOLCHOICE.
+ */
+export function askPackExtra(name: string, s: ToolSwitches): string {
+  const kinds = (lines: readonly string[]): string => (lines.length ? `In this chat, propose these with propose_changes:\n${lines.join('\n')}` : '')
+  const tools = (names: string[]): string => (names.length ? `In this chat, propose these with ${orList(names)}.` : '')
+  switch (name) {
+    case 'plan-a-scene':
+      return s.toolChoice
+        ? kinds(s.storyTools ? STORY_KIND_LINES.slice(1) : [])
+        : tools([
+            'propose_scene_card',
+            'propose_new_scene',
+            'propose_new_chapter',
+            ...(s.storyTools ? ['propose_chapter_card', 'propose_thread'] : [])
+          ])
+    case 'fix-a-slip':
+      return s.toolChoice
+        ? kinds([...(s.storyTools ? STORY_KIND_LINES.slice(0, 1) : []), ...(s.extraTools ? EXTRA_KIND_LINES : [])])
+        : tools([...(s.storyTools ? ['propose_issue_fix'] : []), ...(s.extraTools ? ['propose_replace_all'] : [])])
+    case 'check-continuity':
+      return [
+        `In this chat, ${s.storyTools ? 'list_issues' : 'scene_issues'} shows what the app's checks have already found${s.extraTools ? ', and scene_state where things stand at a paragraph of a scene' : ''}.`,
+        'A scene after the open one is later: what happens there is no slip for the scenes before it.'
+      ].join(' ')
+    default:
+      return ''
+  }
 }
 
 // ---------- TEXTTOOLS (chat Phase 3): find_mentions, and propose_changes' kinds insert, cut and beats ----------
@@ -679,6 +800,32 @@ export interface AgentPlace {
 
 /** Something the model got wrong that it can put right (a scene it named that isn't there, words that aren't in it). */
 class Mistake extends Error {}
+
+/** A word's plain form for matching field names: lower case, letters only, a plural's s off ("Eyes" → "eye"). */
+const stem = (w: string): string => w.toLowerCase().replace(/[^a-z]/g, '').replace(/(?<=[a-z]{3})s$/, '')
+
+/**
+ * An entry kind's field, by its key or its label as the model gave it: the key itself; else the one field whose key or
+ * label is the same words; else the one field sharing a word of three letters or more with it ("Eye colour" → eyes).
+ * Null when none fits, or several do.
+ */
+export function fieldKey(kind: EntryKind, asked: string): string | null {
+  const fields = (FIELD_GROUPS[kind] ?? []).flatMap((g) => g.fields)
+  if (fields.some((f) => f.key === asked)) return asked
+  const flat = (s: string): string => s.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).map(stem).join('')
+  const same = fields.filter((f) => flat(f.key) === flat(asked) || flat(f.label) === flat(asked))
+  if (same.length === 1) return same[0].key
+  const words = new Set(asked.split(/[\s_-]+|(?<=[a-z])(?=[A-Z])/).map(stem).filter((w) => w.length >= 3))
+  const near = fields.filter((f) => [f.key, ...f.label.split(/\s+/)].map(stem).some((w) => w.length >= 3 && words.has(w)))
+  return near.length === 1 ? near[0].key : null
+}
+
+/** An entry kind's fields for a tool's answer: "pronouns (Pronouns), age (Age or birth date), …". */
+export const fieldList = (kind: EntryKind): string =>
+  (FIELD_GROUPS[kind] ?? [])
+    .flatMap((g) => g.fields)
+    .map((f) => `${f.key} (${f.label})`)
+    .join(', ') || 'none (only summary, description and aliases)'
 
 const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const lower = (s: string): string => s.trim().toLocaleLowerCase()
@@ -987,6 +1134,21 @@ export class EditorAgent {
   private started = new Map<number, ToolActivity>()
   /** Calls made so far in this answer (for their ids). */
   private callCount = 0
+  /** The look-ups offered (LOOKUPS), by name: answered in runAll, as a look-up may wait. */
+  private readonly lookupNames: Set<string>
+  /** What the look-ups are answered from (worked out once per answer); null when there is no story or scene to look in. */
+  private lookupCache: LookupContext | null | undefined
+  /** The packs sent already this answer (PACKS): each is sent once. */
+  private readonly packsLoaded = new Set<string>()
+  /**
+   * Why each proposal turned down this answer was turned down, as the check told the model (the truth check says the
+   * last one to Adam, in plain words, when nothing came of the answer).
+   */
+  readonly failures: string[] = []
+  /** The truth check's note was sent (once an answer). */
+  private truthSent = false
+  /** The tool the next request must call, after the truth check's note (forceTool); null: none. */
+  private mustCall: string | null = null
 
   constructor(
     private readonly db: DB,
@@ -1001,6 +1163,7 @@ export class EditorAgent {
   ) {
     this.switches = toolSwitches()
     this.tools = editorTools(this.switches)
+    this.lookupNames = new Set(this.switches.lookups ? askLookupTools(this.switches).map((t) => t.name) : [])
   }
 
   /**
@@ -1010,6 +1173,12 @@ export class EditorAgent {
    * With ACTFIRST and DRAFT, a request for new prose in the open scene (place.newProse) is made to call propose_draft.
    */
   forceTool(): string | null {
+    // The truth check's retry: the propose tool its note named, whatever was forced before.
+    if (this.mustCall) {
+      const tool = this.mustCall
+      this.mustCall = null
+      return tool
+    }
     if (!this.switches.toolChoice || this.forced || !(this.place.intent === 'edit' || this.unclearAsk())) return null
     if (this.proposals.length || this.choice || !this.knowsWords()) return null
     this.forced = true
@@ -1163,7 +1332,15 @@ export class EditorAgent {
         .slice(0, 6)
       throw new Mistake(`“${asked}” fits more than one entry. Did you mean ${orList(shown)}? Ask again with the full name.`)
     }
-    throw new Mistake(`There is no entry called “${asked}” in this story's memory. Search for it, or propose a new entry.`)
+    // Names that share the start of a word with it, so a misspelt or half-remembered name can be put right.
+    const starts = want.split(/\s+/).filter((w) => w.length >= 3).map((w) => w.slice(0, 3))
+    const like = all
+      .filter((s) => !hidden.has(s.e.id) && names(s).some((n) => n.split(/\s+/).some((x) => starts.some((w) => x.startsWith(w)))))
+      .map((s) => s.e.name)
+      .slice(0, 5)
+    throw new Mistake(
+      `There is no entry called “${asked}” in this story's memory.${like.length ? ` Names like it: ${orList(like)}.` : ''} Search for it, or propose a new entry.`
+    )
   }
 
   private propose(p: NewProposal, revises?: Proposal): string {
@@ -1189,6 +1366,79 @@ export class EditorAgent {
     return this.proposals.length
       ? `[AI Write, not the writer] No more tools can be used for this answer. Proposed so far: ${list}. Answer the writer now, mentioning only these; if you meant to propose more, say what they would be and that the writer can ask for them.`
       : "[AI Write, not the writer] No more tools can be used for this answer, and no changes were proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything. Answer now; if you meant to propose changes, say what they would be and that the writer can ask again."
+  }
+
+  // ---------- The truth check (Adam, 2026-10-19: the chat said it had changed things it never proposed) ----------
+
+  /** Why the last proposal turned down this answer was turned down, as the check said it to the model; null: none was. */
+  lastFailure(): string | null {
+    return this.failures.at(-1) ?? null
+  }
+
+  /**
+   * The truth check, asked of the whole reply whenever an answer comes without tools (ai/tasks.ts recheck): when it
+   * claims a change none of this answer's proposals is (shared/askTruth.ts), the note sent back once, plainly saying
+   * no change was made, with the propose tool forced on the next request (forceTool); else null. A reply that ended
+   * with a question for the writer is left be.
+   */
+  recheck(reply: string): string | null {
+    if (this.truthSent || this.choice) return null
+    const claims = unbackedClaims(reply, this.proposals)
+    if (!claims.length) return null
+    this.truthSent = true
+    this.mustCall = this.truthTool(claims)
+    return this.truthNote(claims)
+  }
+
+  /**
+   * The reply as Adam sees it (ai/tasks.ts settle): any claim of a change still not made is put right in plain words
+   * (shared/askTruth.ts honestReply), with why, when a check turned the change down. Never an AI call.
+   */
+  settle(reply: string): string {
+    if (this.choice) return reply
+    const claims = unbackedClaims(reply, this.proposals)
+    if (!claims.length) return reply
+    const failed = this.lastFailure()
+    return honestReply(reply, claims, { proposed: this.proposals.map((p) => p.id), failure: failed ? writerReason(failed) : null })
+  }
+
+  /**
+   * The tool the truth check's retry is made to call: propose_changes (with TOOLCHOICE), else the propose_ tool for what
+   * the claim names. None for a change to words before any were read: the note asks for them to be read first.
+   */
+  private truthTool(claims: Claim[]): string | null {
+    // A question or a brainstorm asked for no change: the claim is taken back, never made into one.
+    if (!this.wantsChange()) return null
+    const targets = new Set(claims.map((c) => c.target))
+    const words = targets.has('words') || targets.has(null)
+    if (words && !this.knowsWords()) return null
+    if (this.switches.toolChoice) return 'propose_changes'
+    if (targets.size !== 1) return null
+    const only = [...targets][0]
+    return only === 'entry' ? 'propose_entry_change' : only === 'card' ? 'propose_scene_card' : only === 'title' ? 'propose_rename' : only === 'words' ? 'propose_edit' : null
+  }
+
+  /** The question may want a change: routed as an edit or unsure, or not routed (routing off). */
+  private wantsChange(): boolean {
+    return this.place.intent !== 'answer' && this.place.intent !== 'brainstorm'
+  }
+
+  /** The truth check's note to the model: what it claimed, that nothing backs it, and how to make the change now. */
+  private truthNote(claims: Claim[]): string {
+    const said = claims
+      .slice(0, 2)
+      .map((c) => `“${claimWords(c)}”`)
+      .join(' and ')
+    const made = this.proposals.length
+      ? `Only ${this.proposals.map((p) => `change ${p.id}`).join(', ')} ${this.proposals.length === 1 ? 'was' : 'were'} proposed; nothing else was`
+      : 'No change was made: nothing was proposed, so the writer has nothing to apply'
+    if (!this.wantsChange())
+      return `[AI Write, not the writer] Your answer gives a change as made that wasn't: ${said}. ${made}, and the writer asked a question, not for a change. Answer again without saying you changed, edited, updated or proposed anything; if a change would help, offer it as a suggestion in words ("I'd…"), and don't propose it.`
+    const failed = this.lastFailure()
+    const why = failed ? ` Your last proposal was turned down: ${shortReason(failed.replace(/^Not proposed[^.]*\.\s*/i, ''), 160)}. Fix that and propose it again.` : ''
+    const tool = this.switches.toolChoice ? 'propose_changes' : 'the propose_ tools'
+    const read = this.knowsWords() ? '' : ' Read the words first with read_scene if the change is to the scene.'
+    return `[AI Write, not the writer] Your answer gives a change as made that wasn't: ${said}. ${made}.${why} Make the change now with ${tool}.${read} Then say in one line what you proposed. If you can't make it, say plainly that no change was made and why. Never say a change was made, edited, updated or proposed unless a tool result said "Proposed to the writer" for it.`
   }
 
   /**
@@ -1238,11 +1488,13 @@ export class EditorAgent {
       // sent one ten times). Said plainly, with what to do instead.
       if (cutOff || (call.arguments.length >= CUT_OFF_CHARS && unterminatedJson(call.arguments))) {
         const proposing = call.name.startsWith('propose_')
+        if (proposing) this.failures.push('The change was cut off at the reply limit.')
         return this.done(call, started, {}, 'A call that was cut off', cutOffResult(proposing, this.switches.draft), {
           status: proposing ? 'not-proposed' : 'failed',
           outcome: 'cut off at the reply limit'
         })
       }
+      if (call.name.startsWith('propose_')) this.failures.push('The arguments were not valid JSON.')
       return this.done(call, started, {}, 'Something went wrong', 'The arguments were not valid JSON. Call the tool again with valid JSON.', {
         status: 'failed',
         outcome: 'the arguments weren’t valid JSON'
@@ -1255,6 +1507,7 @@ export class EditorAgent {
       const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
       const why = shortReason(message)
       // A proposal that didn't go through says so, so the model doesn't tell the writer it is waiting for them.
+      if (call.name.startsWith('propose_')) this.failures.push(message)
       if (call.name.startsWith('propose_'))
         return this.done(call, started, args, 'A change that didn’t fit', `Not proposed: nothing is waiting for the writer. ${message}`, {
           status: 'not-proposed',
@@ -1722,7 +1975,9 @@ export class EditorAgent {
     if (items.length > 20) throw new Mistake('At most 20 changes at once.')
     const kindOf = (raw: unknown): string => {
       const k = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).kind : null
-      return typeof k === 'string' ? k.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+      // A kind given by its tool's name or a near one ("propose_entry_change", "scene_card") is taken as that kind.
+      const plain = typeof k === 'string' ? k.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^propose_/, '') : ''
+      return KIND_ALIASES[plain] ?? plain
     }
     // A question for the writer (ASKUSER), asked as ask_user asks it, when it is the only item: it ends the answer.
     // Beside changes it is not asked (the changes are the answer, checked as usual).
@@ -1775,8 +2030,12 @@ export class EditorAgent {
         said = revised ? `change ${revised[1]} now proposes this instead.` : `proposed as change ${/change (\d+)/.exec(result)?.[1] ?? '?'}.`
       } catch (e) {
         const message = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
-        said = `Not proposed. ${message}`
+        // A kind whose details wait in a pack not loaded this answer: its full line comes with the mistake, so it can be
+        // put right without loading anything first.
+        const guide = this.kindGuide(kind)
+        said = `Not proposed. ${message}${guide ? ` How to give a change of kind ${kind}: ${guide}` : ''}`
         reasons.push(shortReason(message, 50))
+        this.failures.push(message)
       }
       const note = this.notes.join(' ')
       lines.push(`${n}. ${kind}: ${said}${note ? ` (${note})` : ''}`)
@@ -1796,6 +2055,22 @@ export class EditorAgent {
     const tail = proposed ? `\n${proposedTail()}` : ''
     const label = labels.length === 1 ? labels[0] : labels.length ? `Proposing ${labels.length} changes` : 'A change that didn’t fit'
     return [label, `${head}\n${lines.join('\n')}${tail}`]
+  }
+
+  /**
+   * With PACKS, the full line of a kind propose_changes describes only in short (issue_fix, chapter_card, thread,
+   * replace_all), while the pack that carries it hasn't been loaded this answer; else ''.
+   */
+  private kindGuide(kind: string): string {
+    if (!this.switches.packs) return ''
+    const story = this.switches.storyTools ? Object.keys(STORY_CHANGE_KINDS) : []
+    const i = story.indexOf(kind)
+    if (i >= 0) {
+      const pack = kind === 'issue_fix' ? 'fix-a-slip' : 'plan-a-scene'
+      return this.packsLoaded.has(pack) ? '' : (STORY_KIND_LINES[i] ?? '').replace(KIND_LEAD, '')
+    }
+    if (this.switches.extraTools && kind in EXTRA_CHANGE_KINDS) return this.packsLoaded.has('fix-a-slip') ? '' : EXTRA_KIND_LINES.map((l) => l.replace(KIND_LEAD, '')).join(' ')
+    return ''
   }
 
   // ---------- ASKUSER: one question with options, which ends the answer ----------
@@ -2218,6 +2493,7 @@ export class EditorAgent {
     if (name === 'propose_changes' && this.switches.toolChoice) return this.proposeChanges(a)
     if (name === 'ask_user' && this.switches.askUser) return this.askUser(a)
     if (name === 'propose_draft' && this.switches.draft) return this.proposeDraft(a)
+    if (name === LOAD_INSTRUCTIONS && this.switches.packs) return this.loadPack(a)
     const textTool = this.switches.textTools ? this.textTool(name, a) : null
     if (textTool) return textTool
     if (this.switches.storyTools) {
@@ -2427,7 +2703,8 @@ export class EditorAgent {
       }
       case 'propose_entry_change': {
         const seen = this.entry(a.name)
-        if (seen.nameOnly) throw new Mistake(`${seen.e.name} is ${seen.label}: it can't be changed from this story.`)
+        if (seen.nameOnly)
+          throw new Mistake(`${seen.e.name} is ${seen.label}: it can't be changed from this story. Tell the writer to ask in the story it comes from.`)
         const e = seen.e
         const patch: EntryProposal = {}
         if (typeof a.summary === 'string') patch.summary = text('summary').trim()
@@ -2435,11 +2712,12 @@ export class EditorAgent {
         const aliases = list('aliases')
         if (aliases) patch.aliases = aliases
         if (a.fields && typeof a.fields === 'object') {
-          const keys = new Set((FIELD_GROUPS[e.kind] ?? []).flatMap((g) => g.fields.map((f) => f.key)))
           const fields: Record<string, string> = {}
           for (const [k, v] of Object.entries(a.fields as Record<string, unknown>)) {
-            if (!keys.has(k)) throw new Mistake(`“${k}” isn't one of ${e.name}'s fields. get_entry shows the field keys.`)
-            if (typeof v === 'string') fields[k] = v.trim()
+            // A field named by its label ("Eye colour" for eyes) is taken as its key when only one field fits.
+            const key = fieldKey(e.kind, k)
+            if (!key) throw new Mistake(`“${k}” isn't one of ${e.name}'s fields. Give fields by key; ${e.name}'s are: ${fieldList(e.kind)}.`)
+            if (typeof v === 'string') fields[key] = v.trim()
           }
           if (Object.keys(fields).length) patch.fields = fields
         }
@@ -2454,9 +2732,24 @@ export class EditorAgent {
         if (repo.listEntries(this.db).some((e) => lower(e.name) === lower(name))) {
           throw new Mistake(`There is already an entry called “${name}”. Propose a change to it instead.`)
         }
+        // An event happens in a scene (2026-10-19): the one named, else the open one, and first exists there once
+        // applied, so it sits there on the timeline and earlier scenes never hear of it. Before the story: none.
+        const event = kind === 'event'
+        const sceneId = event && !BEFORE_STORY.test(text('scene')) && (text('scene').trim() || this.place.sceneId) ? this.scene(a.scene) : null
+        const at = sceneId ? { sceneId, sceneLabel: sceneLabelIn(this.outline(), sceneId) } : {}
+        const when = event ? squash(text('when')) : ''
         return [
           `Proposing a new ${KIND_LABELS[kind].one.toLowerCase()}`,
-          this.propose({ kind: 'newEntry', entryKind: kind, name, summary: text('summary').trim(), description: text('description').trim(), why: text('why') })
+          this.propose({
+            kind: 'newEntry',
+            entryKind: kind,
+            name,
+            summary: text('summary').trim(),
+            description: text('description').trim(),
+            ...at,
+            ...(when ? { when } : {}),
+            why: text('why')
+          })
         ]
       }
       case 'propose_new_scene': {
@@ -2491,8 +2784,102 @@ export class EditorAgent {
         return ['Proposing a new title', this.propose({ kind: 'rename', target: 'scene', targetId: id, from, to, why: text('why') })]
       }
       default:
-        throw new Mistake(`There is no tool called “${name}”.`)
+        throw new Mistake(
+          `There is no tool called “${name}”.${/^(propose|update|edit|change|add|set|rename|apply)_/.test(name) ? ` To propose a change, use ${this.switches.toolChoice ? 'propose_changes' : 'the propose_ tools you were given'}.` : ''}`
+        )
     }
+  }
+
+  // ---------- LOOKUPS and PACKS (overhaul phase 2) ----------
+
+  /**
+   * What the look-ups are answered from: the open scene as its words so far end (with no scene open, the story's last
+   * scene as it ends: the story so far), the memory as the chat sees it there, and what Adam keeps out. Null with no
+   * story, or a story with no scenes yet.
+   */
+  private lookupContext(): LookupContext | null {
+    if (this.lookupCache !== undefined) return this.lookupCache
+    this.lookupCache = null
+    const storyId = this.place.storyId
+    if (!storyId) return null
+    const o = this.outline()
+    const open = this.place.sceneId && o.scenes.some((x) => x.id === this.place.sceneId) ? this.place.sceneId : null
+    const sceneId = open ?? o.scenes.at(-1)?.id ?? null
+    if (!sceneId) return null
+    const v = this.view()
+    const card = repo.getScene(this.db, sceneId).card
+    const people = [card.povId, ...card.presentIds]
+      .filter((id): id is ID => !!id && !v.hidden.has(id))
+      .map((id) => v.point.names.get(id) ?? '')
+      .filter(Boolean)
+    this.lookupCache = {
+      db: this.db,
+      sceneId,
+      storyId,
+      asItBegins: false,
+      entries: [...v.point.here.values()],
+      facts: v.point.facts,
+      relationships: v.point.relationships,
+      people: [...new Set(people)],
+      hidden: v.hidden
+    }
+    return this.lookupCache
+  }
+
+  /** Answers one of the shared look-ups (LOOKUPS), as run answers the chat's own tools: never throws. */
+  private async lookUp(call: ToolCall, started: ToolActivity, cutOff: boolean): Promise<{ result: string; step: ToolActivity }> {
+    let args: Record<string, unknown>
+    try {
+      args = call.arguments.trim() ? (JSON.parse(call.arguments) as Record<string, unknown>) : {}
+    } catch {
+      // Arguments that aren't JSON (or were cut off) are said back as for any other tool.
+      return this.run(call, started, cutOff)
+    }
+    this.notes = []
+    this.mark = { summary: argSummary(call.name, args) }
+    // The shared read_passage reads only scenes before the point; in the chat the open scene is the one being edited,
+    // so asking for it is answered (as read_scene), never turned down as "only earlier scenes can be read" (2026-10-19:
+    // Adam saw the chat say it couldn't reach the scene to edit). A later scene stays unread here (read_scene marks it).
+    if (call.name === 'read_passage' && this.place.storyId && this.place.sceneId) {
+      let id: ID | null = null
+      try {
+        id = this.scene(args.scene)
+      } catch {
+        // Not a scene of this story: the shared look-up says what there is.
+      }
+      if (id === this.place.sceneId) {
+        try {
+          const [label, result] = this.answer('read_scene', { scene: args.scene })
+          return this.done(call, started, args, label, result)
+        } catch (e) {
+          const why = e instanceof Mistake ? e.message : `That didn't work: ${(e as Error)?.message ?? e}`
+          return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+        }
+      }
+      this.notes = []
+    }
+    try {
+      const ctx = this.lookupContext()
+      if (!ctx) {
+        const why = this.place.storyId ? 'This story has no scenes yet, so there is nothing to look up in it.' : 'No story is open, so there is no story to look things up in.'
+        return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+      }
+      const a = await runLookup(call, ctx)
+      // A later scene read_passage won't read: the chat's own read_scene does, marked later.
+      const later = call.name === 'read_passage' && /only earlier scenes can be read/.test(a.text) ? ' In this chat, read_scene reads it, marked later.' : ''
+      const text = inChatWords(a.text, this.switches) + later
+      return this.done(call, started, args, a.label, text, a.ok ? {} : { outcome: shortReason(text) })
+    } catch (e) {
+      const why = `That look-up didn't work (${(e as Error)?.message ?? e}). Try another.`
+      return this.done(call, started, args, 'Looking something up', why, { status: 'failed', outcome: shortReason(why) })
+    }
+  }
+
+  /** load_instructions (PACKS): a pack's text, with the chat's own lines for it; each pack once an answer. */
+  private loadPack(a: Record<string, unknown>): [string, string] {
+    const p = loadInstructions(a, { offered: ASK_PACKS, loaded: this.packsLoaded, extra: (name) => askPackExtra(name, this.switches) })
+    this.mark = { summary: p.pack?.title ?? '', ...(p.ok ? {} : { status: 'failed' as const, outcome: shortReason(p.text) }) }
+    return [p.label, p.text]
   }
 
   /** Answers a model turn's calls, in order: the tool messages to send back, and the steps for "What the AI saw". */
@@ -2504,7 +2891,8 @@ export class EditorAgent {
     const results: ChatMessage[] = []
     const steps: ToolActivity[] = []
     for (const [i, c] of calls.entries()) {
-      const { result, step: done } = this.run(c, begun[i] ?? this.begin(c.name, step ?? null), cutOff)
+      const started = begun[i] ?? this.begin(c.name, step ?? null)
+      const { result, step: done } = this.lookupNames.has(c.name) ? await this.lookUp(c, started, cutOff) : this.run(c, started, cutOff)
       results.push({ role: 'tool', toolCallId: c.id, content: result })
       steps.push(done)
     }

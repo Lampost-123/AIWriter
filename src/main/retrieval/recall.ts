@@ -34,6 +34,8 @@ export const NOTHING: RecallInput = { sticky: [], found: [], passages: [], said:
  */
 export const FOUND_MOST = 6
 export const PASSAGES_MOST = 6
+/** How many of the passages offered may be summaries (the best of them, joined with the passages by rank). */
+export const SUMMARIES_MOST = 3
 /** Each ranked list keeps this many. */
 const LIST_SIZE = 12
 /** A keyword find must score at least this share of the best one in its list. */
@@ -54,6 +56,11 @@ export interface RecallDeps {
   /** Stops the background reading this search starts (the world closing). */
   background?: AbortSignal
   meaningWaitMs?: number
+  /**
+   * For measuring only (tests/recall-eval): how many each ranked list keeps and how many passages are offered, so a
+   * find's rank past the usual few can be seen. Missing: LIST_SIZE and the briefing's own number.
+   */
+  depth?: number
 }
 
 // ---------- What is searched for ----------
@@ -156,19 +163,26 @@ export function factDocs(
   return out
 }
 
-/** A summary of an earlier part of another story on the line, to search. */
+/** A summary of an earlier scene or chapter on the line, to search. */
 export interface SummaryDoc {
+  /** As the search index keys it: 'scene:<id>' or 'chapter:<id>'. */
   key: string
   text: string
   where: string
   order: number
+  /** The scene it sums up, or the chapter. */
+  sceneId?: ID
+  chapterId?: ID
 }
 
 /**
- * Summaries of the scenes and chapters of the other stories on this scene's line (earlier books, side stories told
- * meanwhile), which the story so far gives only a paragraph each. This story's own scenes are searched word for word.
+ * Summaries of the scenes and chapters before this scene on its line: those of the other stories on it (earlier books,
+ * side stories told meanwhile), which the story so far gives only a paragraph each, and since 2026-10-19 this story's
+ * own (summary-level recall: a summary often says in a few plain words what a scene's passages tell at length, so the
+ * search finds the scene by it). Only chapters that ended before this scene: a chapter still being written has a
+ * summary that may tell what comes after it.
  */
-export function summaryDocs(summaries: Summary[], line: Line, storyId: ID, label: ReturnType<typeof labeler>): SummaryDoc[] {
+export function summaryDocs(summaries: Summary[], line: Line, label: ReturnType<typeof labeler>): SummaryDoc[] {
   const sceneAt = new Map<ID, { storyId: ID; at: number }>()
   const chapterAt = new Map<ID, { storyId: ID; at: number }>()
   line.steps.forEach((s, i) => {
@@ -177,14 +191,14 @@ export function summaryDocs(summaries: Summary[], line: Line, storyId: ID, label
   })
   const out: SummaryDoc[] = []
   for (const s of summaries) {
-    if (!clean(s.text)) continue
+    const text = clean(s.text)
+    if (!text) continue
     if (s.level === 'scene') {
       const at = sceneAt.get(s.targetId)
-      if (at && at.storyId !== storyId) out.push({ key: `sum:scene:${s.targetId}`, text: clean(s.text), where: label({ storyId: at.storyId, sceneId: s.targetId }), order: at.at })
+      if (at) out.push({ key: `scene:${s.targetId}`, text, where: label({ storyId: at.storyId, sceneId: s.targetId }), order: at.at, sceneId: s.targetId })
     } else if (s.level === 'chapter') {
       const at = chapterAt.get(s.targetId)
-      if (at && at.storyId !== storyId)
-        out.push({ key: `sum:chapter:${s.targetId}`, text: clean(s.text), where: label({ storyId: at.storyId, chapterId: s.targetId }), order: at.at })
+      if (at) out.push({ key: `chapter:${s.targetId}`, text, where: label({ storyId: at.storyId, chapterId: s.targetId }), order: at.at, chapterId: s.targetId })
     }
   }
   return out
@@ -288,13 +302,15 @@ async function meaningLists(
   parts: string[],
   passages: StoredPassage[],
   summaries: SummaryDoc[],
-  facts: FactDoc[]
+  facts: FactDoc[],
+  listSize = LIST_SIZE
 ): Promise<Lists> {
   const queries = parts.map((p) => ({ hash: `q:${textHash(p)}`, text: p }))
-  const others = [...summaries.map((x) => x.text), ...facts.map((x) => x.text)].map((t) => ({ hash: textHash(t), text: t }))
-  const [qv, ov] = await Promise.all([
+  const toRead = (texts: string[]) => texts.map((t) => ({ hash: textHash(t), text: t }))
+  const [qv, sv, fv] = await Promise.all([
     vectors.read({ embedder, texts: queries, now: true, signal }),
-    vectors.read({ embedder, texts: others, now: false, index: deps.index, store: 'other', signal, background: deps.background })
+    vectors.read({ embedder, texts: toRead(summaries.map((x) => x.text)), now: false, index: deps.index, store: 'summary', signal, background: deps.background }),
+    vectors.read({ embedder, texts: toRead(facts.map((x) => x.text)), now: false, index: deps.index, store: 'other', signal, background: deps.background })
   ])
   if (signal.aborted) throw new Error('out of time')
   const pv = vectors.kept(
@@ -308,13 +324,13 @@ async function meaningLists(
       return vec ? [{ item, vec }] : []
     })
   const p = withVec(passages, (x) => x.hash, pv)
-  const s = withVec(summaries, (x) => textHash(x.text), ov)
-  const f = withVec(facts, (x) => textHash(x.text), ov)
+  const s = withVec(summaries, (x) => textHash(x.text), sv)
+  const f = withVec(facts, (x) => textHash(x.text), fv)
   const qs = queries.map((q) => qv.get(q.hash)).filter((v): v is Float32Array => !!v)
   return {
-    passages: qs.map((q) => nearest(q, p, LIST_SIZE, embedder.floor)),
-    summaries: qs.map((q) => nearest(q, s, LIST_SIZE, embedder.floor)),
-    facts: qs.map((q) => nearest(q, f, LIST_SIZE, embedder.floor))
+    passages: qs.map((q) => nearest(q, p, listSize, embedder.floor)),
+    summaries: qs.map((q) => nearest(q, s, listSize, embedder.floor)),
+    facts: qs.map((q) => nearest(q, f, listSize, embedder.floor))
   }
 }
 
@@ -354,6 +370,12 @@ export function saidTimes(changes: SaidChange[], onLine: Map<ID, { at: number; s
   return [...out.values()].map(({ knowers, recorded, ...t }) => ({ ...t, heard: recorded ? t.heard : [...knowers].filter((id) => id !== t.by) }))
 }
 
+/** A passage found, as a briefing gets it: where it is in plain words, its place on the line, and its scene. */
+function passageFound(p: StoredPassage, onLine: Map<ID, { at: number; storyId: ID }>, label: ReturnType<typeof labeler>): RecalledPassage {
+  const at = onLine.get(p.sceneId)!
+  return { kind: 'scene', where: label({ storyId: at.storyId, sceneId: p.sceneId }), text: p.text, order: at.at * 10_000 + p.n, sceneId: p.sceneId }
+}
+
 /** The scenes on the line before this one, each with its place on the walk and its story. */
 function scenesOnLine(line: Line): Map<ID, { at: number; storyId: ID }> {
   const out = new Map<ID, { at: number; storyId: ID }>()
@@ -377,7 +399,8 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
   const onLine = scenesOnLine(line)
   const memory = input.memory
   const card = input.scene.card
-  const passagesMost = Math.max(PASSAGES_MOST, passagesFound(memoryScale(input.contextLength)))
+  const passagesMost = deps.depth ?? Math.max(PASSAGES_MOST, passagesFound(memoryScale(input.contextLength)))
+  const listSize = deps.depth ?? LIST_SIZE
   const onCard = new Set([card.povId, ...card.presentIds, card.locationId].filter((x): x is ID => !!x))
   const people = new Set([card.povId, ...card.presentIds].filter((x): x is ID => !!x))
   const cardNames = memory.entries.filter((e) => onCard.has(e.id)).flatMap((e) => [e.name, ...(e.aliases ?? [])])
@@ -401,30 +424,49 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
 
   const parts = queryParts(input, soFar)
   const facts = factDocs(memory, onCard, new Set(times.map((t) => t.factId)))
-  const summaries = summaryDocs(listSummaries(db), line, story.id, label)
   const index = deps.index?.open ? deps.index : null
   const allowed = [...onLine.keys()]
 
-  // The end of the previous scene is sent already (block 3): passages it holds aren't offered again.
+  // The end of the previous scene is sent already (block 3): passages it holds aren't offered again; nor is its
+  // summary, whose opening the story so far tells too.
   const tail = clean(sceneTail(memory.previous?.text ?? ''))
   const previousId = memory.previous?.sceneId
   const sentAlready = (p: StoredPassage): boolean => p.sceneId === previousId && tail.includes(clean(p.text).slice(0, 80))
+  const summaries = summaryDocs(listSummaries(db), line, label).filter((x) => !previousId || x.sceneId !== previousId)
+  const summaryByKey = new Map(summaries.map((x) => [x.key, x]))
 
   // Keyword search, part by part.
   const lists: Lists = { passages: [], summaries: [], facts: [] }
   const factIndex = new KeywordIndex(facts, (f) => f.text)
-  const summaryIndex = new KeywordIndex(summaries, (s) => s.text)
+  // Summaries by keyword: in the search index (stemmed as passages are), or in memory when there is no index.
+  let summaryIndex: KeywordIndex<SummaryDoc> | null = index ? null : new KeywordIndex(summaries, (s) => s.text)
+  const summaryKeys = summaries.map((x) => x.key)
+  const summariesFor = (part: string): Ranked<SummaryDoc>[] => {
+    if (index && !summaryIndex) {
+      try {
+        const found = index.keywordSummaries(searchWords(part), summaryKeys, listSize).flatMap((r) => {
+          const doc = summaryByKey.get(r.summary.key)
+          return doc ? [{ item: doc, score: r.score }] : []
+        })
+        return keepBest(found)
+      } catch (e) {
+        console.warn('Keyword search of the summaries in the search index failed; they are searched in memory', e instanceof Error ? e.message : e)
+        summaryIndex = new KeywordIndex(summaries, (s) => s.text)
+      }
+    }
+    return summaryIndex!.search(part, listSize, KEYWORD_KEEP)
+  }
   for (const part of parts) {
     if (index) {
       try {
-        const found = index.keyword(searchWords(part), allowed, LIST_SIZE).filter((r) => !sentAlready(r.passage))
+        const found = index.keyword(searchWords(part), allowed, listSize).filter((r) => !sentAlready(r.passage))
         lists.passages.push(keepBest(found.map((r) => ({ item: r.passage, score: r.score }))))
       } catch (e) {
         console.warn('Keyword search of earlier scenes failed', e instanceof Error ? e.message : e)
       }
     }
-    lists.summaries.push(summaryIndex.search(part, LIST_SIZE, KEYWORD_KEEP))
-    lists.facts.push(factIndex.search(withoutNames(part, cardNames), LIST_SIZE, KEYWORD_KEEP))
+    lists.summaries.push(summariesFor(part))
+    lists.facts.push(factIndex.search(withoutNames(part, cardNames), listSize, KEYWORD_KEEP))
   }
 
   // Meaning search, when the search model is here, for as long as it is quick enough.
@@ -433,7 +475,7 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     const vectors = deps.vectors ?? new Vectors()
     const passages = index ? index.passagesIn(allowed).filter((p) => !sentAlready(p)) : []
     const meaning = await withLimit(
-      (signal) => meaningLists(deps, embedder, vectors, signal, parts, passages, summaries, facts),
+      (signal) => meaningLists(deps, embedder, vectors, signal, parts, passages, summaries, facts, listSize),
       deps.meaningWaitMs ?? MEANING_WAIT_MS,
       deps.signal
     )
@@ -449,11 +491,18 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
   const summariesRanked = fuse(lists.summaries, (s) => s.key)
   const recalled = fuse<RecalledPassage>(
     [
-      passagesRanked.slice(0, passagesMost).map((r) => {
-        const at = onLine.get(r.item.sceneId)!
-        return { item: { kind: 'scene', where: label({ storyId: at.storyId, sceneId: r.item.sceneId }), text: r.item.text, order: at.at * 10_000 + r.item.n }, score: r.score }
-      }),
-      summariesRanked.slice(0, 3).map((r) => ({ item: { kind: 'summary', where: r.item.where, text: r.item.text, order: r.item.order * 10_000 }, score: r.score }))
+      passagesRanked.slice(0, passagesMost).map((r) => ({ item: passageFound(r.item, onLine, label), score: r.score })),
+      summariesRanked.slice(0, SUMMARIES_MOST).map((r) => ({
+        item: {
+          kind: 'summary',
+          where: r.item.where,
+          text: r.item.text,
+          order: r.item.order * 10_000,
+          ...(r.item.sceneId ? { sceneId: r.item.sceneId } : {}),
+          ...(r.item.chapterId ? { chapterId: r.item.chapterId } : {})
+        },
+        score: r.score
+      }))
     ],
     (p) => `${p.kind}:${p.where}:${p.text.slice(0, 40)}`
   )
@@ -478,4 +527,75 @@ export async function recallFor(deps: RecallDeps, sceneId: ID, input: ContextInp
     passages: countWords(recalled.map((p) => p.text).join(' ')) ? recalled : [],
     said: saidLines(memory.facts, times, { nameOf, inScene: people, found: saidFound.slice(0, 4) })
   }
+}
+
+/**
+ * Earlier passages of the story so far for a search of the planner's own (the look-up find_in_story, ai/lookups/): only
+ * what comes before the scene on its story's line, by keyword and (with the search model, while it is quick enough) by
+ * meaning, the two joined, best first, at most `most`, each with where it is in plain words ("Book 1, Ch 2, Sc 3").
+ */
+export async function findPassages(
+  deps: Pick<RecallDeps, 'db' | 'index' | 'embedder' | 'vectors' | 'signal' | 'meaningWaitMs'>,
+  sceneId: ID,
+  query: string,
+  most: number
+): Promise<RecalledPassage[]> {
+  const shape = loadShape(deps.db)
+  const story = storyOfScene(shape, sceneId)
+  const index = deps.index?.open ? deps.index : null
+  const q = clean(query)
+  if (!story || !index || !q || !terms(q).length) return []
+  const line = buildLine(shape, { storyId: story.id, before: sceneId })
+  const onLine = scenesOnLine(line)
+  const allowed = [...onLine.keys()]
+  const lists: Ranked<StoredPassage>[][] = [keepBest(index.keyword(searchWords(q), allowed, LIST_SIZE).map((r) => ({ item: r.passage, score: r.score })))]
+  const embedder = deps.embedder
+  if (embedder && !deps.signal?.aborted) {
+    const vectors = deps.vectors ?? new Vectors()
+    const passages = index.passagesIn(allowed)
+    const meaning = await withLimit(
+      async (signal) => {
+        const hash = `q:${textHash(q)}`
+        const qv = (await vectors.read({ embedder, texts: [{ hash, text: q }], now: true, signal })).get(hash)
+        if (!qv || signal.aborted) return null
+        const pv = vectors.kept(
+          embedder.model,
+          passages.map((p) => p.hash),
+          index
+        )
+        const withVec = passages.flatMap((item) => {
+          const vec = pv.get(item.hash)
+          return vec ? [{ item, vec }] : []
+        })
+        return nearest(qv, withVec, LIST_SIZE, embedder.floor)
+      },
+      deps.meaningWaitMs ?? MEANING_WAIT_MS,
+      deps.signal
+    )
+    if (meaning) lists.push(meaning)
+  }
+  const label = labeler(shape)
+  const passages = fuse(lists, (p) => `p:${p.id}`).map((r) => passageFound(r.item, onLine, label))
+  // Summary-level recall (2026-10-19) for the planner's search too: a scene's or chapter's summary often says in a few
+  // plain words what its passages tell at length. At most half the results, by keyword, as the briefing's own search.
+  let summaries: RecalledPassage[] = []
+  try {
+    const docs = summaryDocs(listSummaries(deps.db), line, label)
+    const byKey = new Map(docs.map((d) => [d.key, d]))
+    const found = index
+      .keywordSummaries(searchWords(q), docs.map((d) => d.key), LIST_SIZE)
+      .flatMap((r) => byKey.get(r.summary.key) ?? [])
+    summaries = found.slice(0, Math.max(0, Math.floor(most / 2))).map((d) => ({
+      kind: 'summary' as const,
+      where: d.where,
+      text: d.text,
+      order: d.order * 10_000,
+      ...(d.sceneId ? { sceneId: d.sceneId } : {}),
+      ...(d.chapterId ? { chapterId: d.chapterId } : {})
+    }))
+  } catch (e) {
+    console.warn('Searching the summaries for the planner failed; passages only', e instanceof Error ? e.message : e)
+  }
+  const room = Math.max(1, most)
+  return [...passages.slice(0, room - summaries.length), ...summaries].slice(0, room)
 }

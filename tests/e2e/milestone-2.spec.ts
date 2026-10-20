@@ -16,7 +16,7 @@
 // typing stops (AIWRITE_KEEPER_QUIET_MS, short here) and when Adam leaves the scene.
 import type { Page } from '@playwright/test'
 import type { FakeProvider } from '../fake-provider/server.mjs'
-import { binder, closeWindow, createWorldFromWelcome, expect, openSettings, test } from './helpers'
+import { binder, closeWindow, createWorldFromWelcome, expect, openPage, openSettings, sceneTitle, showTree, test } from './helpers'
 
 const ENV = { AIWRITE_KEEPER_QUIET_MS: '700' }
 /** How long the memory may take to catch up (it usually takes a second or two). */
@@ -219,10 +219,11 @@ const section = (win: Page, title: string) =>
 /** The changes listed on the open entry page, one per item. */
 const changes = (win: Page) => section(win, 'Changes over time').locator('li')
 
-/** Opens a scene from the binder and waits for its page. */
+/** Opens a scene from the story's tree (the Write area's list) and waits for its page. */
 async function openScene(win: Page, title: string): Promise<void> {
+  await showTree(win)
   await sceneRow(win, title).click()
-  await expect(sceneHeader(win).getByRole('button', { name: title, exact: true })).toBeVisible()
+  await expect(sceneTitle(win, title)).toBeVisible()
   await expect(prose(win)).toBeVisible()
 }
 
@@ -278,9 +279,9 @@ const CREATE: Record<List, [string, string]> = {
   Lore: ['Create lore', 'New lore']
 }
 
-/** Opens one of the world's lists from the binder. */
+/** Opens one of the world's lists (the World area's list). */
 async function openList(win: Page, list: List): Promise<void> {
-  await binder(win).getByRole('button', { name: list }).click()
+  await openPage(win, list)
   const heading = main(win).getByRole('heading', { name: list, exact: true })
   await expect(heading.or(main(win).getByRole('heading', { name: `No ${list.toLowerCase()} yet` }))).toBeVisible()
 }
@@ -431,7 +432,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       await expect(main(win).getByRole('switch', { name: 'Hard rule' })).toBeChecked()
       await fillFields(win, { Lore: TOLL_LAW.fields })
 
-      await binder(win).getByRole('button', { name: 'Style guide' }).click()
+      await openPage(win, 'Style guide')
       await expect(win.getByRole('heading', { level: 1, name: 'Style guide' })).toBeVisible()
       await main(win).getByLabel('Prose style').fill(PROSE_STYLE)
       await main(win).getByLabel('Notes', { exact: true }).fill(STYLE_NOTES)
@@ -465,7 +466,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
     })
 
     await test.step('1. What changed lists it all, and Undo keeps a fact from coming back', async () => {
-      await binder(win).getByRole('button', { name: 'What changed' }).click()
+      await openPage(win, 'What changed')
       await expect(win.getByRole('heading', { level: 1, name: 'What changed' })).toBeVisible()
       for (const line of [
         'Kell, New character',
@@ -533,7 +534,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
         main(win).getByRole('list', { name: 'Recently deleted' }).getByRole('listitem').filter({ hasText: 'Kell' })
       ).toContainText('Character')
 
-      await binder(win).getByRole('button', { name: 'What changed' }).click()
+      await openPage(win, 'What changed')
       for (const line of [
         'Kell, Lost his right eye: those words were deleted',
         `${MARA.name}, No longer knows the ferry was burned: those words were deleted`,
@@ -729,7 +730,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       ).toBeVisible()
 
       // What changed, with Undo where it was left.
-      await binder(again).getByRole('button', { name: 'What changed' }).click()
+      await openPage(again, 'What changed')
       await expect(main(again).getByRole('button', { name: `Undo: ${MARA.name}, Lost her left hand`, exact: true })).toBeVisible()
       await expect(
         main(again).getByRole('button', {

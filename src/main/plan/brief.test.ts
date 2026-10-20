@@ -1,9 +1,10 @@
-// The continuity brief before each scene (long story memory fix 14), the planner's side: how much the plan's call may
-// read (the book so far only when the memory model reads enough and it fits), the record it reads fitted to that room
-// (everyone and everything here in full, who knows what, the calendar, the slips, the rule findings, how each chapter
-// ended, the passages found, the contract), the request in an order a provider's cache can keep, the brief read and
-// checked (a scene it was never given left out, each list capped, kept to its size), the call that writes it with the
-// plan (no new call), and the world's parts it reads. The model is a stand-in; invented test text only.
+// The continuity brief before each scene (long story memory fix 14; trimmed 2026-10-20), the planner's side: how much
+// the plan's call may read, the record it reads fitted to that room (the earlier chapters in short, the scene before and
+// the scene so far word for word, everyone and everything here with their last few changes, who knows what among them, the
+// calendar, the slips, the rule findings, the first few passages found, the contract), the request in an order a
+// provider's cache can keep, the brief read and checked (a scene it was never given or looked up left out, each list
+// capped, kept to its size), the call that writes it with the plan (no new call), and the world's parts it reads. The
+// model is a stand-in; invented test text only.
 import { describe, expect, it } from 'vitest'
 import type { EntryKind, EntryState, FactState, Pin } from '@shared/types'
 import type { SceneState } from '@shared/continuity'
@@ -21,28 +22,28 @@ import { countRaw } from '../ai/tokens'
 import { BRIEF_BLOCK, briefText } from '../ai/brief'
 import { contractText } from '../ai/contract'
 import { buildCalendar } from '../memory/calendar'
-import type { ChapterSnapshot } from '../memory/snapshot'
 import {
-  BOOK_MOST,
-  BOOK_READER,
   BRIEF_MOST,
   BRIEF_REPLY_SHARE,
+  CHAPTERS_TITLE,
+  KNOWS_MOST,
+  PASSAGES_MOST,
+  PREVIOUS_TITLE,
   RECORD_MOST,
-  bookPart,
-  bookWithin,
+  SO_FAR_TITLE,
   briefFrees,
   briefMaterial,
   briefRoom,
   BRIEF_RULE,
   checkBrief,
   fitParts,
+  partText,
   placesCited,
   planThreads,
   readBrief,
-  type BookScene,
   type BriefMaterial
 } from './brief'
-import { keepsRoom, makePlan, planMessages, planSystem, readPlan, type PlanMaterial } from './plan'
+import { keepsRoom, LOOKUP_RULE, makePlan, planMessages, planSystem, readPlan, type PlanMaterial } from './plan'
 
 let seq = 0
 const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): EntryState => ({
@@ -73,27 +74,14 @@ const entry = (kind: EntryKind, name: string, extra: Partial<EntryState> = {}): 
 // ---------- How much it may read ----------
 
 describe('how much the plan may read for the brief', () => {
-  it('the book so far only when the memory model reads 200,000 tokens or more and the book takes half of that at most', () => {
-    const at = (contextLength: number, book: number | null) => briefRoom({ contextLength, base: 4_000, reply: 3_500, book })
-    expect(at(16_000, 9_000).book).toBe(false)
-    expect(at(BOOK_READER - 1, 10_000).book).toBe(false)
-    expect(at(BOOK_READER, 100_000).book).toBe(true)
-    expect(at(BOOK_READER, 100_001).book).toBe(false)
-    expect(at(1_000_000, 480_000).book).toBe(true)
-    expect(at(1_000_000, 520_000).book).toBe(false)
-    expect(at(1_000_000, null).book).toBe(false)
-    expect(at(1_000_000, 0).book).toBe(false)
-  })
-
-  it('the record: half of what it reads, less the plan and its reply, at most RECORD_MOST; none when there is no room', () => {
-    expect(briefRoom({ contextLength: 16_000, base: 3_000, reply: 2_200, book: null }).record).toBe(2_800)
-    expect(briefRoom({ contextLength: 64_000, base: 3_000, reply: 3_500, book: null }).record).toBe(25_500)
-    expect(briefRoom({ contextLength: 1_000_000, base: 5_000, reply: 3_500, book: 300_000 })).toEqual({ book: true, record: RECORD_MOST })
-    expect(briefRoom({ contextLength: 8_000, base: 3_800, reply: 2_200, book: null }).record).toBe(0)
-    // With the book in, all of it stays within nine tenths of what the model reads.
-    const tight = briefRoom({ contextLength: 200_000, base: 60_000, reply: 3_500, book: 99_000 })
-    expect(tight.book).toBe(true)
-    expect(60_000 + 3_500 + 99_000 + tight.record).toBeLessThanOrEqual(180_000)
+  it('the record: half of what it reads, less the plan and its reply, at most RECORD_MOST however much it reads; none when there is no room', () => {
+    expect(briefRoom({ contextLength: 16_000, base: 3_000, reply: 2_200 })).toBe(2_800)
+    expect(briefRoom({ contextLength: 24_000, base: 3_000, reply: 3_500 })).toBe(5_500)
+    // DeepSeek Flash reads 1,000,000 tokens: the record is still RECORD_MOST (2026-10-20: no whole book beside it).
+    expect(briefRoom({ contextLength: 64_000, base: 3_000, reply: 3_500 })).toBe(RECORD_MOST)
+    expect(briefRoom({ contextLength: 1_000_000, base: 5_000, reply: 3_500 })).toBe(RECORD_MOST)
+    expect(RECORD_MOST).toBeLessThanOrEqual(12_000)
+    expect(briefRoom({ contextLength: 8_000, base: 3_800, reply: 2_200 })).toBe(0)
   })
 })
 
@@ -262,6 +250,7 @@ function input(over: Partial<ContextInput> = {}): ContextInput {
         storyId: 'mill',
         storyTitle: 'The Mill',
         when: 'Day 20, dusk',
+        label: 'The Mill, Ch 2, Sc 4',
         otherStory: null
       },
       entries: [w.wren, w.osric, w.loft, w.bell, w.ledger],
@@ -310,43 +299,62 @@ function input(over: Partial<ContextInput> = {}): ContextInput {
   }
 }
 
-const SNAPSHOT = (wren: string, loft: string): ChapterSnapshot => ({
-  v: 1,
-  chapterId: 'ch1',
-  storyId: 'mill',
-  sceneId: 'sc-1-4',
-  span: '',
-  days: 'Day 1 to Day 3',
-  changed: [{ who: wren, note: 'broke her left arm', sc: 2 }],
-  learned: [],
-  threads: [],
-  people: [{ who: wren, at: loft, atSc: 4 }],
-  open: []
-})
-
 const sources = (over: Partial<Parameters<typeof briefMaterial>[2]> = {}) => ({
-  book: null,
-  chapters: [],
   findings: [],
   room: 20_000,
   tokens: 1_000,
   ...over
 })
 
+/** The story so far in short: Ch 1 summed up, Ch 2 not yet (its scene's gist), as memory/scene.ts storySoFar gives them. */
+const STORY_SO_FAR: ContextInput['memory']['storySoFar'] = {
+  scenes: [
+    { sceneId: 'sc-1-2', chapterId: 'c1', label: 'The Mill, Ch 1, Sc 2', text: 'The weir broke under Wren.' },
+    { sceneId: 'sc-2-1', chapterId: 'c2', label: 'The Mill, Ch 2, Sc 1', text: 'Osric took the bribe at the tithe barn. Wren saw it from the loft.' }
+  ],
+  chapters: [{ chapterId: 'c1', label: 'The Mill, Ch 1', text: 'By the end, Wren has broken her left arm at the weir (scene 2) and the mill stands idle.' }],
+  stories: [],
+  series: [],
+  leadsInto: null
+}
+
 describe('what the plan reads for the brief', () => {
-  it('everyone and everything here in full, who knows what, the calendar, the slips, the rule findings and how each chapter ended', () => {
+  it('the chapters in short, the scene before, everyone and everything here, who knows what, the calendar, the slips and the findings', () => {
     const inp = input()
-    const [wren, , loft] = inp.memory.entries
+    const [wren] = inp.memory.entries
     const m = briefMaterial(
-      inp,
+      {
+        ...inp,
+        memory: {
+          ...inp.memory,
+          storySoFar: STORY_SO_FAR,
+          facts: [
+            ...inp.memory.facts,
+            {
+              factId: 'f3',
+              fact: 'The sluice key is under the third sack.',
+              knownBy: [wren.id],
+              at: 6,
+              since: { [wren.id]: { at: 6, where: 'The Mill, Ch 2, Sc 3', how: 'saw' } }
+            }
+          ]
+        }
+      },
       {},
-      sources({
-        chapters: [{ label: 'Ch 1', snapshot: SNAPSHOT(wren.id, loft.id) }],
-        findings: ['Ash died in Ch 1, Sc 2, but speaks here.']
-      })
+      sources({ findings: ['Ash died in Ch 1, Sc 2, but speaks here.'] })
     )
     const text = (title: string): string => m.record.find((p) => p.title.startsWith(title))?.body ?? ''
-    // Each with all that has happened to them; the place, the card's thread and the item the briefing names too.
+    // Each earlier chapter in short, citing its scenes as the rest of the record does; one not summed up yet, its scenes.
+    const chapters = text(CHAPTERS_TITLE)
+    expect(chapters).toContain('### Ch 1\nBy the end, Wren has broken her left arm at the weir (Ch 1, Sc 2) and the mill stands idle.')
+    expect(chapters).toContain('### Ch 2 (no summary of the chapter yet: its scenes)\n- Ch 2, Sc 1: Osric took the bribe at the tithe barn.')
+    expect(chapters).toContain('look up any you need (read_passage)')
+    expect(chapters.indexOf('### Ch 1')).toBeLessThan(chapters.indexOf('### Ch 2'))
+    // The scene before, word for word, with where it is.
+    expect(m.record.map((p) => p.title)).toContain(`${PREVIOUS_TITLE} (Ch 2, Sc 4: Before)`)
+    expect(text(PREVIOUS_TITLE)).toBe('"""\nThe sleet came on.\n"""')
+    // Everyone and everything here, each with its most recent changes; the place, the card's thread and the item the beats
+    // name too.
     const all = text('Everyone and everything')
     expect(all).toContain('### Wren (character)')
     expect(all).toContain('Broke her left arm at the weir (The Mill, Ch 1, Sc 2)')
@@ -354,14 +362,15 @@ describe('what the plan reads for the brief', () => {
     expect(all).toContain('### The mill loft (place)')
     expect(all).toContain('### The drowned bell (thread)')
     expect(all).toContain('### The tithe ledger (item)')
-    // Who knows what, with since when and how; never "not known by" someone it is about; false beliefs.
+    // Who knows what: only what someone here doesn't know, with since when and how, the newest first; never what everyone
+    // here knows (Osric knows he took the bribe), which is a look-up away; and false beliefs.
     const knows = text('Who knows what')
-    expect(knows).toContain('- Osric Hale took the bribe: known by Wren (since Ch 2, Sc 1; heard it from Osric Hale)')
-    expect(knows).not.toMatch(/took the bribe.*not known by/)
     expect(knows).toContain('- The flour tax was forged: known by Wren (since Ch 1, Sc 3; saw it); not known by Osric Hale')
+    expect(knows).toContain('- The sluice key is under the third sack: known by Wren (since Ch 2, Sc 3; saw it); not known by Osric Hale')
+    expect(knows).not.toContain('took the bribe')
     expect(knows).toContain('- Wrongly believed by Osric Hale (since Ch 1, Sc 4; was told): The abbot is in Varn (it isn')
-    // The newest learning first.
-    expect(knows.indexOf('took the bribe')).toBeLessThan(knows.indexOf('flour tax'))
+    expect(knows.indexOf('sluice key')).toBeLessThan(knows.indexOf('flour tax'))
+    expect(knows).toContain('(Not listed: 1 more fact known here, by everyone here or older: who_knows has them.)')
     // The calendar: this scene, the scene before, and how long since each day worth counting from.
     const cal = text('The story calendar')
     expect(cal).toContain('- This scene: Day 22')
@@ -369,16 +378,31 @@ describe('what the plan reads for the brief', () => {
     expect(cal).toContain('- 3 weeks since the weir breaking (Day 1')
     expect(text('Slips put right')).toBe('- In Ch 2, Sc 2: Wren used her left hand to climb.')
     expect(text('Still open in this scene')).toBe('- Ash died in Ch 1, Sc 2, but speaks here.')
-    // A chapter's record cites its scenes as the rest of the record does.
-    const ch = text('How each chapter so far ended')
-    expect(ch).toContain('### Ch 1 (Day 1 to Day 3)')
-    expect(ch).toContain('- Wren: broke her left arm (Ch 1, Sc 2)')
-    expect(ch).toContain('- At its end: Wren: last at The mill loft (Ch 1, Sc 4)')
+    // The whole book so far is never read (2026-10-20).
+    expect(m.record.some((p) => /book so far|How each chapter so far ended/.test(p.title))).toBe(false)
     // The passages found change from step to step: they go after the words before.
     expect(m.late[0].title).toBe('Earlier passages found by searching the story (best first)')
     expect(m.late[0].body).toContain('### Ch 1, Sc 2\nThe weir gave way under her.')
     expect(m.words).toBe(750)
     expect(m.tokens).toBe(1_000)
+    // The chapters "Already happened" tells scene by scene aren't told again in short.
+    const covered = briefMaterial({ ...inp, memory: { ...inp.memory, storySoFar: STORY_SO_FAR } }, {}, sources({ covered: ['Ch 2'] }))
+    expect(covered.record.find((p) => p.title === CHAPTERS_TITLE)!.body).not.toContain('### Ch 2')
+  })
+
+  it('the scene so far word for word, sent last; a long scene from where its last stretch starts, the start a look-up away', () => {
+    const long = Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1}. ${'The flour drifted down from the loft. '.repeat(8)}`).join('\n\n')
+    const inp = input({ soFar: 'Wren set the ledger on the sill.' })
+    const m = briefMaterial({ ...inp, memory: { ...inp.memory, previous: { ...inp.memory.previous!, text: long } } }, {}, sources())
+    expect(m.late[0]).toMatchObject({ title: SO_FAR_TITLE, body: '"""\nWren set the ledger on the sill.\n"""', scene: { of: 'soFar', words: 7 } })
+    const previous = m.record.find((p) => p.title.startsWith(PREVIOUS_TITLE))!
+    expect(previous.steady).toBe(true)
+    expect(previous.body).toContain('Paragraph 80.')
+    expect(previous.body).not.toContain('Paragraph 1.')
+    expect(previous.body.startsWith('(Its earlier part is left out here: look it up if you need it.)')).toBe(true)
+    // The record kept in the world has a note in place of a scene's own words.
+    expect(partText(previous, false)).toMatch(/^## The scene before, word for word \(Ch 2, Sc 4: Before\)\n\(\d,\d{3} words, read word for word\. Not kept here/)
+    expect(partText(previous)).toContain('Paragraph 80.')
   })
 
   it('fits the room, what matters most first, and the scene’s contract is never cut', () => {
@@ -396,23 +420,65 @@ describe('what the plan reads for the brief', () => {
     expect(none.late[0].body).toContain('Must change by the end of the scene:\n1. Osric climbs up with the tithe ledger')
   })
 
-  it('the book so far as it was given, first in the request; for the record kept in the world, a note in its place', () => {
-    const book: BookScene[] = [
-      { label: 'Ch 1, Sc 1', title: 'The weir', text: 'The water rose all night.' },
-      { label: 'Ch 1, Sc 2', title: '', text: 'Wren went down to the sluice.' }
-    ]
-    const whole = bookPart(book)
-    expect(whole).toBe(
-      '## The book so far, word for word\n\n### Ch 1, Sc 1: The weir\nThe water rose all night.\n\n### Ch 1, Sc 2\nWren went down to the sluice.\n\n(The book so far ends here: Ch 1, Sc 1 to Ch 1, Sc 2.)'
-    )
-    // At the next scene it reads the same up to where its last scene ended: nothing that changes comes first (the cache).
-    const next = bookPart([...book, { label: 'Ch 1, Sc 3', title: '', text: 'The gate held.' }])
-    expect(next.startsWith(whole.slice(0, whole.indexOf('\n\n(The book so far ends here')))).toBe(true)
-    expect(bookPart(book, false)).toBe(
-      '## The book so far, word for word\n(Ch 1, Sc 1 to Ch 1, Sc 2, 11 words, read whole. Not kept here, to save space: they are the scenes’ own words.)'
-    )
-    expect(bookPart(null)).toBe('')
-    expect(briefMaterial(input(), {}, sources({ book })).book).toEqual(book)
+  it('a long story’s record stays within RECORD_MOST: the newest chapters, the last changes, the newest facts, the first passages', () => {
+    const base = input()
+    const [wren, osric, ...rest] = base.memory.entries
+    const long = (e: EntryState, n: number): EntryState => ({
+      ...e,
+      happened: Array.from({ length: n }, (_, i) => ({ note: `${e.name} change ${i + 1}`, changeId: `${e.id}-${i}`, where: 'The Mill, Ch 1, Sc 1', at: i }))
+    })
+    const facts: FactState[] = Array.from({ length: 40 }, (_, i) => ({
+      factId: `lf${i}`,
+      fact: `Secret number ${i + 1} about the mill`,
+      knownBy: [wren.id],
+      at: 10 + i,
+      since: { [wren.id]: { at: 10 + i, where: 'The Mill, Ch 3, Sc 1', how: 'saw' } }
+    }))
+    const words = (n: number, w: string) => Array.from({ length: n / 10 }, () => `${w} walked the long road to the mill at dusk.`).join(' ')
+    const inp: ContextInput = {
+      ...base,
+      soFar: words(5_000, 'Wren'),
+      recall: {
+        ...base.recall!,
+        passages: Array.from({ length: 12 }, (_, i) => ({ where: `The Mill, Ch 1, Sc ${i + 1}`, text: `Passage ${i + 1}.`, kind: 'scene' as const, order: i }))
+      },
+      memory: {
+        ...base.memory,
+        entries: [long(wren, 300), long(osric, 300), ...rest],
+        facts,
+        previous: { ...base.memory.previous!, text: words(6_000, 'Osric') },
+        storySoFar: {
+          ...STORY_SO_FAR,
+          scenes: [],
+          chapters: Array.from({ length: 60 }, (_, i) => ({
+            chapterId: `c${i + 1}`,
+            label: `The Mill, Ch ${i + 1}`,
+            text: `By the end of chapter ${i + 1}, ${'the mill wheel turned and the river ran high. '.repeat(25)}`
+          }))
+        }
+      }
+    }
+    const m = briefMaterial(inp, {}, sources({ room: RECORD_MOST }))
+    const sent = [...m.record, ...m.late].map((p) => partText(p)).join('\n\n')
+    expect(estimateTokens(sent)).toBeLessThanOrEqual(RECORD_MOST)
+    const part = (title: string) => [...m.record, ...m.late].find((p) => p.title.startsWith(title))?.body ?? ''
+    // The newest chapters, in reading order; the oldest left out, and said so.
+    const chapters = part(CHAPTERS_TITLE)
+    expect(chapters).toContain('### Ch 60')
+    expect(chapters).not.toContain('### Ch 1\n')
+    expect(chapters).toMatch(/\(\d+ earlier chapters left out here for room: what_happened tells their scenes\.\)/)
+    // The scene so far whatever else gives way, from where its last stretch starts.
+    expect(part(SO_FAR_TITLE)).toContain('Wren walked the long road')
+    // Each person's last few changes, the rest a look-up away.
+    expect(part('Everyone and everything')).toContain('Wren change 300')
+    expect(part('Everyone and everything')).not.toContain('Wren change 290')
+    // At most KNOWS_MOST.facts facts, the newest first.
+    const knows = part('Who knows what')
+    expect(knows.split('\n').filter((l) => l.startsWith('- Secret')).length).toBeLessThanOrEqual(KNOWS_MOST.facts)
+    expect(knows).toContain('Secret number 40 about the mill')
+    expect(knows).not.toContain('Secret number 1 about')
+    // At most PASSAGES_MOST passages.
+    expect(part('Earlier passages').match(/^### /gm)?.length ?? 0).toBeLessThanOrEqual(PASSAGES_MOST)
   })
 })
 
@@ -421,8 +487,6 @@ describe('what the plan reads for the brief', () => {
 const PLAIN: PlanMaterial = {
   ask: 'Write the scene now.',
   card: 'Scene: The hatch\nPoint of view: Wren\nBeats, in order:\n1. Osric climbs up',
-  direction: '',
-  focus: '',
   must: '- Wren: left arm in a sling (since Ch 1, Sc 2)',
   reach: 'here',
   stand: '',
@@ -436,10 +500,17 @@ const PLAIN: PlanMaterial = {
   calls: 'Scene: The hatch\nBeats, in order:\n1. Osric climbs up'
 }
 
-const BOOK: BookScene[] = [{ label: 'Ch 1, Sc 2', title: 'The weir', text: 'The weir gave way, and Wren held the silver key.' }]
 const MATERIAL: BriefMaterial = {
-  book: BOOK,
-  record: [{ title: 'Who knows what, among everyone here', body: '- The flour tax was forged: known by Wren (since Ch 1, Sc 3; saw it)' }],
+  record: [
+    { title: CHAPTERS_TITLE, body: '### Ch 1\nBy the end, the weir has broken (Ch 1, Sc 2).', steady: true },
+    {
+      title: `${PREVIOUS_TITLE} (Ch 1, Sc 2: The weir)`,
+      body: '"""\nThe weir gave way, and Wren held the silver key.\n"""',
+      steady: true,
+      scene: { of: 'previous', words: 9 }
+    },
+    { title: 'Who knows what, among everyone here', body: '- The flour tax was forged: known by Wren (since Ch 1, Sc 3; saw it)' }
+  ],
   late: [{ title: 'Earlier passages found by searching the story (best first)', body: '### Ch 1, Sc 4\nOsric counted the sacks twice.' }],
   words: 750,
   tokens: 1_000
@@ -458,44 +529,43 @@ describe('the plan’s request with a brief', () => {
     // With a contract too.
     expect(planSystem(true, true)).toContain('"must": [""], "brief": {')
     expect(planMessages(PLAIN)[0].content).toBe(plain)
-    // The same whatever the brief's length (said at the end of the request), so the book after it stays in the cache.
+    // The same whatever the brief's length (said at the end of the request), so what comes after it stays in the cache.
     expect(planMessages({ ...PLAIN, brief: MATERIAL })[0].content).toBe(asked)
     expect(planMessages({ ...PLAIN, brief: { ...MATERIAL, words: 1_450 } })[0].content).toBe(asked)
+    // Told plainly that it has earlier scenes only in short, and can look their words up (2026-10-20).
+    expect(planSystem(false, true, true)).toContain(LOOKUP_RULE)
+    expect(LOOKUP_RULE).toContain('to read what an earlier scene said, word for word, use read_passage')
   })
 
-  it('the book first, then the record, the plan’s own parts, the passages after the words before, and what the writer is asked last', () => {
+  it('the record first, its steadiest parts leading; the plan’s own parts; the passages after the words before; what is being written last', () => {
     const [, user] = planMessages({ ...PLAIN, brief: MATERIAL })
     const at = (s: string) => user.content.indexOf(s)
-    expect(at('## The book so far, word for word')).toBe(0)
-    expect(at('## The book so far')).toBeLessThan(at('## Who knows what'))
+    expect(at(`## ${CHAPTERS_TITLE}`)).toBe(0)
+    expect(at('## The scene before, word for word')).toBeLessThan(at('## Who knows what'))
     expect(at('## Who knows what')).toBeLessThan(at('## The scene card'))
-    expect(at('## The end of the previous scene')).toBeLessThan(at('## Earlier passages found'))
-    expect(at('## Earlier passages found')).toBeLessThan(at('## What the writer is asked'))
+    expect(at('## The scene card')).toBeLessThan(at('## Earlier passages found'))
+    expect(at('## Earlier passages found')).toBeLessThan(at('## What is being written'))
     expect(
       user.content.trimEnd().endsWith('Plan the scene and write its continuity brief (at most about 750 words) now, as one JSON object.')
     ).toBe(true)
-    expect(planMessages({ ...PLAIN, focus: 'Beat 2 of 3: Osric climbs up', brief: MATERIAL })[1].content.trimEnd()).toMatch(
-      /Plan the beat and write its continuity brief \(at most about 750 words\) now, as one JSON object\.$/
-    )
-    // A model that caches only where asked keeps the book up to its last scene: the same at the next scene, but for what is
-    // added; never its last line, which says where it ends and so is new every scene (fix 14's review).
-    const book = bookPart(BOOK)
-    expect(user.cacheUpTo).toBe(book.indexOf('\n\n(The book so far ends here'))
-    expect(user.content.slice(0, user.cacheUpTo)).not.toContain('ends here')
-    expect(user.content.slice(0, user.cacheUpTo).endsWith('The weir gave way, and Wren held the silver key.')).toBe(true)
-    const next = planMessages({
-      ...PLAIN,
-      brief: { ...MATERIAL, book: [...BOOK, { label: 'Ch 1, Sc 3', title: '', text: 'The gate held.' }] }
-    })[1]
-    expect(next.content.startsWith(user.content.slice(0, user.cacheUpTo))).toBe(true)
+    // The end of the previous scene isn't said again: the record has the scene before word for word.
+    expect(user.content).not.toContain('## The end of the previous scene')
+    expect(planMessages(PLAIN)[1].content).toContain('## The end of the previous scene')
+    expect(planMessages({ ...PLAIN, brief: { ...MATERIAL, record: MATERIAL.record.slice(2) } })[1].content).toContain('## The end of the previous scene')
+    // A model that caches only where asked keeps the steady parts: the chapters in short and the scene before.
+    expect(user.content.slice(0, user.cacheUpTo).endsWith('The weir gave way, and Wren held the silver key.\n"""')).toBe(true)
+    expect(user.content.slice(0, user.cacheUpTo)).not.toContain('Who knows what')
+    // The record kept in the world: the scene's own words as a note.
     const kept = planMessages({ ...PLAIN, brief: MATERIAL }, false)[1]
     expect(kept.content).not.toContain('silver key')
-    expect(kept.content).toContain('read whole. Not kept here')
+    expect(kept.content).toContain('(9 words, read word for word. Not kept here, to save space: they are the scene’s own words.)')
+    expect(kept.content).toContain('By the end, the weir has broken')
     expect(kept.cacheUpTo).toBeUndefined()
-    // Without the book, nothing to keep.
-    expect(planMessages({ ...PLAIN, brief: { ...MATERIAL, book: null } })[1].cacheUpTo).toBeUndefined()
+    // Nothing steady, nothing to keep.
+    expect(planMessages({ ...PLAIN, brief: { ...MATERIAL, record: MATERIAL.record.slice(2) } })[1].cacheUpTo).toBeUndefined()
     // Without a brief, the request is as it always was.
     expect(planMessages(PLAIN)[1].content).not.toContain('continuity brief')
+    expect(planMessages(PLAIN)[1].cacheUpTo).toBeUndefined()
   })
 })
 
@@ -555,12 +625,20 @@ describe('reading and checking the brief', () => {
     expect(estimateTokens(Object.values(fitted.parts).flat().join('\n'))).toBeLessThanOrEqual(480)
     expect(fitted.parts.keep!.length).toBeGreaterThan(fitted.parts.promises?.length ?? 0)
     expect(fitted.parts.keep!.length).toBe(6)
-    // Nothing left: no brief. Read with the book: it says so.
+    // Nothing left: no brief.
     expect(checkBrief({ keep: ['In Ch 7, Sc 1 it changed.'] }, { material: '', tokens: 1_000 }).brief).toBeNull()
-    expect(checkBrief({ keep: ['One fact.'] }, { material: '', tokens: 1_000, book: true }).brief).toEqual({
-      parts: { keep: ['One fact.'] },
-      book: true
-    })
+    expect(checkBrief({ keep: ['One fact.'] }, { material: '', tokens: 1_000 }).brief).toEqual({ parts: { keep: ['One fact.'] } })
+  })
+
+  it('a chapter told only in short counts as given, and its scenes the summary cites (2026-10-20)', () => {
+    const inp = input()
+    const m = briefMaterial({ ...inp, memory: { ...inp.memory, storySoFar: STORY_SO_FAR } }, {}, sources())
+    const material = m.record.map((p) => partText(p)).join('\n\n')
+    const { brief } = checkBrief(
+      { keep: ['The weir broke in Ch 1.', 'Wren’s arm broke at the weir (Ch 1, Sc 2).', 'The bribe was in Ch 2, Sc 1.', 'Mara drowned in Ch 1, Sc 5.'] },
+      { material, tokens: 1_000 }
+    )
+    expect(brief!.parts.keep).toEqual(['The weir broke in Ch 1.', 'Wren’s arm broke at the weir (Ch 1, Sc 2).', 'The bribe was in Ch 2, Sc 1.'])
   })
 })
 
@@ -606,7 +684,8 @@ function plan(reply: string, material: PlanMaterial) {
 
 describe('the plan writes the brief in its own call', () => {
   const reply = JSON.stringify({
-    // A fact found only in the book so far is no fact the plan rests on: a scene long ago may say what no longer holds.
+    // A fact found only in the record read for the brief is no fact the plan rests on: a scene before may say what no longer
+    // holds.
     relies: [{ who: 'Wren', what: 'fact', value: 'Wren held the silver key' }],
     changes: [{ who: 'Osric Hale', what: 'where', from: 'below', to: 'the loft', how: 'Osric climbs up.' }],
     needs: [],
@@ -617,20 +696,19 @@ describe('the plan writes the brief in its own call', () => {
     }
   })
 
-  it('one call, with room for the brief; the record keeps the book as a note; the brief checked; the plan checked as before', async () => {
+  it('one call, with room for the brief; the record keeps the scene’s words as a note; the brief checked; the plan checked as before', async () => {
     const { db, f, done } = plan(reply, { ...PLAIN, brief: MATERIAL })
     const made = await done
     expect(f.asked).toHaveLength(1)
     expect(f.asked[0].user).toContain('Wren held the silver key')
-    expect(made!.text).toContain('1. Osric climbs up.')
+    expect(made!.text).toContain('1. Osric Hale, where: below → the loft. Osric climbs up.')
     expect(made!.text).not.toContain('silver key')
     expect(made!.brief).toEqual({
       parts: {
         matters: ['Osric comes up to the loft.'],
         keep: ['Wren’s left arm is in a sling (since Ch 1, Sc 2).'],
         knows: ['Osric doesn’t know the flour tax was forged.']
-      },
-      book: true
+      }
     })
     const row = db.prepare("SELECT messages_json AS m, blocks_json AS b, budget_json AS u FROM generations WHERE job = 'memory'").get() as {
       m: string
@@ -638,9 +716,9 @@ describe('the plan writes the brief in its own call', () => {
       u: string
     }
     expect(row.m).not.toContain('silver key')
-    expect(row.m).toContain('read whole. Not kept here')
+    expect(row.m).toContain('read word for word. Not kept here')
     expect(JSON.parse(row.b)[0].title).toBe('Planning the scene and writing its continuity brief')
-    // Its size is counted as it was sent, the book included.
+    // Its size is counted as it was sent, the scene's words included.
     expect(JSON.parse(row.u).used).toBe(
       estimateTokens(
         planMessages({ ...PLAIN, brief: MATERIAL })
@@ -652,7 +730,7 @@ describe('the plan writes the brief in its own call', () => {
 
   it('a reply with only a brief is still a plan; without a brief asked for, a brief in the reply is never used', async () => {
     const only = '{"relies": [], "changes": [], "needs": [], "brief": {"keep": ["Wren’s left arm is in a sling (since Ch 1, Sc 2)."]}}'
-    expect((await plan(only, { ...PLAIN, brief: { ...MATERIAL, book: null } }).done)!.brief).toEqual({
+    expect((await plan(only, { ...PLAIN, brief: { ...MATERIAL, record: MATERIAL.record.slice(2) } }).done)!.brief).toEqual({
       parts: { keep: ['Wren’s left arm is in a sling (since Ch 1, Sc 2).'] }
     })
     expect(await plan(only, PLAIN).done).toBeNull()
@@ -873,47 +951,24 @@ describe('what Adam kept out of the scene stays out of the brief (fix 14’s rev
   })
 })
 
-describe('the book so far, capped (fix 14’s review)', () => {
-  const chapter = (n: number, scenes: number, tokens: number): BookScene[] =>
-    Array.from({ length: scenes }, (_, i) => ({
-      label: `Ch ${n}, Sc ${i + 1}`,
-      title: '',
-      chapter: `Ch ${n}`,
-      text: 'x'.repeat(Math.round(tokens * 3.5))
-    }))
-
-  it('at most BOOK_MOST tokens: the newest whole chapters, the oldest left out first; none when not even the newest fits', () => {
-    const book = [...chapter(1, 2, 35_000), ...chapter(2, 2, 35_000), ...chapter(3, 2, 35_000)]
-    const all = bookWithin(book, BOOK_MOST)!
-    expect(all.scenes.map((s) => s.chapter)).toEqual(['Ch 2', 'Ch 2', 'Ch 3', 'Ch 3'])
-    expect(all.from).toBe('Ch 2')
-    expect(estimateTokens(all.scenes.map((s) => s.text).join('\n\n'))).toBeLessThanOrEqual(BOOK_MOST)
-    expect(bookWithin(chapter(1, 3, 20_000), BOOK_MOST)).toEqual({ scenes: chapter(1, 3, 20_000), from: null })
-    expect(bookWithin(chapter(1, 2, 80_000), BOOK_MOST)).toBeNull()
-    expect(bookWithin([], BOOK_MOST)).toBeNull()
-  })
-
-  it('from scene to scene the book’s start changes only when a chapter drops out (the cache)', () => {
-    const before = [...chapter(1, 2, 20_000), ...chapter(2, 2, 20_000)]
-    const one = bookPart(bookWithin(before, BOOK_MOST)!.scenes)
-    const grown = bookWithin([...before, ...chapter(3, 1, 20_000)], BOOK_MOST)!
-    expect(grown.from).toBeNull()
-    const two = bookPart(grown.scenes, true, grown.from)
-    expect(two.startsWith(one.slice(0, one.indexOf('\n\n(The book so far ends here')))).toBe(true)
-    // Over the ceiling: Ch 1 drops out, and the heading says where the book now starts.
-    const over = bookWithin([...chapter(1, 2, 30_000), ...chapter(2, 2, 30_000), ...chapter(3, 2, 30_000)], BOOK_MOST)!
-    expect(over.from).toBe('Ch 2')
-    expect(bookPart(over.scenes, true, over.from).split('\n')[0]).toBe(
-      '## The book so far, word for word, from Ch 2 (how the chapters before it ended is in the record below)'
-    )
-  })
-
-  it('what a scene’s plans send, a retry counted: the book with the brief’s call (again when it is retried), never with a later beat', async () => {
-    const book = [...chapter(1, 2, 45_000), ...chapter(2, 2, 45_000), ...chapter(3, 2, 45_000), ...chapter(4, 1, 20_000)]
-    const within = bookWithin(book, BOOK_MOST)!
-    const material: PlanMaterial = { ...PLAIN, brief: { ...MATERIAL, book: within.scenes, bookFrom: within.from } }
-    const bookTokens = estimateTokens(bookPart(within.scenes, true, within.from))
-    expect(bookTokens).toBeLessThanOrEqual(BOOK_MOST + 100)
+describe('what a scene’s plans send (2026-10-20)', () => {
+  it('a retry counted: the record with the brief’s call (again when it is retried), never with a later beat, and small whatever the story', async () => {
+    // A long story: sixty chapters in short, long scenes before and so far; the record is fitted to RECORD_MOST.
+    const base = input()
+    const words = (n: number) => Array.from({ length: n / 10 }, () => 'Wren walked the long road to the mill at dusk.').join(' ')
+    const inp: ContextInput = {
+      ...base,
+      soFar: words(5_000),
+      memory: {
+        ...base.memory,
+        previous: { ...base.memory.previous!, text: words(6_000) },
+        storySoFar: {
+          ...STORY_SO_FAR,
+          chapters: Array.from({ length: 60 }, (_, i) => ({ chapterId: `c${i}`, label: `The Mill, Ch ${i + 1}`, text: 'The river ran high. '.repeat(60) }))
+        }
+      }
+    }
+    const material: PlanMaterial = { ...PLAIN, brief: briefMaterial(inp, {}, sources({ room: briefRoom({ contextLength: 1_000_000, base: 3_000, reply: 3_000 }) })) }
     const db = memoryWorld()
     const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
     const sent: number[] = []
@@ -951,20 +1006,19 @@ describe('the book so far, capped (fix 14’s review)', () => {
     await run(PLAIN)
     await run(PLAIN)
     expect(sent).toHaveLength(4)
-    expect(sent[0]).toBeGreaterThanOrEqual(bookTokens)
     expect(sent[1]).toBe(sent[0])
     expect(sent[2]).toBeLessThan(2_000)
-    // The scene's plans read the book twice at most, a retry included: at DeepSeek's price for what isn't cached ($0.28 a
-    // million tokens), under 9 cents however long the book; read from the cache ($0.028), under 1 cent.
+    // The brief's call reads the record and the plan's own parts: never more than RECORD_MOST beside them, however long the
+    // story (the live run's plans read about 85,000 tokens with the book). The scene's plans, a retry included, cost under
+    // a cent at DeepSeek's price for what isn't cached ($0.28 a million tokens).
+    expect(sent[0]).toBeLessThanOrEqual(RECORD_MOST + 3_000)
     const total = sent.reduce((n, x) => n + x, 0)
-    expect(total).toBeLessThan(2 * (BOOK_MOST + 3_000) + 2 * 2_000)
-    expect((total * 0.28) / 1_000_000).toBeLessThan(0.09)
-    expect((total * 0.028) / 1_000_000).toBeLessThan(0.01)
+    expect((total * 0.28) / 1_000_000).toBeLessThan(0.01)
   })
 })
 
 describe('an entry with a very long history (fix 14’s review)', () => {
-  it('gives its most recent history when the whole of it doesn’t fit, rather than leaving “everyone and everything” empty', () => {
+  it('gives its most recent changes, the rest a look-up away, rather than leaving “everyone and everything” empty', () => {
     const base = input()
     const [wren, ...rest] = base.memory.entries
     const long: EntryState = {
@@ -981,7 +1035,9 @@ describe('an entry with a very long history (fix 14’s review)', () => {
     const people = m.record.find((p) => p.title.startsWith('Everyone and everything'))!
     expect(people.body).toContain('### Wren (character)')
     expect(people.body).toContain('Change number 600 in a very long life')
-    expect(people.body).not.toContain('Change number 1 in a very long life')
-    expect(people.body).toMatch(/The (588|596) earlier changes are left out here\./)
+    // Its last few changes (2026-10-20: the rest a look-up away).
+    expect(people.body).toContain('Change number 595 in a very long life')
+    expect(people.body).not.toContain('Change number 594 in a very long life')
+    expect(people.body).toContain('(594 earlier changes left out here: get_entry has them.)')
   })
 })

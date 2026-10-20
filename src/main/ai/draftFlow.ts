@@ -24,8 +24,11 @@ import { carryOnFrom, catchUpBeforeDraft, gatherContextInput, stageNote, stageWh
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { memoryReady } from '../keeper'
 import { planBeforeWriting, planWanted } from '../plan'
-import { keepsRoom } from '../plan/plan'
+import { keepsRoom, type BeatAt, type MadePlan, type ScenePlan } from '../plan/plan'
+import { CANCELLED_BEFORE_WRITING, withAnswer } from '../plan/review'
+import type { ScenePlanAnswer } from '@shared/contracts/planReview'
 import { countTokens } from './tokenService'
+import { draftStep } from './steps'
 import { isLocalUrl, providerWho } from './errors'
 import { recallForBriefing } from '../retrieval'
 import { contractWanted, type ContractAsks, type SceneContract } from './contract'
@@ -37,9 +40,10 @@ import { contractAgain, type ContractAsked } from './contractAgain'
 const countCached = cachedCounter(countTokens)
 
 /** The writer model and how to reach it, or a plain-words UserError saying what to set up in Settings › Models. */
-export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id: ID }; thinking: ThinkingLevel } {
+export function writerModel(instead?: DraftOptions['model']): { choice: ModelChoice; target: ChatTarget & { id: ID }; thinking: ThinkingLevel } {
   const settings = getSettings()
-  const choice = settings.models.writer
+  // The calm overhaul: "Try again with …" after a refusal writes this one draft with another of Adam's own models.
+  const choice = (instead && ownModel(settings.models, instead)) || settings.models.writer
   if (!choice) throw new UserError('Choose a writer model first, in Settings › Models.', 'no-writer-model')
   const provider = providers.getProvider(choice.providerId)
   if (!provider)
@@ -49,6 +53,12 @@ export function writerModel(): { choice: ModelChoice; target: ChatTarget & { id:
     throw new UserError(`${providerWho(provider)} needs an API key. Add it in Settings › Models.`, 'no-key')
   }
   return { choice, target, thinking: settings.thinking?.writer ?? 'off' }
+}
+
+/** One of the models Adam has set up in Settings › Models (any job's), matched by provider and id; null when it isn't. */
+function ownModel(models: Record<string, ModelChoice | null>, want: { providerId: ID; modelId: string }): ModelChoice | null {
+  for (const m of Object.values(models)) if (m && m.providerId === want.providerId && m.modelId === want.modelId) return m
+  return null
 }
 
 /**
@@ -127,6 +137,12 @@ async function fitted(input: ContextInput, extras?: ContextExtras): Promise<{ pr
 /** Adam stopped the draft before it began: nothing more is done or sent. */
 export const stoppedBeforeStart = (): UserError => new UserError('The draft was stopped before it began.', 'cancelled')
 
+/**
+ * Show me the plan first (plan/review.ts): shows Adam the plan made for the draft (null: none could be made) with what the
+ * card check noted, and waits for his answer; null when he cancels or the draft is stopped.
+ */
+export type PlanReview = (plan: MadePlan | null, notes: string[]) => Promise<ScenePlanAnswer | null>
+
 export interface DraftBriefing {
   input: ContextInput
   preview: ContextPreview
@@ -147,6 +163,11 @@ export interface DraftBriefing {
   contract?: SceneContract | null
   /** Something Adam should know about how the draft was briefed, in plain words (gather.ts stageNote); null: nothing. */
   note?: string | null
+  /**
+   * The scene plan the writer was given (plan before writing), checked: its beats and closing image. Directed writing
+   * (src/main/director) writes the draft a beat at a time by it. Null or left out: no plan went in.
+   */
+  scenePlan?: ScenePlan | null
 }
 
 /**
@@ -157,18 +178,38 @@ export interface DraftBriefing {
  * usual (ai/gather.ts CATCH_UP_LIMIT_MS: until it has caught up), as Variants do.
  * `soFar`: the draft carries on from these words already in the scene (Add below, a later beat), so where things
  * stand at their end is worked out first (never for long) and told in place of where the previous scene ended.
- * `plan` (on unless false; Variants turn it off, and Beat by beat plans the beat itself with withPlan): one short call
- * to the memory model plans the scene first, when Settings › Models says to (plan/), never for long (withPlan).
+ * `plan` (on unless false; Beat by beat plans the scene itself with withPlan, once a scene): the memory model plans
+ * the scene first, with one round of look-ups, when Settings › Models says to (plan/), never for long (withPlan). A set of
+ * Variants is briefed once, so its drafts share the one plan.
+ * `brief: false`: the plan writes no continuity brief (none of the app's paths asks for that now: Write the whole chapter
+ * has one too since 2026-10-20; plan/index.ts). `chapterPlan`: Write the whole chapter's part of its plan for this scene, which the scene plan
+ * builds on (spec "Write the chapter, reworked", 2026-10-19).
  */
 export async function draftBriefing(
   sceneId: ID,
   options: Partial<DraftOptions> | undefined,
-  o: { extras?: ContextExtras; signal?: AbortSignal; catchUp?: boolean; catchUpMs?: number; soFar?: string; plan?: boolean; focus?: string } = {}
+  o: {
+    extras?: ContextExtras
+    signal?: AbortSignal
+    catchUp?: boolean
+    catchUpMs?: number
+    soFar?: string
+    plan?: boolean
+    focus?: string
+    brief?: boolean
+    chapterPlan?: string
+    review?: PlanReview
+  } = {}
 ): Promise<DraftBriefing> {
-  const { choice, target, thinking } = writerModel()
+  const { choice, target, thinking } = writerModel(options?.model)
   const db = world.db()
-  if (o.catchUp !== false) await catchUpBeforeDraft(db, sceneId, o.catchUpMs, o.signal)
+  // The calm overhaul: each step is said as it begins, so the window names it (ai/steps.ts).
+  if (o.catchUp !== false) {
+    draftStep(sceneId, 'memory')
+    await catchUpBeforeDraft(db, sceneId, o.catchUpMs, o.signal)
+  }
   if (o.signal?.aborted) throw stoppedBeforeStart()
+  draftStep(sceneId, 'gathering')
   const carryOn = o.soFar?.trim() ? o.soFar : ''
   const stand = carryOn ? await standAtText(db, sceneId, carryOn, undefined, o.signal) : null
   if (o.signal?.aborted) throw stoppedBeforeStart()
@@ -184,7 +225,15 @@ export async function draftBriefing(
     entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
     contract: made.prepared.contract ?? null
   }
-  if (o.plan !== false) b = await withPlan(sceneId, b, { extras: o.extras, signal: o.signal })
+  if (o.plan !== false && planWanted()) draftStep(sceneId, 'plan')
+  if (o.plan !== false)
+    b = await withPlan(sceneId, b, {
+      extras: o.extras,
+      signal: o.signal,
+      brief: o.brief,
+      ...(o.chapterPlan?.trim() ? { chapterPlan: o.chapterPlan } : {}),
+      ...(o.review ? { review: o.review } : {})
+    })
   // Where things stand as the previous scene ended goes on being worked out after the draft's wait, so it is looked up
   // again now (review, 2026-10-16): one that came in during the plan's own wait (up to two minutes) is told after all.
   if (!carryOn && !b.input.continuity) b = await withStageNow(sceneId, b, o.extras)
@@ -253,31 +302,65 @@ async function withStageNow(sceneId: ID, b: DraftBriefing, extras?: ContextExtra
 }
 
 /**
- * Plan before writing (step 4, plan/): when Settings › Models says to, one short call to the memory model plans the
- * scene (or, with `focus`, the one beat), never for long; the entries it asks for come into the briefing, and the plan
- * goes in after the closing instruction as the writer's own notes. Only when there is room: with what it asked for,
- * else without it, else no plan, never at the cost of anything the briefing had room for without it (keepsRoom).
- * Otherwise the briefing comes back as it was.
+ * Plan before writing (step 4, plan/; done properly in the overhaul, 2026-10-19): when Settings › Models says to, the
+ * memory model plans the scene, with one round of look-ups answered on this computer, never for long; the entries it asks
+ * for (or reads) come into the briefing, what it looked up goes in beside the plan, and the plan goes in after the closing
+ * instruction as the writer's own notes. `beat`: Beat by beat, the beat being written: one plan for the scene, made with
+ * its first beat and given to the later ones (plan/index.ts). Only when there is room: with what it asked for and what
+ * it looked up, else without one then the other, else no plan, never at the cost of anything the briefing had room for
+ * without it (keepsRoom). Otherwise the briefing comes back as it was.
  */
 export async function withPlan(
   sceneId: ID,
   b: DraftBriefing,
-  o: { extras?: ContextExtras; signal?: AbortSignal; focus?: string } = {}
+  o: { extras?: ContextExtras; signal?: AbortSignal; beat?: BeatAt; brief?: boolean; chapterPlan?: string; review?: PlanReview } = {}
 ): Promise<DraftBriefing> {
   if (!b.prepared) return b
   const db = world.db()
-  const plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, o.focus)
+  let notes: string[] = []
+  let plan = await planBeforeWriting(db, sceneId, { input: b.input, preview: b.preview, prepared: b.prepared }, o.signal, {
+    brief: o.brief,
+    ...(o.beat ? { beat: o.beat } : {}),
+    ...(o.chapterPlan?.trim() ? { chapter: o.chapterPlan } : {}),
+    // What the card check noted, for Adam to read with the plan (plan-first only).
+    ...(o.review
+      ? {
+          onCard: (n: string[]) => {
+            notes = n
+          }
+        }
+      : {})
+  })
   if (o.signal?.aborted) throw stoppedBeforeStart()
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+  // Show me the plan first (plan/review.ts): the plan waits for Adam, who writes to it as he leaves it, or cancels.
+  if (o.review) {
+    const answer = await o.review(plan, notes)
+    if (o.signal?.aborted) throw stoppedBeforeStart()
+    if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the draft could start.')
+    if (!answer) throw new UserError(CANCELLED_BEFORE_WRITING, 'cancelled')
+    if (plan) plan = withAnswer(sceneId, plan, answer.plan)
+  }
   if (!plan) return b
-  // With what it asked for, else without; with the continuity brief (fix 14), else without it. Each only if it says
-  // anything.
+  // With what it asked for and what it looked up, else without what it looked up, then without what it asked for; with
+  // the continuity brief (fix 14), else without it. Each only if it says anything.
+  const looked = plan.lookedUp ?? ''
   const briefs = plan.brief ? [plan.brief, null] : [null]
   const tries = briefs
-    .flatMap((brief) => (plan.text && plan.needs.length ? [{ ...plan, brief }, { ...plan, needs: [], brief }] : [{ ...plan, brief }]))
+    .flatMap((brief) => [
+      { ...plan, brief, lookedUp: looked },
+      ...(looked ? [{ ...plan, brief, lookedUp: '' }] : []),
+      ...(plan.needs.length && plan.text ? [{ ...plan, needs: [], brief, lookedUp: looked }, ...(looked ? [{ ...plan, needs: [], brief, lookedUp: '' }] : [])] : [])
+    ])
     .filter((p) => p.text || p.needs.length || p.must.length || p.brief)
   for (const p of tries) {
-    const input: ContextInput = { ...b.input, plan: { needs: p.needs, text: p.text }, ...(p.brief ? { brief: p.brief } : {}) }
+    const input: ContextInput = {
+      ...b.input,
+      plan: { needs: p.needs, text: p.text, ...(p.lookedUp ? { lookedUp: p.lookedUp } : {}) },
+      ...(p.brief ? { brief: p.brief } : {}),
+      // What was left in this place on an earlier visit, as the plan read it with the story index brought up to date.
+      ...(p.leftHere ? { leftHere: p.leftHere } : {})
+    }
     // What the plan says must change takes the place of the card's own words in the scene's contract (fix 13).
     if (b.input.contract && p.must.length) input.contract = { ...b.input.contract, planned: p.must }
     const again = await fitted(input, o.extras)
@@ -288,7 +371,9 @@ export async function withPlan(
         preview: again.preview,
         prepared: again.prepared,
         entryVersions: sentEntryVersions(input.memory, again.preview.blocks),
-        contract: again.prepared.contract ?? null
+        contract: again.prepared.contract ?? null,
+        // Directed writing (src/main/director) writes by the plan's beats, when its notes went in.
+        scenePlan: p.text ? (p.plan ?? null) : null
       }
     }
   }

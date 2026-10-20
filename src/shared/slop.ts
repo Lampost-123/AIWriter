@@ -95,13 +95,21 @@ export const SLOP_PHRASES: readonly SlopPhrase[] = [
 ]
 
 /**
- * The six rules the writer model is given, written as what to do. Each answers one kind of fault writers
- * fix most in AI fiction; tense slips are covered by the style guide's own tense line.
+ * The rule about plain words. The style guide outranks it (some presets ask for lush or musical prose), so it says
+ * so, and it is left out where the prose style asks for rich prose (ai/prompts.ts `asksForRichProse`).
+ */
+export const PLAIN_RULE = 'Prefer the plain, exact word, and keep metaphors rare and earned, unless the style guide asks for richer prose.'
+
+/**
+ * The six rules against AI phrasing, written as what to do, for the jobs with instructions of their own (a sample
+ * passage, the polish pass, the AI edits). Each answers one kind of fault writers fix most in AI fiction; tense slips
+ * are covered by the style guide's own tense line. The drafting writer gets the same meanings merged into its own
+ * rules, each said once (ai/prompts.ts `writerInstructions`).
  */
 export const SLOP_RULES: readonly string[] = [
   'Show feelings through action and choice, in fresh terms, not stock body reactions.',
   "Say each thing once: don't explain what the scene already shows.",
-  'Prefer the plain, exact word; keep metaphors rare and earned.',
+  PLAIN_RULE,
   'Use details that belong to this world and these people, not any story.',
   'Vary sentence shapes; avoid "it wasn\'t X, it was Y" and lists of three adjectives.',
   'End on action, dialogue or an image, not a line that sums up or looks ahead.'

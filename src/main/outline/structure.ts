@@ -6,6 +6,7 @@
 
 import type Database from 'better-sqlite3'
 import type { ChapterPlace, KeepItem, KeepRef, KeptItem } from '@shared/contracts/outline'
+import type { EventMove } from '@shared/contracts/worldViews'
 import type { CarryField, Chapter, ChapterCard, ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import { withAiLink } from '@shared/threadLinks'
@@ -20,6 +21,7 @@ import { deleteNotes } from '../stories/points'
 import { dayName } from '../worldViews/when'
 import { OPENING_WHEN } from '../worldBuilder/timeline'
 import { isBlankPlan, storyPlan } from './context'
+import { eventHomes, moveEvents, unmoveEvents } from '../worldViews/eventHomes'
 import { UserError } from '../util'
 
 type DB = Database.Database
@@ -273,8 +275,10 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
       } else if (item.kind === 'chapter') {
         // Into its act; with none given, into the story's last act (if it has acts).
         const all = acts.listActs(db, storyId)
-        const actId = resolve(item.parent, 'act') ?? (item.parent ? null : (all[all.length - 1]?.id ?? null))
-        if (item.parent && !actId) throw new UserError('That act no longer exists.')
+        // A parent naming nothing: among the chapters with no act (Adam chose a place there).
+        const noAct = !!item.parent && !item.parent.id && !item.parent.key
+        const actId = noAct ? null : (resolve(item.parent, 'act') ?? (item.parent ? null : (all[all.length - 1]?.id ?? null)))
+        if (item.parent && !noAct && !actId) throw new UserError('That act no longer exists.')
         // The story's untouched first chapter takes this one's place, rather than staying behind.
         const chapter = spareChapter ? repo.getChapter(db, spareChapter) : repo.createChapter(db, storyId, title ? { title } : {})
         if (spareChapter && title) repo.updateChapter(db, chapter.id, { title })
@@ -382,8 +386,31 @@ export function keepOutline(db: DB, storyId: ID, items: KeepItem[]): KeptItem[] 
     const firstScene = kept.find((k) => k.kind === 'scene')
     const opening = undated && firstScene ? dateOpening(db, storyId) : null
     if (opening && firstScene) firstScene.openingDated = opening
+    placeKeptEvents(db, storyId, kept)
     return kept
   })()
+}
+
+/**
+ * The events the story's builds left at its start (the Story builder lays them out before the outline has scenes) go to
+ * the kept scene they happen in, 2026-10-19: one whose card names them, or the first on their day (the outline is asked
+ * to put each event at its scene, on its day). Each kept scene says which, for its Undo and the keep's toast. Only from
+ * the record, with no AI call (worldViews/eventHomes.ts).
+ */
+function placeKeptEvents(db: DB, storyId: ID, kept: KeptItem[]): void {
+  const scenes = kept.filter((k) => k.kind === 'scene')
+  if (!scenes.length) return
+  let moves: EventMove[] = []
+  try {
+    // A nicety: if it can't be worked out, the keep still stands (its own savepoint, so nothing half-moved stays).
+    moves = db.transaction(() => moveEvents(db, eventHomes(db, storyId, { within: new Set(scenes.map((k) => k.id)), exactDay: true })))()
+  } catch (e) {
+    console.warn('Could not put the story’s events in their scenes', e)
+  }
+  for (const m of moves) {
+    const k = scenes.find((x) => x.id === m.sceneId)
+    if (k) (k.events ??= []).push(m)
+  }
 }
 
 /**
@@ -404,11 +431,14 @@ function dateOpening(db: DB, storyId: ID): ID | null {
  * Undo for keepOutline (acts.takeBackKept), with the chapter cards it filled on a reused chapter put back as they
  * were, unless Adam has changed them since: the scenes that follow them go back with them. The plot threads the keep
  * made go too, and the characters and places it made pages for, while nothing else uses them (takeBackThreads, once
- * the kept scenes and their links are gone), and the "Day 1" it put on the story's opening scene.
+ * the kept scenes and their links are gone), and the "Day 1" it put on the story's opening scene. The events it put in
+ * its scenes go back to the story's start (KeptItem.events).
  */
 export function unkeepOutline(db: DB, kept: KeptItem[]): { storyIds: ID[]; sceneIds: ID[] } {
   const list = Array.isArray(kept) ? kept : []
   return db.transaction(() => {
+    // The events it put in its scenes go back to the story's start first, while those scenes are still there.
+    unmoveEvents(db, list.flatMap((k) => (Array.isArray(k?.events) ? k.events : [])))
     const out = acts.takeBackKept(db, list, {
       restoreCards: () => {
         for (const k of list) {

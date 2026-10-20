@@ -23,6 +23,7 @@ import { BringAbout, SceneSummary } from './SceneMemory'
 import { useSceneDate } from './sceneDate'
 import { SceneIdeas } from '@/features/outline/SceneIdeas'
 import { InterviewButton, PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
+import { PlanSceneButton } from '@/features/outline/PlanSceneButton'
 import { registerInterviewCard } from '@/features/outline/planInterviewStore'
 import { registerPayOffPanel, takePayOff, undoPayOff } from '@/features/threads/payOff'
 
@@ -339,6 +340,8 @@ function SceneCardForm({ sceneId }: { sceneId: ID }): React.JSX.Element {
         sceneId={sceneId}
         card={card}
         onUse={fillFromIdea}
+        // Plan this scene first (the AI fills the card), then Ideas for this scene, then Interview me, in every state.
+        lead={interview ? null : <PlanSceneButton sceneId={sceneId} card={card} />}
         beside={interview ? null : <InterviewButton target={interviewTarget} />}
       />
       <Group title="Who and where" icon={Users} action={<SaveNote status={autosave.status} error={autosave.error} />}>

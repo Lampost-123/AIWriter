@@ -21,16 +21,34 @@ import { noteGenerationSpeakers } from '../readAloud'
 import { sceneMemory } from '../memory/scene'
 import { editBriefing, type EditWorld } from './briefing'
 import { editInput } from './input'
-import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, stageWhere, standAtText, standKept } from '../ai/gather'
-import { sceneTail, stageScope, timelineFrom } from '../ai/context'
+import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, leftHereFor, stageWhere, standAtText, standKept } from '../ai/gather'
+import { sceneTail, SHORT_TAIL, stageScope, timelineFrom } from '../ai/context'
+import { continueBeatsDone, planForContinueOf } from '../plan'
+import { buildStoryIndex, stateOf } from '../storyIndex'
+import { clip } from '../ai/lookups/text'
+import { countWords } from '@shared/defaults'
 import { timelineText } from '../ai/timeline'
 import { recallForBriefing } from '../retrieval'
 import type { SceneMemory } from '../memory/types'
-import { stageInScene } from '../ai/mustStay'
+import { stageFor, stageInScene } from '../ai/mustStay'
+import { onStageIn, withoutMentioned } from '../storyIndex/there'
 import { keptStateBefore, type SceneState } from '../continuity/tracker'
 import { noteContract, noteStage } from '../repair'
 import { contractWanted } from '../ai/contract'
+import { ownWritingFor } from '../style/ownWriting'
+import { ownSampleOn } from '@shared/ownSample'
+import type { OwnSample } from '../style/ownWords'
+import type { StyleGuide } from '@shared/types'
 import { UserError } from '../util'
+
+/**
+ * Change it…'s voice sample: passages of Adam's own writing when "Use my own writing as the sample" is on for the sample
+ * passage in effect (as a draft gets them, style/ownWriting.ts), else null (the style guide's sample passage).
+ */
+function reviseSample(db: ReturnType<typeof world.db>, sceneId: string, style: StyleGuide): OwnSample | null {
+  if (!ownSampleOn(getWritingPrefs().ownSample, style.samplePassage)) return null
+  return ownWritingFor(db, sceneId, { sample: true, people: [] }).sample
+}
 
 /**
  * Where things stand at the end of the words before Continue's cursor (as the previous scene ended, at the start of
@@ -84,6 +102,83 @@ async function continueCore(
   return { timeline, recalled, said, threads }
 }
 
+/** How much of the previous scene's end Continue is given: about 200 words. */
+export const CONTINUE_PREVIOUS = SHORT_TAIL
+/**
+ * Continue is given the end of the previous scene only while the scene's own words before the cursor are fewer than this
+ * (2026-10-19: deep into a scene it only took room; the scene's own words say where it has got to).
+ */
+export const CONTINUE_PREVIOUS_UNDER = 300
+
+/**
+ * What Continue gets besides (2026-10-19): the end of the previous scene, with where it comes from, while the scene's own
+ * words are short; the beats of the scene's plan made for the whole of it, those on the page marked done and the next
+ * marked (plan/index.ts planForContinueOf); and how many of the card's beats are on the page (continueBeatsDone), so
+ * Continue's scene card marks them too.
+ */
+export function continueExtras(
+  input: Pick<EditInput, 'sceneId' | 'before'>,
+  memory: Pick<SceneMemory, 'previous' | 'storyId'>,
+  card: SceneCard,
+  storyTitle: string
+): Pick<EditWorld, 'previous' | 'plan' | 'beatsDone'> {
+  const prev = memory.previous
+  const short = countWords(input.before) < CONTINUE_PREVIOUS_UNDER
+  const text = short && prev?.text?.trim() ? sceneTail(prev.text, CONTINUE_PREVIOUS) : ''
+  const other = !!prev?.otherStory && prev.storyId !== memory.storyId
+  const lead = other
+    ? `This is how ${prev!.storyTitle.trim() || 'the story before'} ${prev!.otherStory!.ended ? 'ended' : 'had got to'}; this story (${storyTitle}) comes after it.`
+    : 'This is how the scene before this one ended.'
+  const plan = planForContinueOf(input.sceneId, card, input.before)
+  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}), beatsDone: continueBeatsDone(card, input.before) }
+}
+
+/** The most lines Continue is given of everyone in the scene as the story index has them: each, and all together. */
+export const CONTINUE_PEOPLE_MOST = { each: 7, all: 28 }
+
+/**
+ * Everyone in the scene at Continue's cursor as the story index has them (2026-10-19): the card's point of view and
+ * people, and whoever the words before the cursor put there (never someone only thought of, talked of or far away, nor
+ * named only by another's name, what is theirs, or what they once said or may do: storyIndex/there.ts onStageIn), each
+ * with what the index knows of them (where, what they wear and carry, how they are, what they know, their ties); for
+ * someone where things stand at the cursor already tells, only what they know and their ties. As the scene ends when the
+ * cursor is at its end, else as it begins. Nothing when the index can't be read.
+ */
+export function continuePeople(
+  db: ReturnType<typeof world.db>,
+  input: Pick<EditInput, 'sceneId' | 'before' | 'after'>,
+  memory: Pick<SceneMemory, 'storyId' | 'entries'>,
+  card: SceneCard,
+  stand: SceneState | null
+): string[] {
+  try {
+    const storyId = memory.storyId
+    if (!storyId) return []
+    buildStoryIndex(db, storyId)
+    const chars = memory.entries.filter((e) => e.kind === 'character')
+    const ids = [card.povId, ...(card.presentIds ?? [])].filter((id): id is string => !!id)
+    for (const e of chars) {
+      if (ids.includes(e.id)) continue
+      if (onStageIn(input.before, e)) ids.push(e.id)
+    }
+    const out: string[] = []
+    for (const id of ids) {
+      const e = chars.find((x) => x.id === id)
+      const now = e ? stateOf(db, storyId, id, input.sceneId, { asItBegins: !!input.after.trim() }) : null
+      if (!e || !now) continue
+      const knows = now.lines.filter((l) => l.startsWith(`${now.name} knows:`))
+      const ties = now.lines.filter((l) => l.startsWith(`${now.name} and `))
+      const rest = now.lines.filter((l) => !knows.includes(l) && !ties.includes(l))
+      const told = stageFor(e, stand) ? [] : rest
+      out.push(...[...told, ...ties.slice(0, 2), ...knows.slice(0, 2)].slice(0, CONTINUE_PEOPLE_MOST.each).map((l) => clip(l, 240)))
+    }
+    return out.slice(0, CONTINUE_PEOPLE_MOST.all)
+  } catch (e) {
+    console.warn('Continue goes without the story index this time', e instanceof Error ? e.message : e)
+    return []
+  }
+}
+
 /**
  * How long Continue waits for the memory to catch up (earlier scenes, then the scene's own fresh read): until it has, as a
  * draft does (Adam, 2026-10-17: "always wait for the extractor to finish before advancing"). Stop ends the wait at once.
@@ -122,16 +217,16 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
   const kept = tool === 'continue' ? await continueStand(db, input.sceneId, input.before) : standKept(db, input.sceneId, input.before)
   const core = tool === 'continue' ? await continueCore(db, input, memory, story.title, scene.card) : undefined
   if (world.maybeCurrentWorld()?.db !== db) throw new UserError('The world was closed before the AI could start.')
-  // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07).
-  const stand = stageInScene(
-    kept,
-    stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
-  )
+  // As told (and checked against): only the people in the scene, and a time that still holds (Adam, 2026-10-07); never
+  // someone off the card the words only mention (2026-10-19).
+  const scope = stageScope(scene.card, memory, [input.direction, input.before, input.selection, input.after], calendarFor(db, input.sceneId, memory, scene.card))
+  const stand = withoutMentioned(stageInScene(kept, scope), scope)
   // With reading aloud on (or Show speakers and tone), the writer says who says each line as it writes, as drafts do.
   const speech = settings.speech
   const speakerTags = !!(speech?.readAloud || speech?.showSpeakers)
+  const style = effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style)
   const briefing = editBriefing(input, {
-    style: effectiveStyle(getWritingPrefs(), repo.getWorldStyle(db), story.style),
+    style,
     scene: { title: scene.title, card: scene.card },
     entries: memory.entries,
     contextLength: model.choice.contextLength ?? null,
@@ -140,7 +235,27 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     must: { facts: memory.facts, beliefs: memory.beliefs, sceneId: input.sceneId, storyTitle: story.title, places: stageWhere(db, stand), relationships: memory.relationships },
     ...(core ? { core } : {}),
     // The scene's contract (long story memory fix 13), when Settings › Models says to.
-    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {})
+    ...(tool === 'continue' && contractWanted(settings) ? { contract: true } : {}),
+    // Continue (2026-10-19): the end of the previous scene while the scene's words are short, the beats of the scene's plan
+    // (or card) still to come with the next marked (no call; no plan with Plan before writing off), and everyone in the
+    // scene as the story index has them.
+    ...(tool === 'continue'
+      ? {
+          ...continueExtras(input, memory, scene.card, story.title),
+          people: continuePeople(db, input, memory, scene.card, stand),
+          // After continuePeople, which brings the story index up to date: what was left in this place on an earlier visit.
+          leftHere: leftHereFor(db, input.sceneId, memory.storyId, scene.card.locationId, { asItBegins: !!input.after.trim(), stand })
+        }
+      : {}),
+    // Change it… ("Keep this, change that", 2026-10-19): the scene's plan (no call; its beats before the passage marked
+    // done) and Adam's own writing as the voice sample, as a draft has them.
+    ...(tool === 'revise'
+      ? (() => {
+          const plan = planForContinueOf(input.sceneId, scene.card, input.before)
+          const ownSample = reviseSample(db, input.sceneId, style)
+          return { ...(plan ? { plan } : {}), ...(ownSample ? { ownSample } : {}) }
+        })()
+      : {})
   })
   if (!briefing.ok) return briefing
 

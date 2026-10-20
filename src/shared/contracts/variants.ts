@@ -21,6 +21,11 @@ export interface StartVariantsInput {
   count: VariantCount
   /** The scene's draft options, as Generate would draft with them. */
   options: DraftOptions
+  /**
+   * Each variant's own direction, in order (variant 1 first), beside the set's ("Draft three: tense / tender / funny");
+   * '' or left out for one with none. The set still shares one briefing and one plan.
+   */
+  notes?: string[]
 }
 
 export interface VariantsStarted {
@@ -45,6 +50,8 @@ export interface Variant {
   /** It ran into the reply limit, so it stops before the scene's end. */
   cutOff: boolean
   modelId: string
+  /** Its own direction, beside the set's, when it had one. */
+  note?: string
 }
 
 /** A set of variants, read from their records. */

@@ -36,6 +36,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           'Consistency check model',
           'Creativity',
           'Thinking',
+          'Automatic AI',
           'Plan before writing',
           'Scene contract',
           'Continuity brief',
@@ -53,7 +54,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
         id: 'preferences',
         label: 'My writing preferences',
         blurb: 'Your own defaults, used in every world. Each world can change them.',
-        finds: ['Point of view', 'Tense', 'Spelling', 'UK or US', 'How the prose should sound', 'Style', 'Genre', 'Writing style']
+        finds: ['Point of view', 'Tense', 'Spelling', 'UK or US', 'How the prose should sound', 'Style', 'Genre', 'Writing style', 'Use my own writing as the sample', 'Sample passage', 'My own writing']
       },
       {
         id: 'editor',
@@ -75,8 +76,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       {
         id: 'appearance',
         label: 'Appearance',
-        blurb: 'Style and layout, theme, accent colour, and how the page reads.',
-        finds: ['Theme', 'Dark', 'Light', 'Sepia', 'New look', 'Classic', 'Layout', 'Desk', 'Panels', 'Accent colour', 'Text size', 'Font size', 'Line spacing', 'Page width', 'Paragraphs', 'When AI Write opens', 'Start screen']
+        blurb: 'Layout, theme, accent colour, and how the page reads.',
+        finds: ['Theme', 'Dark', 'Light', 'Sepia', 'Layout', 'Desk', 'Panels', 'Accent colour', 'Text size', 'Font size', 'Line spacing', 'Page width', 'Paragraphs', 'When AI Write opens', 'Start screen']
       }
     ]
   },

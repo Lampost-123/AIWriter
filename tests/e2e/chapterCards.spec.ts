@@ -5,11 +5,12 @@
 //     on a scene makes it the scene's own (a later chapter change leaves it be); "Use chapter's" follows the chapter
 //     again. A new scene starts with the chapter's card. From the chapter's menu, the keyboard carries on in the card.
 //  2. The outline helper (the fake provider, "[[fake: chapter card]]" in the premise) fills each kept chapter's card,
-//     and a scene that happens somewhere else keeps that as its own.
+//     and a scene that happens somewhere else keeps that as its own. Each suggestion shows its card, and its Edit
+//     form changes any part of it (a place picked from the codex, a mood typed in), kept as Adam left it.
 //
 // With AIWRITE_SHOTS set to a folder, pictures of the window go there once every animation has ended.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openSettings, openWrite, test, useFakeModel } from './helpers'
 
 const main = (win: Page) => win.locator('main')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
@@ -193,6 +194,7 @@ test('the palette opens the chapter card; a scene restored from Recently deleted
   const list = win.getByRole('list', { name: 'Recently deleted' })
   await list.getByRole('button', { name: 'Restore “Scene 2”' }).click()
   await expect(win.getByText('Nothing deleted lately')).toBeVisible()
+  await openWrite(win)
   await sceneRow(win, 'Scene 2').click()
   await expect(sceneCard(win)).toBeVisible()
   await expect(sceneCard(win).getByRole('combobox', { name: /^Location/ })).toHaveText('Gull Quay')
@@ -216,7 +218,7 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     })
     await useFakeModel(win, fake)
 
-    await binder(win).getByRole('button', { name: 'Book 1', exact: true }).click()
+    await binder(win).locator('[data-story-menu]').click()
     await win.getByRole('menuitem', { name: 'Outline helper' }).click()
     for (const [label, option] of [
       ['Acts', 'No acts'],
@@ -236,7 +238,29 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     const [pov] = listed('character')
     const [place, elsewhere] = listed('place')
     expect([pov, place, elsewhere].every(Boolean)).toBe(true)
+
+    // Each suggestion shows its card, and Edit changes any part of it: the second chapter moves to the other place,
+    // with a mood of Adam's, picked from the codex as on a scene card.
+    const second = main(win).getByRole('group', { name: "Chapter: The Ferryman's Price", exact: true })
+    await expect(second.locator('[data-card-parts]').first()).toContainText(`Point of view: ${pov}`)
+    await expect(second.locator('[data-card-parts]').first()).toContainText(`Location: ${place}`)
+    await main(win).getByRole('button', { name: 'Edit “The Ferryman\'s Price”' }).click()
+    const form = main(win).getByRole('form', { name: 'Edit the chapter' })
+    await expect(form.getByRole('button', { name: `Remove ${place}` })).toBeVisible()
+    await form.getByLabel('Location', { exact: true }).fill(elsewhere)
+    await win.getByRole('option', { name: elsewhere }).click()
+    await expect(form.getByRole('button', { name: `Remove ${elsewhere}` })).toBeVisible()
+    await expect(form.getByRole('button', { name: `Remove ${place}` })).toHaveCount(0)
+    await form.getByLabel('Mood or tone', { exact: true }).fill('Grim and cold')
+    await form.getByRole('button', { name: 'Save changes' }).click()
+    await expect(form).toHaveCount(0)
+    await expect(second.locator('[data-card-parts]').first()).toContainText(`Location: ${elsewhere}`)
+    await expect(second.locator('[data-card-parts]').first()).toContainText('Mood: Grim and cold')
+    await expect(second).toContainText('Changed by you')
+
     await main(win).getByRole('button', { name: 'Keep all that’s left' }).click()
+    // The outline helper is in the Plan area: the story's tree is in the Write area's list.
+    await openWrite(win)
     await expect(chapterRow(win, 'Rain on the Narrows')).toBeVisible()
 
     // The chapter's card, from the outline.
@@ -261,6 +285,12 @@ test('the outline helper fills each chapter card, and a scene somewhere else kee
     await expect(part(win, 'Point of view')).toContainText('From chapter')
     await expect(sceneCard(win).getByRole('textbox', { name: /^When/ })).toHaveValue('Day 1, afternoon')
     await shot(win, '5-outline-scene-own-place')
+
+    // The chapter Adam changed is kept as he left it.
+    await chapterRow(win, "The Ferryman's Price").click()
+    await expect(chapterCard(win).getByRole('combobox', { name: 'Location' })).toHaveText(elsewhere)
+    await expect(chapterCard(win).getByLabel('Mood or tone', { exact: true })).toHaveValue('Grim and cold')
+    await expect(chapterCard(win).getByRole('combobox', { name: 'Point of view' })).toHaveText(pov)
   } finally {
     await fake.close()
   }

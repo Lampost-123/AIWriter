@@ -20,6 +20,7 @@ import type {
   StoryBrief,
   StoryOutlineRequest
 } from '@shared/contracts/storyBuilder'
+import type { OutlineStageRequest } from '@shared/contracts/outline'
 import type { RecipeParts } from '@shared/contracts/recipes'
 import { RECIPE_PARTS } from '@shared/contracts/recipes'
 import type { ChatMessage, ID, Story, WritingPrefs } from '@shared/types'
@@ -34,6 +35,7 @@ import { castText, earlierText, planText, storyText, threadsText, type BlockDraf
 import { outlineFacts, type OutlineFacts } from '../outline/context'
 import { briefingBudget, checkReplyRoom, fitBriefing, outlineReplyTokens, OUTLINE_REPLY_MOST, OUTLINE_TEMPERATURE, type JobDeps } from '../outline/jobs'
 import { cleanSize, outlineAsk } from '../outline/prompts'
+import { startStageJob } from '../outline/stages'
 import { existingText } from '../worldBuilder/prompts'
 import { parseRecipe } from '../recipes/parse'
 import { briefText, recipeAsUsed, recipeBlock, styleText } from './brief'
@@ -52,6 +54,7 @@ import {
   recipeChatSystem,
   recipeRedoSystem,
   splitAnswer,
+  storyStageRules,
   storyOutlineSystem
 } from './prompts'
 
@@ -309,6 +312,29 @@ export function startStoryOutline(deps: StoryDeps, input: StoryOutlineRequest & 
     emit: deps.emit,
     onKeyRejected: deps.onKeyRejected
   })
+}
+
+/**
+ * The outline in stages (2026-10-19), planned from the idea: the outline helper's stage (outline/stages.ts) with the
+ * idea, the story's style and its recipe first, the world's events after, and the Story builder's rules on what wins. The
+ * first stage of a story with no premise writes one first, as the whole outline does.
+ */
+export function startStoryStage(deps: StoryDeps, input: OutlineStageRequest, brief: StoryBrief): { generationId: ID } {
+  const base = factsOf(deps, input.storyId, brief)
+  const premise = typeof input.premise === 'string' ? input.premise.slice(0, 6000) : base.story.premise
+  const f = { ...base, story: { ...base.story, premise } }
+  const first = input.level === 'acts' || (input.level === 'chapters' && !input.target && !input.actId)
+  return startStageJob(
+    deps,
+    { ...input, premise },
+    {
+      lead: ideaBlocks(deps, f),
+      more: [{ id: 'events', title: 'Events', priority: 4, forms: [eventsText(deps, input.storyId, 40), eventsText(deps, input.storyId, 15)] }],
+      rules: storyStageRules(!!f.recipe),
+      withPremise: first && !premise.trim(),
+      castLimit: 60
+    }
+  )
 }
 
 /** Room for a whole plan again: about a third more than the plan as it is now. */

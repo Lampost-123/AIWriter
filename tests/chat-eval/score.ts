@@ -21,6 +21,7 @@
 import { answerMarkers, parseAnswer, wordsOutsideBlocks } from '@shared/answerBlocks'
 import { CANARIES } from './world'
 import type { TurnResult } from './harness'
+import { claimsUnmade } from '@shared/askTruth'
 
 /** The new tools' fixed names. */
 export const TOOLS = { changes: 'propose_changes', ask: 'ask_user', draft: 'propose_draft' } as const
@@ -239,6 +240,12 @@ export interface Summary {
   leaks: { total: number; byKind: Record<string, number>; byWhere: Record<string, number>; laterUnlabelledInTools: number; inAnswers: number }
   shape: { firstLineLeads: number; meanWords: number | null; writesWordsOut: number; of: number; preamble: number; meanWordsOutsideLists: number | null }
   errors: number
+  /**
+   * The truth check (2026-10-19): of the turns the app routed as edits, and of those whose scenario expects a proposal,
+   * how many ended with a real one (it applies, or a draft hand-off where one counts); and every answer that claims a
+   * change it never made (shared/askTruth.ts), which should be none.
+   */
+  truth: { editTurns: number; editProposed: number; expectTurns: number; expectProposed: number; claimsUnmade: number; of: number; turnsUnmade: string[] }
   // ----- Phase 1 -----
   /** The real set's headline: of its turns that should propose, how many did (or asked, where that is allowed). */
   real: { turns: number; proposeTurns: number; proposed: number; valid: number; askedInstead: number; rate: number | null; asExpected: number }
@@ -353,6 +360,7 @@ export function summarise(turns: TurnResult[], estimatedTokens: boolean): Summar
       meanWordsOutsideLists: rate(shapes.reduce((a, s) => a + s.wordsOutsideLists, 0), shapes.length)
     },
     errors: turns.filter((t) => t.status !== 'complete').length,
+    truth: truthSummary(turns),
     real: realSummary(turns),
     tools: toolSummary(turns),
     forced: {
@@ -364,6 +372,27 @@ export function summarise(turns: TurnResult[], estimatedTokens: boolean): Summar
     intents: count(turns.map((t) => t.intent ?? 'none')),
     briefing: briefingSummary(turns),
     format: formatSummary(turns)
+  }
+}
+
+/** A turn ended with a real proposal: one that applies (or isn't a change to words), or a draft hand-off. */
+const realProposal = (t: TurnResult): boolean => drafted(t) || t.checks.some((c) => c.applies !== false)
+
+/** Whether a turn's answer claims a change it never made (read again from the answer for an older report). */
+export const unmade = (t: TurnResult): boolean => t.claimsUnmade ?? claimsUnmade(t.answer, t.proposals)
+
+function truthSummary(turns: TurnResult[]): Summary['truth'] {
+  const edit = turns.filter((t) => t.intent === 'edit')
+  const expect = turns.filter((t) => t.expect.do === 'propose')
+  const bad = turns.filter(unmade)
+  return {
+    editTurns: edit.length,
+    editProposed: edit.filter(realProposal).length,
+    expectTurns: expect.length,
+    expectProposed: expect.filter(realProposal).length,
+    claimsUnmade: bad.length,
+    of: turns.length,
+    turnsUnmade: bad.map((t) => `${t.scenario}.${t.turn}`)
   }
 }
 
@@ -517,6 +546,11 @@ export function reportMarkdown(meta: RunMeta, s: Summary, turns: TurnResult[]): 
   L.push(`| Intent recorded | ${Object.entries(s.intents).map(([k, v]) => `${k} ${v}`).join(', ')} |`)
   L.push(`| Briefing size (system message, est. tokens) | ${briefingLine(s)} |`)
   L.push(`| Turns that didn't complete | ${s.errors} |`)
+  if (s.truth)
+    L.push(
+      `| Truth check: edit turns ending with a real proposal | ${s.truth.editProposed} of ${s.truth.editTurns} (${pct(rate(s.truth.editProposed, s.truth.editTurns))}); turns expecting one: ${s.truth.expectProposed} of ${s.truth.expectTurns} (${pct(rate(s.truth.expectProposed, s.truth.expectTurns))}) |`,
+      `| Answers claiming a change never made | ${s.truth.claimsUnmade} of ${s.truth.of}${s.truth.turnsUnmade.length ? ` (${s.truth.turnsUnmade.slice(0, 12).join(', ')})` : ''} |`
+    )
   L.push('', '## By group (every turn as expected)', '', '| Group | As expected |', '|---|---|')
   for (const [g, v] of Object.entries(s.byGroup)) L.push(`| ${g} | ${v.asExpected} of ${v.scenarios} |`)
   L.push(

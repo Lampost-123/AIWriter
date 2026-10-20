@@ -1,7 +1,8 @@
 // The AI tools in the bar over selected words (features/editor/selection/SelectionLayer.tsx): one
 // "Rewrite" button that opens a small menu with a box to say how, the quick tools (Expand, Condense, More
-// vivid, Change tone, Fix voice when the words have dialogue, Alternatives) and Continue after the
-// words. Each starts a tracked change in the page (session.ts). Owned by the AI edits part.
+// vivid, Change tone, Fix voice when the words have dialogue, Alternatives), Change it… (the change box: keep this,
+// change that; changeStore.ts) and Continue after the words. Each starts a tracked change in the page (session.ts). Owned
+// by the AI edits part.
 import * as P from '@radix-ui/react-popover'
 import type { Editor } from '@tiptap/core'
 import {
@@ -14,6 +15,7 @@ import {
   MessageSquareQuote,
   Palette,
   PenLine,
+  SquarePen,
   UnfoldVertical,
   WandSparkles
 } from '@/components/ui/icons'
@@ -23,7 +25,11 @@ import type { EditTool } from '@shared/types'
 import { IconButton, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { noteUsed } from '@/features/direction/store'
 import { markWords, startTool, waitingSuggestion } from './session'
+import { focusChangeBox, openChangeBox } from './changeStore'
+import { selectedWords, textOf } from './text'
 
 export function AiTools({
   editor,
@@ -48,7 +54,7 @@ export function AiTools({
   const [next, setNext] = useState('')
   /** Why the tools can't start now (a change waiting, a draft writing), or null. */
   const [blocked, setBlocked] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
   const toneRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const dialogue = useMemo(() => hasDialogue(text), [text])
@@ -89,7 +95,17 @@ export function AiTools({
    */
   const run = (tool: EditTool, direction?: string): void => {
     change(false)
+    // Rewrite's and Continue's words are offered back in their boxes from now on (and by ↑ in them).
+    if (direction && (tool === 'rewrite' || tool === 'continue')) noteUsed(direction, tool)
     void startTool(tool, { direction })
+  }
+
+  /** Change it…: the menu closes and the change box opens on the selected words. */
+  const changeIt = (): void => {
+    change(false)
+    const r = selectedWords(editor.state)
+    if ('problem' in r) return
+    openChangeBox({ kind: 'words', sceneId: editorBridge()?.sceneId ?? '', from: r.from, to: r.to, text: textOf(editor.state.doc, r.from, r.to), what: 'The selected words' })
   }
 
   /** Up and down move through the menu, as in any menu. */
@@ -133,6 +149,8 @@ export function AiTools({
           }}
           onCloseAutoFocus={(e) => {
             e.preventDefault()
+            // Change it…: the keyboard goes to the change box's note rather than back to the page.
+            if (focusChangeBox()) return
             if (!editor.isDestroyed) editor.view.focus()
           }}
           // Esc goes back from the tones, then closes the menu (the words stay selected).
@@ -155,25 +173,32 @@ export function AiTools({
           {page === 'main' ? (
             <>
               <form
-                className="flex items-center gap-1"
                 onSubmit={(e) => {
                   e.preventDefault()
                   if (instruction.trim() && !off) run('rewrite', instruction.trim())
                 }}
               >
-                <Input
-                  ref={inputRef}
+                {/* The direction composer (features/direction): ↑ brings back the last way he asked, quick asks under
+                    it, and Recent lists the ways he asked before. */}
+                <DirectionComposer
+                  kind="rewrite"
+                  lines="one"
+                  boxRef={inputRef}
                   value={instruction}
-                  onChange={(e) => setInstruction(e.target.value)}
+                  onChange={setInstruction}
+                  onSubmit={() => {
+                    if (instruction.trim() && !off) run('rewrite', instruction.trim())
+                  }}
                   placeholder="Say how to rewrite it…"
-                  aria-label="How to rewrite the selected words"
+                  ariaLabel="How to rewrite the selected words"
                   disabled={off}
                   maxLength={2000}
-                  className="h-8 flex-1"
+                  trailing={
+                    <IconButton type="submit" label="Rewrite" disabled={off || !instruction.trim()} className="text-ai hover:text-ai">
+                      <ArrowRight size={15} />
+                    </IconButton>
+                  }
                 />
-                <IconButton type="submit" label="Rewrite" disabled={off || !instruction.trim()} className="text-ai hover:text-ai">
-                  <ArrowRight size={15} />
-                </IconButton>
               </form>
               <div className="mx-1 my-1.5 h-px bg-line" />
               <Tool
@@ -223,6 +248,7 @@ export function AiTools({
                 disabled={off}
                 onClick={() => run('alternatives')}
               />
+              <Tool icon={<SquarePen size={15} />} label="Change it…" hint="Keep this, change that" disabled={off} onClick={changeIt} />
               <div className="mx-1 my-1.5 h-px bg-line" />
               <form
                 className="px-1 pb-1"
@@ -231,14 +257,19 @@ export function AiTools({
                   if (!off) run('continue', next.trim())
                 }}
               >
-                <Input
+                <DirectionComposer
+                  lines="one"
+                  tools="none"
                   value={next}
-                  onChange={(e) => setNext(e.target.value)}
+                  onChange={setNext}
+                  onSubmit={() => {
+                    if (!off) run('continue', next.trim())
+                  }}
                   placeholder="What happens next? (optional)"
-                  aria-label="What happens next, for Continue (optional)"
+                  ariaLabel="What happens next, for Continue (optional)"
                   disabled={off}
                   maxLength={2000}
-                  className="h-7 text-[12.5px]"
+                  boxClassName="h-7 text-[12.5px]"
                 />
               </form>
               <Tool icon={<PenLine size={15} />} label="Continue after these words" disabled={off} onClick={() => run('continue', next.trim())} />

@@ -4,6 +4,7 @@ import { countWords } from '@shared/defaults'
 import { defaultStyleGuide } from '@shared/defaults'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
+import * as gens from '../db/generations'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import type { JobModel } from '../ai/jobModel'
@@ -299,6 +300,13 @@ describe('a critique, end to end', () => {
     const out = await runCritique(deps(db, model('fake/critique-bad-json')), { taskId: 't3', target: { scope: 'scene', id: s1 } })
     expect(out.status).toBe('complete')
     expect((db.prepare("SELECT COUNT(*) AS n FROM generations WHERE job = 'critique'").get() as { n: number }).n).toBe(2)
+    // Asked again (2026-10-19): the same request with a line saying why at its end, never the reply that couldn't be used.
+    const ids = db.prepare("SELECT id FROM generations WHERE job = 'critique' ORDER BY created_at, rowid").all() as { id: ID }[]
+    const [first, again] = ids.map((x) => gens.getGeneration(db, x.id).messages)
+    expect(again.map((m) => m.role)).toEqual(['system', 'user'])
+    expect(again[0].content).toBe(first[0].content)
+    expect(again[1].content.startsWith(`${first[1].content}\n\nYour last reply to this couldn't be used: `)).toBe(true)
+    expect(again[1].content).not.toContain('I would change very little')
   })
 
   it('a provider’s problem comes back in plain words, and nothing is kept', async () => {

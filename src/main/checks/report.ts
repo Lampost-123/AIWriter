@@ -55,6 +55,24 @@ export function checkReportNow(db: DB, sceneId: ID): CheckReport | null {
 }
 
 /**
+ * The scene's latest check read its words as they are now, with these checks at least, and no scene before it in its
+ * story has been written in (or had its card changed) since: checking it again would find the same, so it isn't paid for
+ * twice (token audit, 2026-10-19). False with no such report: one kept before fingerprints, or a check cut short or
+ * stopped, keeps none.
+ */
+export function checkedAsIs(db: DB, sceneId: ID, checks: readonly CheckKind[]): boolean {
+  try {
+    const r = checkReportNow(db, sceneId)
+    if (!r?.textHash || r.changed !== false || !checks.every((c) => r.items.some((i) => i.check === c))) return false
+    const scenes = repo.getOutline(db, repo.sceneLocation(db, sceneId).story.id).scenes
+    const at = scenes.findIndex((s) => s.id === sceneId)
+    return at >= 0 && scenes.slice(0, at).every((s) => s.updatedAt < r.at)
+  } catch {
+    return false
+  }
+}
+
+/**
  * The items of a reply's "checked" list, for the checks asked: one each, the parts of a long scene put together
  * (a check is good only when every part found it so). A check the reply didn't mention says only whether it found
  * anything.
@@ -114,7 +132,9 @@ export function savedContract(db: DB, sceneId: ID): SceneContract | null {
       part: i.part,
       text: i.text,
       check: i.check && CHECKS.includes(i.check) ? i.check : ('facts' as CheckKind),
-      entryIds: Array.isArray(i.entryIds) ? i.entryIds.filter((x): x is ID => typeof x === 'string') : []
+      entryIds: Array.isArray(i.entryIds) ? i.entryIds.filter((x): x is ID => typeof x === 'string') : [],
+      // An ask of Adam's direction stays one (the direction receipt): one of length is counted, never asked about.
+      ...(i.ask === 'event' || i.ask === 'reads' || i.ask === 'length' ? { ask: i.ask } : {})
     }))
   return items.length ? { asks: c.asks, items } : null
 }

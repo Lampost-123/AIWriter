@@ -12,7 +12,7 @@
 //   2. Facts that change: the wrist broken, splinted and healed; the secret told to one person after another; six dogs
 //      then five; three pigeons sent one by one; the watch pawned then sold; the key moved into a boot heel; the thaw
 //      bell closing the river. Probes come both before and after a change.
-//   3. Planted contradictions, the FlawedFictions way: short passages after the book's end, twelve with one slip each and
+//   3. Planted contradictions, the FlawedFictions way: short passages after the book's end, thirteen with one slip each and
 //      six without (four of them "decoys": a real change that a careless checker calls a slip). The app's own
 //      consistency checks are run on each, and the report says how many slips they caught and how often they cried wolf.
 //   4. ConStory-Bench's five kinds of error: every check and every planted slip is one of timeline and plot logic,
@@ -27,7 +27,7 @@ import type { PatternCheck } from './patterns'
 import type { Check, ProbeKind, Tripwire } from './story'
 
 /** Bump when the probes, the checks or the planted passages change: reports say "book probes vN" and don't compare across. */
-export const BOOK_PROBES_VERSION = 1
+export const BOOK_PROBES_VERSION = 2
 
 // ---------- What is tested ----------
 
@@ -84,6 +84,7 @@ export const BOOK_TRAPS: BookTrap[] = [
   { id: 'watch', name: 'Her father’s watch', tests: 'Pawned in Dunmere (s18) and sold (s30): after s18 she has no watch.', kind: 'timeline', memory: 'changed', words: /\b(?:watch|pawn\w*|time)\b/i },
   { id: 'key', name: 'Where Leckie’s key is', tests: 'Hidden in the heel of her left boot from day 40 (s28) until she opens the vault (s38).', kind: 'timeline', memory: 'changed', words: /\b(?:boot|heel|hid\w*|hollow)\b/i },
   { id: 'whereabouts', name: 'Where Slade is', tests: 'Slade never leaves Callowmere in winter (s19): he can’t be in Hollin.', kind: 'timeline', memory: 'early', words: /\b(?:Callowmere|never leaves|knee|Slade)\b/i },
+  { id: 'calendar', name: 'The book counts its days', tests: 'Days are counted from Midwinter Night (day 1); no card or entry names a month or a year, and the pages name one only in a simile (“cold as a January window”).', kind: 'timeline', memory: 'early', words: /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|month|year)\b/ },
   { id: 'snowbell', name: 'The promise to Fane', tests: 'Tamsin promised Fane a snowbell from Hollin (s6), was given one (s27), and gives it to him (s40).', kind: 'timeline', memory: 'early', words: /\b(?:snowbells?|promise\w*|Elsbet|flower\w*|Hollin)\b/i },
   { id: 'pov', name: 'Whose eyes', tests: 'Close third person, past tense, Tamsin’s view only.', kind: 'style', memory: 'style' },
   { id: 'register', name: 'No modern words', tests: 'The story’s own register: no modern slang.', kind: 'style', memory: 'style' }
@@ -876,6 +877,24 @@ export const PLANTED: Planted[] = [
       'Pim came down from the Guildhall tower with grease to the elbows and a frayed end of rope in his fist, and threw it on the kitchen table among the bread and the cheese.',
       '‘Okay, so the guild totally owes us a new bell rope,’ Pim said. ‘Like, at the very least.’',
       'Tamsin moved the bread out of the way of the rope. ‘Then write it on the bill,’ she said, and only remembered afterwards that he couldn’t, and that she would write it for him, as she always had, and that she didn’t mind at all.'
+    ]
+  },
+  {
+    // The free rules (2026-10-19): the live test's commonest slip was a month or year the writer made up. The book counts
+    // its days from Midwinter Night and no card or entry names a month, so the rule-based checks catch it for nothing.
+    id: 'X13',
+    name: 'A month out of nowhere',
+    kind: 'timeline',
+    trap: 'calendar',
+    flaw: 'It was a raw March morning, and the gutters along Gilt Street were white again with frost.',
+    reason: /\bMarch\b|\bmonths?\b|counts? (?:its|the) days|calendar/i,
+    why: 'The book counts its days from Midwinter Night and never names a month: a month here is made up.',
+    card: { present: ['tamsin', 'pim'], location: 'clockhouse', when: `${AFTER}, morning`, title: 'Frost again' },
+    paragraphs: [
+      'It was a raw March morning, and the gutters along Gilt Street were white again with frost.',
+      'Pim came down early with his hair on end and stood at the workshop window in his stockings, breathing on the glass. Behind him the forty clocks went about their business, a little apart from one another, as they always had.',
+      '‘It’ll be gone by noon,’ he said.',
+      'Tamsin put the kettle on the stove and did not argue. The river was open now, and whatever the frost did to the gutters, it could not close the river again.'
     ]
   },
   // Controls: no flaw.

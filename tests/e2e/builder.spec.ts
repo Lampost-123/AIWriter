@@ -2,7 +2,7 @@
 // builder replies are made from the notes and prompts (tests/fake-provider/server.mjs, fakeBuilderReply).
 import type { Page } from '@playwright/test'
 import type { Entry } from '@shared/types'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, startFake, test, useFakeModel } from './helpers'
 
 const NOTES = `Brann Holt runs the ferry across the Narrows.
 A grumpy ex-soldier who owes the Duke money.
@@ -34,7 +34,7 @@ const hintsCut = (win: Page): Promise<string[]> =>
  * button, or the one in its header once it has entries), then (if asked) the steps.
  */
 async function openBuilder(win: Page, list: 'Characters' | 'Places' | 'Items', opts: { guided?: boolean } = {}): Promise<void> {
-  await binder(win).getByRole('button', { name: list }).click()
+  await openPage(win, list)
   await main(win)
     .getByRole('button', { name: /^Quick start (an? \w+ )?from a few notes$/ })
     .click()
@@ -89,7 +89,7 @@ test('a full character is built from a few lines of notes with one click, and su
     expect(origin(again, 'marks')).toBe('adam')
     expect(origin(again, 'hair')).toBe('ai')
     // Its page says which fields the AI drafted.
-    await binder(second.win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(second.win, 'Characters')
     await main(second.win).getByRole('listbox', { name: 'Characters' }).getByRole('option', { name: /^Brann Holt/ }).click()
     await expect(main(second.win).getByText('Drafted by AI').first()).toBeVisible()
     // He made it, but didn't write all of it: the note at the top says so, and never "You wrote this".
@@ -155,7 +155,7 @@ test('Flesh out fills only the empty fields, with Keep and Discard on each', asy
     // Leaving before a name is typed leaves nothing behind.
     await openBuilder(win, 'Characters', { guided: true })
     await main(win).getByLabel('Pronouns', { exact: true }).fill('she/her')
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await expect(main(win).getByRole('heading', { name: 'No places yet' })).toBeVisible()
     expect(await invoke(win, 'listEntries')).toEqual([])
 
@@ -300,13 +300,17 @@ test('Interview: the character answers in character, and a reply becomes a sampl
     await expect.poll(async () => (await entryNamed(win, 'Brann Holt')).fields.sampleLines).toBe(`"${reply}"`)
     expect(origin(await entryNamed(win, 'Brann Holt'), 'sampleLines')).toBe('adam')
 
-    // In a narrow window the interview opens over the step, at a width that is still comfortable,
+    // In a narrow window the interview opens over the step, taking all the room beside the steps,
     // rather than squeezing the step beside it. Escape closes it, back to the button that opens it.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(960, 600))
     const rail = (await steps(win).boundingBox())!
     await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBe(Math.round(rail.x + rail.width))
-    // (At least its narrowest, 420 px: a window just big enough shows it at exactly that.)
-    expect((await panel.boundingBox())!.width).toBeGreaterThanOrEqual(420)
+    // (Out to the page's right edge, so wider than the 340 px it has beside the step. The panels' side list
+    // leaves less room than Classic's binder did, so the smallest window no longer gives it 420 px.)
+    const page = (await main(win).boundingBox())!
+    const over = (await panel.boundingBox())!
+    expect(Math.abs(over.x + over.width - (page.x + page.width))).toBeLessThanOrEqual(1)
+    expect(over.width).toBeGreaterThan(340)
     await panel.getByRole('textbox', { name: 'Ask Brann Holt something' }).focus()
     await win.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
@@ -386,7 +390,7 @@ test('the builder warns about a near-duplicate name, in full in the smallest win
           cut: [el, ...el.querySelectorAll('*')].some((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1)
         }))
 
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
     await main(win).getByRole('button', { name: 'Go step by step instead' }).click()
     await main(win).getByRole('textbox', { name: 'Name' }).fill('Marra')
@@ -398,7 +402,7 @@ test('the builder warns about a near-duplicate name, in full in the smallest win
     await expect(main(win).getByText('Same one?')).toHaveCount(0)
 
     // Quick start from notes about a character the world has adds to that page, never a second one (2026-10-17).
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await main(win).getByRole('button', { name: 'Quick start a character from a few notes' }).click()
     await main(win).getByLabel('What you know about them').fill(NOTES)
     await main(win).getByRole('button', { name: 'Build the character' }).click()
@@ -416,17 +420,17 @@ test('an entry opened in the builder from its page goes back to it in one click,
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Builder')
   await invoke(win, 'createEntry', 'character', { name: 'Mara Venn', summary: 'A smuggler' })
-  await binder(win).getByRole('button', { name: 'Characters' }).click()
+  await openPage(win, 'Characters')
   await main(win)
     .getByRole('listbox', { name: 'Characters' })
     .getByRole('option', { name: /^Mara Venn/ })
     .click()
-  await main(win).getByRole('button', { name: 'Open in the builder' }).click()
+  await main(win).getByRole('button', { name: 'Build with AI' }).click()
   await expect(main(win).getByRole('heading', { level: 1, name: 'Basics' })).toBeVisible()
   await main(win).getByLabel('Pronouns', { exact: true }).fill('she/her')
   await main(win).getByRole('button', { name: 'Back to Mara Venn' }).click()
   await expect(main(win).getByRole('textbox', { name: 'Name', exact: true })).toHaveValue('Mara Venn')
-  await expect(main(win).getByRole('button', { name: 'Open in the builder' })).toBeVisible()
+  await expect(main(win).getByRole('button', { name: 'Build with AI' })).toBeVisible()
   await expect.poll(async () => (await entryNamed(win, 'Mara Venn')).fields.pronouns).toBe('she/her')
 })
 
@@ -441,14 +445,14 @@ test('Quick start keeps the notes, and a build still running, when Adam leaves a
     // Off to check something before building: the notes are still there.
     await openBuilder(win, 'Characters')
     await notes.fill(NOTES)
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await openBuilder(win, 'Characters')
     await expect(notes).toHaveValue(NOTES)
 
     // Leaving while it builds: it carries on, and coming back shows it, with Stop.
     await main(win).getByRole('button', { name: 'Build the character' }).click()
     await expect(main(win).getByRole('region', { name: 'The profile so far' }).getByText('Saved', { exact: true })).toBeVisible()
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await openBuilder(win, 'Characters')
     await expect(main(win).getByRole('region', { name: 'The profile so far' })).toContainText('Brann Holt')
     await main(win).getByRole('button', { name: 'Stop' }).click()
@@ -456,7 +460,7 @@ test('Quick start keeps the notes, and a build still running, when Adam leaves a
     expect((await invoke(win, 'listEntries')).filter((e) => e.kind === 'character')).toHaveLength(1)
 
     // A build that is over is done with: the next Quick start starts afresh.
-    await binder(win).getByRole('button', { name: 'Places' }).click()
+    await openPage(win, 'Places')
     await openBuilder(win, 'Characters')
     await expect(notes).toHaveValue('')
     await expect(main(win).getByRole('region', { name: 'The profile so far' })).toHaveCount(0)

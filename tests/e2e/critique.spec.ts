@@ -1,5 +1,6 @@
 // The scene and chapter critic (contracts/critique.ts), end to end against the fake AI server, whose critique replies
-// quote the words in the request (tests/fake-provider/critique.mjs): the Critique tab beside Issues, Critique scene and
+// quote the words in the request (tests/fake-provider/critique.mjs): the Issues list's Craft notes (the Critique tab
+// before the calm overhaul, 2026-10-19), Critique scene and
 // Critique chapter, a report with a summary, what works and notes (one quoting words in no scene, shown without them),
 // a note's words shown in the page (opening their scene for a chapter's note), Rewrite this as a tracked change, the
 // critique kept so reopening costs no AI call, "The scene changed since this critique" with Critique again, and Stop
@@ -11,8 +12,15 @@ import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFak
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const scenePanel = (win: Page) => win.getByRole('complementary', { name: 'Scene panel' })
-const critiqueTab = (win: Page) => scenePanel(win).getByRole('tab', { name: 'Critique' })
-const panel = (win: Page) => scenePanel(win).getByRole('tabpanel', { name: 'Critique' })
+const issuesTab = (win: Page) => scenePanel(win).getByRole('tab', { name: /^Issues/ })
+const panel = (win: Page) => scenePanel(win).getByRole('tabpanel', { name: /^Issues/ })
+const craftFilter = (win: Page) => panel(win).locator('[data-filter="craft"]')
+/** The critic's notes: the Issues list's Craft notes. */
+async function openCraft(win: Page): Promise<void> {
+  await issuesTab(win).click()
+  await craftFilter(win).click()
+  await expect(craftFilter(win)).toHaveAttribute('aria-pressed', 'true')
+}
 const report = (win: Page) => panel(win).getByRole('region', { name: 'Critique' })
 const notes = (win: Page) => report(win).getByRole('article')
 const change = (win: Page) => win.getByRole('group', { name: 'The AI’s change' })
@@ -54,10 +62,9 @@ test('Critique scene: a report with notes, words shown in the page, Rewrite this
     const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
     const { ferry } = await setUp(win, fake)
 
-    // The tab sits beside Issues, and asks nothing until Adam does.
-    const names = await scenePanel(win).getByRole('tab').allTextContents()
-    expect(names.findIndex((n) => n.startsWith('Critique'))).toBe(names.findIndex((n) => n.startsWith('Issues')) + 1)
-    await critiqueTab(win).click()
+    // The critic is the Issues list's Craft notes (no tab of its own), and asks nothing until Adam does.
+    await expect(scenePanel(win).getByRole('tab', { name: 'Critique' })).toHaveCount(0)
+    await openCraft(win)
     await expect(panel(win).getByText('No critique yet')).toBeVisible()
     expect(await invoke(win, 'getCritique', { scope: 'scene', id: ferry })).toBeNull()
 
@@ -104,7 +111,7 @@ test('Critique scene: a report with notes, words shown in the page, Rewrite this
     const asked = JSON.stringify(fake.requestCounts())
     await win.reload()
     await expect(prose(win)).toContainText('In the end, mara stood at the rail')
-    await critiqueTab(win).click()
+    await openCraft(win)
     await expect(report(win)).toContainText('The scene moves well, but its middle slows.')
     await expect(changed).toBeVisible()
     await expect(first.locator('[data-note-state]')).toHaveText('Done')
@@ -133,7 +140,7 @@ test('Critique chapter: notes point into the chapter’s scenes and open them; C
   try {
     const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
     const { chapterId } = await setUp(win, fake)
-    await critiqueTab(win).click()
+    await openCraft(win)
     await panel(win).getByRole('radio', { name: 'This chapter' }).click()
     await expect(panel(win).getByText('No critique yet')).toBeVisible()
     await panel(win).getByRole('button', { name: 'Critique chapter' }).click()
@@ -159,7 +166,8 @@ test('Critique chapter: notes point into the chapter’s scenes and open them; C
       .getByRole('option', { name: /^Critique this scene/ })
       .first()
       .click()
-    await expect(critiqueTab(win)).toHaveAttribute('data-state', 'active')
+    await expect(issuesTab(win)).toHaveAttribute('data-state', 'active')
+    await expect(craftFilter(win)).toHaveAttribute('aria-pressed', 'true')
     await expect(panel(win).getByRole('radio', { name: 'This scene' })).toHaveAttribute('aria-checked', 'true')
     await expect(panel(win).getByText('Reading the scene…')).toBeVisible()
     await panel(win).getByRole('button', { name: 'Stop' }).click()
@@ -178,7 +186,7 @@ test('a note whose words changed says so in place; Not needed (with Undo) and No
     const { win } = await launch({ env: { AIWRITE_KEEPER_QUIET_MS: '600000' } })
     const { inn, chapterId } = await setUp(win, fake)
     await invoke(win, 'updateChapter', chapterId, { goal: 'Get Mara to the inn before the patrol.' })
-    await critiqueTab(win).click()
+    await openCraft(win)
     await panel(win).getByRole('radio', { name: 'This chapter' }).click()
     await panel(win).getByRole('button', { name: 'Critique chapter' }).click()
     await expect(notes(win)).toHaveCount(3, { timeout: 30_000 })
@@ -228,11 +236,9 @@ test('a note whose words changed says so in place; Not needed (with Undo) and No
   }
 })
 
-for (const look of ['classic', 'new'] as const) {
-  test(`the Critique tab fits beside the others at the panel’s narrowest, with the Sounds tab too (${look === 'new' ? 'the New look' : 'Classic'})`, async ({
-    launch
-  }) => {
-    const { win } = await launch({ env: { AIWRITE_LOOK: look } })
+{
+  test('the scene panel’s tabs fit at its narrowest, with the Sounds tab too, and the critic is in the Issues list', async ({ launch }) => {
+    const { win } = await launch()
     await createWorldFromWelcome(win, 'Lowtown')
     await invoke(win, 'updateSettings', { layout: { inspectorWidth: 260 } })
     await win.reload()
@@ -250,16 +256,17 @@ for (const look of ['classic', 'new'] as const) {
             scrolls: list.scrollWidth > list.clientWidth + 1
           }
         })
-    await expect.poll(fit).toEqual({ count: 6, over: 0, scrolls: false })
-    await expect(critiqueTab(win)).toBeVisible()
+    await expect.poll(fit).toEqual({ count: 5, over: 0, scrolls: false })
+    await issuesTab(win).click()
+    await expect(craftFilter(win)).toBeVisible()
     await invoke(win, 'updateSettings', { speech: { readAloud: true, soundEffects: true } })
     await win.reload()
     await expect(prose(win)).toBeVisible()
-    await expect.poll(fit).toEqual({ count: 7, over: 0, scrolls: false })
+    await expect.poll(fit).toEqual({ count: 6, over: 0, scrolls: false })
   })
 }
 
-test('the desk: the Critique tab in the scene drawer, its report in the Issues tab’s cards', async ({ launch }) => {
+test('the desk: the critic in the scene drawer’s Issues list (Craft notes), its report in the Issues list’s cards', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win } = await launch({ env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk', AIWRITE_KEEPER_QUIET_MS: '600000' } })
@@ -271,7 +278,8 @@ test('the desk: the Critique tab in the scene drawer, its report in the Issues t
       .locator('[data-desk-topbar]')
       .getByRole('button', { name: /^Scene details/ })
       .click()
-    await drawer.getByRole('tab', { name: 'Critique' }).click()
+    await drawer.getByRole('tab', { name: /^Issues/ }).click()
+    await drawer.locator('[data-filter="craft"]').click()
     await drawer.getByRole('button', { name: 'Critique scene' }).click()
     const cards = drawer.getByRole('region', { name: 'Critique' }).getByRole('article')
     await expect(cards).toHaveCount(2, { timeout: 30_000 })

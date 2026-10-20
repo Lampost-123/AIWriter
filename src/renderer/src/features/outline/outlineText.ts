@@ -26,9 +26,11 @@ interface Options {
   skip?: (key: string) => boolean
   /** Each heading ends with its key ("[#a0c1s2]"), so a talk's answer can say which one it changed. */
   tag?: boolean
+  /** Words after a heading, by its key (the outline in stages: "(in the story)", "(plan this one)"); '' for none. */
+  note?: (key: string) => string
 }
 
-const tagged = (key: string, o: Options): string => (o.tag ? ` [#${key}]` : '')
+const tagged = (key: string, o: Options): string => `${o.tag ? ` [#${key}]` : ''}${o.note?.(key) ?? ''}`
 
 export function sceneText(s: SuggestedScene, o: Options = {}): string {
   const e = o.edits?.[s.key]
@@ -36,12 +38,14 @@ export function sceneText(s: SuggestedScene, o: Options = {}): string {
   const when = flat(e?.when ?? s.when)
   const summary = flat(e?.text ?? s.summary)
   const beats = (e?.beats ?? s.beats).map(flat).filter(Boolean)
+  const setsUp = (e?.setsUp ?? s.setsUp ?? []).map(flat).filter(Boolean)
+  const paysOff = (e?.paysOff ?? s.paysOff ?? []).map(flat).filter(Boolean)
   const lines = [`### Scene: ${title}${tagged(s.key, o)}`]
   if (when) lines.push(`When: ${when}`)
   if (summary) lines.push(`Summary: ${summary}`)
-  lines.push(...cardLines(s.card ?? emptySuggestedCard(), false))
-  if (s.setsUp?.length) lines.push(`Sets up: ${s.setsUp.join('; ')}`)
-  if (s.paysOff?.length) lines.push(`Pays off: ${s.paysOff.join('; ')}`)
+  lines.push(...cardLines(e?.card ?? s.card ?? emptySuggestedCard(), false))
+  if (setsUp.length) lines.push(`Sets up: ${setsUp.join('; ')}`)
+  if (paysOff.length) lines.push(`Pays off: ${paysOff.join('; ')}`)
   for (const b of beats) lines.push(`- ${b}`)
   return lines.join('\n')
 }
@@ -52,7 +56,7 @@ export function chapterText(c: SuggestedChapter, o: Options = {}): string {
   const goal = flat(e?.text ?? c.goal)
   const head = [`## Chapter: ${title}${tagged(c.key, o)}`]
   if (goal) head.push(`Goal: ${goal}`)
-  head.push(...cardLines(c.card ?? emptySuggestedCard(), true))
+  head.push(...cardLines(e?.card ?? c.card ?? emptySuggestedCard(), true))
   const scenes = c.scenes.filter((s) => !o.skip?.(s.key)).map((s) => sceneText(s, o))
   return [head.join('\n'), ...scenes].join('\n\n')
 }
@@ -61,8 +65,10 @@ export function actText(a: SuggestedAct, o: Options = {}): string {
   const e = o.edits?.[a.key]
   const title = flat(e?.title ?? a.title) || 'Untitled act'
   const purpose = flat(e?.text ?? a.purpose)
+  const about = e?.about ?? a.chapterCount
   const head = [`# Act: ${title}${tagged(a.key, o)}`]
   if (purpose) head.push(`Purpose: ${purpose}`)
+  if (about) head.push(`Chapters: ${about}`)
   const chapters = a.chapters.filter((c) => !o.skip?.(c.key)).map((c) => chapterText(c, o))
   return [head.join('\n'), ...chapters].join('\n\n')
 }
@@ -77,10 +83,28 @@ export function outlineText(p: ParsedOutline, o: Options = {}): string {
 }
 
 /**
- * The suggestions still waiting for a decision, with Adam's changes, for talking them over: what was discarded is left
- * out, and so is what was kept, unless something inside it is still waiting (then it stays, as the place they go).
+ * Every act, chapter and scene of a parsed outline in reading order, with the key reading its outline form back
+ * would give it (parse.ts: "c1", "a0", "a0c1", "a0c1s2"), whatever its own `key` says.
  */
-export function openText(text: string, decisions: Decisions, edits: Edits): string {
+export function walkKeyed(p: ParsedOutline, fn: (node: AnyNode, kind: NodeKind, key: string, parent: AnyNode | null) => void): void {
+  const chapters = (list: SuggestedChapter[], prefix: string, parent: SuggestedAct | null): void =>
+    list.forEach((c, i) => {
+      const key = `${prefix}c${i}`
+      fn(c, 'chapter', key, parent)
+      c.scenes.forEach((s, j) => fn(s, 'scene', `${key}s${j}`, c))
+    })
+  chapters(p.chapters, '', null)
+  p.acts.forEach((a, i) => {
+    fn(a, 'act', `a${i}`, null)
+    chapters(a.chapters, `a${i}`, a)
+  })
+}
+
+/**
+ * The suggestions still waiting for a decision, as a parsed outline (its parts keep their own keys): what was discarded
+ * is left out, and so is what was kept, unless something inside it is still waiting (then it stays, as the place they go).
+ */
+function openOutline(text: string, decisions: Decisions): ParsedOutline {
   const p = parseOutline(text, true)
   const waiting = (key: string, inside: string[]): boolean => !decisions[key] || inside.some((k) => !decisions[k])
   const keysIn = (c: SuggestedChapter): string[] => c.scenes.map((s) => s.key)
@@ -94,7 +118,26 @@ export function openText(text: string, decisions: Decisions, edits: Edits): stri
     if (chapter) return !waiting(chapter.key, keysIn(chapter))
     return true
   }
-  return outlineText(p, { edits, skip })
+  const chapters = (list: SuggestedChapter[]): SuggestedChapter[] =>
+    list.filter((c) => !skip(c.key)).map((c) => ({ ...c, scenes: c.scenes.filter((s) => !skip(s.key)) }))
+  return { chapters: chapters(p.chapters), acts: p.acts.filter((a) => !skip(a.key)).map((a) => ({ ...a, chapters: chapters(a.chapters) })) }
+}
+
+/** The suggestions still waiting for a decision, with Adam's changes, for talking them over (see openOutline). */
+export function openText(text: string, decisions: Decisions, edits: Edits): string {
+  return outlineText(openOutline(text, decisions), { edits })
+}
+
+/**
+ * Where each part of openText's form is among the suggestions (2026-10-19): the key reading it back gives, to its key
+ * in the suggestions themselves. A talk's revision goes by it, so what was kept stays kept and Adam's changes stay his.
+ */
+export function openKeys(text: string, decisions: Decisions): Record<string, string> {
+  const out: Record<string, string> = {}
+  walkKeyed(openOutline(text, decisions), (node, _kind, key) => {
+    out[key] = node.key
+  })
+  return out
 }
 
 type Found = { kind: 'act'; node: SuggestedAct } | { kind: 'chapter'; node: SuggestedChapter } | { kind: 'scene'; node: SuggestedScene }
@@ -138,7 +181,10 @@ export function spliceText(text: string, key: string, fresh: SuggestedAct | Sugg
   const p = parseOutline(text, true)
   const f = find(p, key)
   if (!f) return null
-  if (f.kind === 'act') Object.assign(f.node, { title: (fresh as SuggestedAct).title || f.node.title, purpose: (fresh as SuggestedAct).purpose, chapters: (fresh as SuggestedAct).chapters })
+  if (f.kind === 'act') {
+    const a = fresh as SuggestedAct
+    Object.assign(f.node, { title: a.title || f.node.title, purpose: a.purpose, chapterCount: a.chapterCount ?? f.node.chapterCount, chapters: a.chapters })
+  }
   else if (f.kind === 'chapter') {
     const c = fresh as SuggestedChapter
     Object.assign(f.node, { title: c.title || f.node.title, goal: c.goal, card: c.card, scenes: c.scenes })
@@ -262,7 +308,7 @@ function own(kind: NodeKind, n: AnyNode): string {
     return [c.title, c.goal, card(c.card)].join('\u0001')
   }
   const a = n as SuggestedAct
-  return [a.title, a.purpose].join('\u0001')
+  return [a.title, a.purpose, a.chapterCount ?? ''].join('\u0001')
 }
 
 /**
@@ -271,11 +317,11 @@ function own(kind: NodeKind, n: AnyNode): string {
  * one tagged "[new after #c1s2]" goes after that one (or first inside it, when it is the one above); "Remove: #c1s2"
  * takes one out. `done`: the tags it changed or took out. Null when nothing in it could be used.
  */
-export function applyPlanChanges(
-  current: string,
-  changes: string
-): { text: string; lost: number; done: Set<string>; changes: PlanChange[] } | null {
+export function applyPlanChanges(current: string, changes: string): (PlanChanges & { lost: number; done: Set<string>; changes: PlanChange[] }) | null {
   const base = parseOutline(current, true)
+  // Each part as it was, so what it became can be told apart from what is new, and what changed from what didn't.
+  const before = new Map<AnyNode, { key: string; own: string }>()
+  walkKeyed(base, (node, kind, key) => before.set(node, { key, own: own(kind, node) }))
   const removes = new Set<string>()
   const lines: string[] = []
   for (const line of changes.split(/\r?\n/)) {
@@ -351,7 +397,7 @@ export function applyPlanChanges(
       Object.assign(w, { title, goal: keep(n.goal, w.goal), card: mergeCard(w.card, n.card) })
     } else {
       const w = was as SuggestedAct
-      Object.assign(w, { title, purpose: keep((next as SuggestedAct).purpose, w.purpose) })
+      Object.assign(w, { title, purpose: keep((next as SuggestedAct).purpose, w.purpose), chapterCount: (next as SuggestedAct).chapterCount ?? w.chapterCount })
     }
     children(kind, was, next)
   }
@@ -403,7 +449,61 @@ export function applyPlanChanges(
   if (!count) return null
   // A part given only to hold changed ones, its own words the same, isn't one of the changes.
   const changed = [...edited.values()].filter((c) => c.before && c.after && own(c.kind, c.before) !== own(c.kind, c.after))
-  return { text: outlineText(base), lost, done, changes: [...changed, ...made] }
+  const origin: Record<string, string> = {}
+  const touched: string[] = []
+  walkKeyed(base, (node, kind, key) => {
+    const was = before.get(node)
+    if (was) origin[key] = was.key
+    if (!was || was.own !== own(kind, node)) touched.push(key)
+  })
+  return { text: outlineText(base), lost, done, changes: [...changed, ...made], origin, changed: touched }
+}
+
+/**
+ * A revised plan's parts against the plan it was made from (2026-10-19): `origin`, the part each one was (its key in the
+ * revised plan, to its key in the plan sent); `changed`, the ones the talk changed or added (by their revised keys).
+ */
+export interface PlanChanges {
+  text: string
+  origin: Record<string, string>
+  changed: string[]
+}
+
+const sameTitle = (a: string, b: string): boolean => flat(a).toLowerCase() === flat(b).toLowerCase()
+
+/**
+ * A whole plan sent again ("=== Revised plan ===", its headings perhaps still tagged) against the plan sent: each part
+ * is the one its tag names, else the one with its title in the same place (the same act or chapter), else new.
+ */
+export function wholePlanChanges(current: string, plan: string): PlanChanges {
+  const base = parseOutline(current, true)
+  const reply = parseOutline(plan, true)
+  const was = new Map<string, { node: AnyNode; kind: NodeKind; parent: string | null }>()
+  walkKeyed(base, (node, kind, key, parent) => was.set(key, { node, kind, parent: parent?.key ?? null }))
+  const origin: Record<string, string> = {}
+  const used = new Set<string>()
+  const changed: string[] = []
+  const parentOf = new Map<AnyNode, string | null>()
+  walkKeyed(reply, (node, kind, key, parent) => {
+    const t = tagOf(node.title)
+    const under = parent ? (parentOf.get(parent) ?? null) : null
+    let from: string | null = null
+    if (t.key && was.get(t.key)?.kind === kind && !used.has(t.key)) from = t.key
+    else {
+      for (const [k, w] of was)
+        if (!used.has(k) && w.kind === kind && w.parent === under && sameTitle(w.node.title, t.title)) {
+          from = k
+          break
+        }
+    }
+    parentOf.set(node, from)
+    if (from) {
+      used.add(from)
+      origin[key] = from
+    }
+    if (!from || own(kind, untag(node)) !== own(kind, was.get(from)!.node)) changed.push(key)
+  })
+  return { text: stripTags(plan), origin, changed }
 }
 
 /** The keys a suggestion holds (itself, and what is inside it), so its old decisions and changes can be cleared. */

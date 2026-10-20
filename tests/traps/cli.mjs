@@ -13,6 +13,12 @@
 //                          4,000,000): no call is sent once it would be passed
 //   --write                write the story (with --out <file>, default tests/traps/story-v3.json; --resume <partial>)
 //   --fake                 use the fake provider and a stand-in judge (no key, no cost; checks the harness, not a score)
+//   --measure <file>       log every chat request's size (job, messages, estimated tokens in) to a JSON-lines file
+//   --directed on|off      Directed writing (src/main/director) for the run's drafts, a stretch at a time with the
+//                          director's notes between (AIWRITE_DIRECTED); left out, as the app's setting (off)
+//   --standin <folder>     use the stand-in model (tests/standin/server.mjs): every request is saved in <folder>/inbox and
+//                          answered from <folder>/outbox by a Claude helper (tests/standin/RESPONDER.md). No key, no cost.
+//                          With --fake, only the jobs in --standin-jobs <pattern> (default "novelist", the writer) go there.
 //   --provider <name>      deepseek (the default: DeepSeek's own API, with the app's DeepSeek preset) or openrouter
 //   --root <folder>        score the app code in another checkout (say the step 2 branch's worktree); it needs its own
 //                          node_modules (npm ci there). Default: this checkout.
@@ -76,7 +82,7 @@ function userVariable(name) {
   }
 }
 
-const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare']
+const known = ['--check-samples', '--rescore', '--probes-version', '--search-model', '--from-world', '--story-from', '--no-save-world', '--price-cached', '--write', '--resume', '--story', '--story-file', '--max-tokens-in', '--max-tokens-out', '--fake', '--keep', '--provider', '--price-in', '--price-out', '--base-url', '--root', '--samples', '--probes', '--chain', '--writer', '--memory', '--judge', '--words', '--add-words', '--beat-scene-words', '--out', '--compare', '--standin', '--standin-jobs', '--measure', '--directed']
 for (const a of args) {
   if (a.startsWith('--') && !known.includes(a)) {
     console.error(`Unknown flag ${a}. See tests/traps/README.md.`)
@@ -106,6 +112,26 @@ if (flag('--rescore')) {
   delete env.TRAPS_RUN
 } else {
   const fake = flag('--fake')
+  // The stand-in model (tests/standin): a local server whose replies a Claude helper writes. No key, no cost.
+  const standin = value('--standin')
+  if (standin) env.TRAPS_STANDIN = resolve(standin)
+  else delete env.TRAPS_STANDIN
+  // With --fake: only these jobs go to the stand-in model, the rest to the fake provider (a pattern, e.g. "novelist|PLAN").
+  const standinJobs = value('--standin-jobs')
+  if (standinJobs) env.TRAPS_STANDIN_JOBS = standinJobs
+  else delete env.TRAPS_STANDIN_JOBS
+  // Logs every chat request's size, by job, to this JSON-lines file.
+  const measure = value('--measure')
+  if (measure) env.TRAPS_MEASURE = resolve(measure)
+  else delete env.TRAPS_MEASURE
+  // Directed writing (src/main/director) for every Generate and Add below of the run, or none: the app's
+  // AIWRITE_DIRECTED, in place of Settings › Models' switch (off unless set).
+  const directed = value('--directed')
+  if (directed !== undefined && directed !== 'on' && directed !== 'off') {
+    console.error('--directed is on or off.')
+    process.exit(2)
+  }
+  if (directed) env.AIWRITE_DIRECTED = directed
   const provider = value('--provider') ?? 'deepseek'
   if (provider !== 'deepseek' && provider !== 'openrouter') {
     console.error('--provider is deepseek or openrouter.')
@@ -113,11 +139,11 @@ if (flag('--rescore')) {
   }
   env.TRAPS_PROVIDER = provider
   const keyVar = provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'OPENROUTER_API_KEY'
-  if (!fake && !env[keyVar]?.trim()) {
+  if (!fake && !standin && !env[keyVar]?.trim()) {
     const saved = userVariable(keyVar)
     if (saved) env[keyVar] = saved
   }
-  if (!fake && !env[keyVar]?.trim()) {
+  if (!fake && !standin && !env[keyVar]?.trim()) {
     console.error(`A real trap run needs the API key in the ${keyVar} environment variable (it is never read from anywhere else). Or use --fake to check the harness without a model.`)
     process.exit(2)
   }

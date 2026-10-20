@@ -20,6 +20,7 @@ import { heldAt } from '../usage/gate'
 import { toolRoomFor } from './toolRoom'
 import { newId, now, UserError } from '../util'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type SentParams, type StreamOutcome } from './client'
+import { backgroundPatience } from './patience'
 import { isKeyFailure } from './errors'
 import { jobFailure, type JobModel } from './jobModel'
 import { SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
@@ -45,6 +46,12 @@ export interface TaskRequest {
   sceneId?: ID | null
   model: JobModel
   messages: ChatMessage[]
+  /**
+   * What the record keeps of the messages, when that is less than was sent (the plan before writing with the scene before
+   * and the scene so far word for word: they are kept as notes, as they are the scenes' own words). Left out: the messages
+   * as sent.
+   */
+  kept?: ChatMessage[]
   /** Room for the reply itself, in tokens. Thinking gets room on top, as the job's Thinking says. */
   reply: number
   temperature: number
@@ -67,6 +74,11 @@ export interface TaskRequest {
    * stop it (stopAllTasks); Stop, or its own world or file closing, still does.
    */
   outlivesWindow?: boolean
+  /**
+   * Work Adam isn't watching word by word (automatic checks, the critic, filling in new entries, Write the whole
+   * chapter's sessions): a provider that stops answering is given up on after about a minute, not ten (ai/patience.ts).
+   */
+  background?: boolean
   /**
    * The editor chat: tools the model may use on the way to its answer. Each time it asks for some, `run` answers
    * them (looking things up, or noting a change it proposes) and the model carries on, up to `maxSteps` requests;
@@ -97,6 +109,18 @@ export interface TaskRequest {
     nudge?: (answer: string, attempt: number) => string | null
     /** How many times `nudge` may send a note back in one answer (1 when left out). */
     maxNudges?: number
+    /**
+     * The truth check: asked of the whole reply so far whenever an answer comes without tools (before `nudge`), the
+     * last request's answer too: a note to send back, or null. Its first note is the only one sent; sent after the last
+     * request, it buys up to three more (with the tools, then one without), so even the last answer can't claim what
+     * it never did. The editor chat: a reply that says it changed something none of its proposals is (ask/agent.ts).
+     */
+    recheck?: (reply: string) => string | null
+    /**
+     * The reply as kept and shown once the answer has ended (unless stopped): the editor chat's truth check puts a claim
+     * of a change never made right, in plain words. Left out, the reply stays as written.
+     */
+    settle?: (reply: string) => string
     /** Kept with the record when it finishes (the editor chat's proposals). */
     extraParams?: () => Partial<GenerationParams>
     /**
@@ -115,6 +139,18 @@ export interface TaskRequest {
      * The model is still sent them with its calls, and the steps are unchanged. Left out, they stay.
      */
     dropBeforeTools?: (text: string) => boolean
+    /**
+     * Told the tool results taken out of the messages to keep them within their room (fitToRoom, AGENT_ROOM), by their
+     * calls' ids, so a step that said "you have seen this already" says it no more (the chapter writer's read_scene).
+     */
+    onRemoved?: (toolCallIds: string[]) => void
+    /**
+     * The last request keeps the tools listed, with tool_choice 'none' (2026-10-19, the planner's look-ups): the request
+     * then starts as the one before did, so a provider's prompt cache keeps all of it, and no tool may be called. Should
+     * that request fail, or call a tool all the same, it is asked once more without the tools, as other callers' last
+     * requests always are. Left out: the last request goes without tools.
+     */
+    lastKeepsTools?: boolean
   }
   /**
    * The writer was asked to tag who says each line (ai/speakerTags.ts): the tags are taken out of the text as it
@@ -207,7 +243,7 @@ function begin(req: TaskRequest): Running {
     params,
     direction: (req.direction ?? '').slice(0, 4000),
     blocks: req.blocks ?? [],
-    messages: req.messages,
+    messages: req.kept ?? req.messages,
     budget: { contextLength, reserved: limit, available: Math.max(0, contextLength - limit), used: promptTokens },
     entries: req.entries ?? [],
     createdAt: now()
@@ -231,6 +267,15 @@ function begin(req: TaskRequest): Running {
 export const RESULT_REMOVED = '[result removed to save room — call the tool again if you need it]'
 /** Of the context, the share kept spare when the editor chat's messages are measured (estimates are rough). */
 export const CONTEXT_SPARE = 0.05
+/**
+ * The most tokens an agent's messages may grow to, however much the model reads, before the results of its earlier
+ * steps are taken out (a line each, RESULT_REMOVED). Every request sends the whole conversation again, and with a model
+ * that reads a million tokens (DeepSeek Flash) nothing was ever taken out, so a chapter writer session paid for every
+ * scene it had read at every step after (token audit, 2026-10-19). A first request bigger than this (the editor chat's
+ * briefing) has its tools and the room they were given on top (toolRoomFor). Only earlier steps' results go for it: the
+ * newest stay, and only the context itself makes a request the last. A model that reads less than this is unchanged.
+ */
+export const AGENT_ROOM = 40_000
 
 /**
  * A fast, cautious estimate of the tokens messages take as sent (characters, as estimateTokens counts them): the
@@ -342,10 +387,11 @@ async function stream(
   }
 
   /** One request: `request` counts the answer's requests from 1 (for the tool calls it asks for). */
-  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null, request = 1): Promise<StreamOutcome> => {
-    const onCallStart = tools?.length ? req.agent?.onCallStart : undefined
+  const once = (messages: ChatMessage[], tools: ToolSpec[] | undefined, force: string | null = null, request = 1, none = false): Promise<StreamOutcome> => {
+    const onCallStart = tools?.length && !none ? req.agent?.onCallStart : undefined
     return streamChat({
       ...(onCallStart ? { onToolCall: (slot: number, name: string) => onCallStart(slot, name, request) } : {}),
+      ...(req.background ? backgroundPatience(model.target) : {}),
       target: model.target,
       body: {
         model: model.choice.modelId,
@@ -355,7 +401,8 @@ async function stream(
         max_tokens: o.limit,
         min_p: req.minP ?? null,
         ...(tools?.length ? { tools } : {}),
-        ...(tools?.length && force ? { tool_choice: { type: 'function' as const, function: { name: force } } } : {})
+        ...(tools?.length && none ? { tool_choice: 'none' as const } : {}),
+        ...(tools?.length && force && !none ? { tool_choice: { type: 'function' as const, function: { name: force } } } : {})
       },
       signal: r.controller.signal,
       onText: (raw) => {
@@ -439,6 +486,8 @@ async function stream(
     // The room the messages have: the context, less the reply limit and a little spare. The estimate is corrected by
     // what the provider counted for the latest request, when it says (estimates run high for English prose).
     const room = o.contextLength - o.limit - Math.ceil(o.contextLength * CONTEXT_SPARE)
+    // Within it, earlier steps' results go past AGENT_ROOM (or past the first request, its tools and their room).
+    const kept = Math.min(room, Math.max(AGENT_ROOM, o.promptTokens + toolsSize + toolRoomFor(o.contextLength)))
     const correction = (sent: ChatMessage[], tools: ToolSpec[] | undefined, counted: number | null): number | null => {
       if (counted == null || counted <= 0) return null
       const guess = messagesTokens(sent) + (tools?.length ? toolsSize : 0)
@@ -446,19 +495,29 @@ async function stream(
     }
     let corrected = correction(req.messages, firstTools, outcome.promptTokens) ?? 0
     let nudged = 0
+    /** The truth check's one note was sent (recheck). */
+    let rechecked = false
+    /** The truth check's note for the answer to the last request, sent at the top of the next round. */
+    let pending: string | null = null
+    /** The requests the answer may make: maxSteps, and up to three more once for the truth check after the last. */
+    let limit = agent.maxSteps
     /** The latest step's calls and results as one key (repeatKey), to tell the same step twice in a row. */
     let keyBefore: string | null = null
     /** The monthly spending limit was reached partway (its amount): the answer stops there and says so. */
     let heldBy: number | null = null
-    for (let step = 1; outcome.status === 'complete' && step < agent.maxSteps; step++) {
+    for (let step = 1; outcome.status === 'complete' && step < limit; step++) {
       if (r.controller.signal.aborted) break
       // How many messages the request before was sent: what the next adds comes after them (fitToRoom keeps the count).
       const sentBefore = messages.length
       const calls = outcome.toolCalls ?? []
       let nudge: string | null = null
-      // An answer without tools: kept, unless it says it changed things it never proposed (asked once more).
+      // An answer without tools: kept, unless it says it changed things it never proposed (the truth check, once), or
+      // the nudge has a note for it (asked once more, up to maxNudges).
       if (!calls.length) {
-        nudge = nudged >= (agent.maxNudges ?? 1) ? null : (agent.nudge?.(outcome.text, nudged + 1) ?? null)
+        nudge = pending ?? (rechecked ? null : (agent.recheck?.(r.text) ?? null))
+        if (nudge) rechecked = true
+        pending = null
+        nudge ??= nudged >= (agent.maxNudges ?? 1) ? null : (agent.nudge?.(outcome.text, nudged + 1) ?? null)
         if (!nudge) break
       } else if (agent.dropBeforeTools && r.text.length > stepFrom && agent.dropBeforeTools(r.text.slice(stepFrom))) {
         // Words written before this step's tool calls that only narrate its steps: out of the reply (still sent back
@@ -519,11 +578,18 @@ async function stream(
       next = [...next, ...results]
       // The last request goes without tools, with the last words, so the model answers in words: at the last step,
       // or sooner when the tool results no longer fit beside the briefing (the model would only ask for them again).
-      let last = step === agent.maxSteps - 1 || repeated
+      let last = step >= limit - 1 || repeated
       const lastWords = agent.lastWords?.() ?? ''
       const notes = estimateTokens(nudge ?? '') + estimateTokens(lastWords) + 8
-      const fitted = fitToRoom(next, room - corrected - toolsSize - notes, keepFrom)
+      const spare = corrected + toolsSize + notes
+      const newest = next.slice(keepFrom)
+      const earlier = fitToRoom(next.slice(0, keepFrom), kept - spare - messagesTokens(newest), keepFrom)
+      const fitted = fitToRoom([...earlier.messages, ...newest], room - spare, keepFrom)
       if (!fitted.fits) last = true
+      const gone = fitted.messages.flatMap((m, i) =>
+        m.role === 'tool' && m.toolCallId && m.content === RESULT_REMOVED && next[i]?.content !== RESULT_REMOVED ? [m.toolCallId] : []
+      )
+      if (gone.length) agent.onRemoved?.(gone)
       messages = fitted.messages
       // A nudge asks for tools; on the last request, which has none, the last words go instead.
       const note = last ? lastWords || nudge : nudge
@@ -533,13 +599,25 @@ async function stream(
         progressTimer ??= setTimeout(progress, PROGRESS_MS)
       }
       stepFrom = r.text.length
-      const tools = last ? undefined : agent.tools
-      const force = tools ? forceFor(step + 1) : null
-      outcome = await once(messages, tools, force, step + 1)
+      // The planner's last request keeps the tools listed, none to be called (lastKeepsTools): the cache keeps it all.
+      const keepsTools = last && !!agent.lastKeepsTools
+      const tools = last && !keepsTools ? undefined : agent.tools
+      const force = tools && !last ? forceFor(step + 1) : null
+      outcome = await once(messages, tools, force, step + 1, keepsTools)
+      // Turned down, or a tool called all the same: asked once more without the tools, as any last request is.
+      if (keepsTools && !r.controller.signal.aborted && (outcome.status === 'error' || (outcome.status === 'complete' && !!outcome.toolCalls?.length))) {
+        total.prompt = add(total.prompt, outcome.promptTokens)
+        total.cached = add(total.cached, outcome.cachedTokens)
+        total.completion = add(total.completion, outcome.completionTokens)
+        total.cost = add(total.cost, outcome.cost)
+        spent += costOf(outcome, model, messagesTokens(messages)) ?? 0
+        r.text = r.text.slice(0, stepFrom)
+        outcome = await once(messages, undefined, null, step + 1)
+      }
       forcedTurnedDown(outcome)
-      noteRequest(step + 1, messages.slice(sentBefore), !!tools, force, {
+      noteRequest(step + 1, messages.slice(sentBefore), !!tools && !keepsTools, force, {
         ...(nudge ? {} : { after: calls.map((c) => c.name) }),
-        ...(fitted.removed ? { removed: fitted.removed } : {})
+        ...(earlier.removed + fitted.removed ? { removed: earlier.removed + fitted.removed } : {})
       })
       total.prompt = add(total.prompt, outcome.promptTokens)
       total.cached = add(total.cached, outcome.cachedTokens)
@@ -547,7 +625,27 @@ async function stream(
       total.cost = add(total.cost, outcome.cost)
       spent += costOf(outcome, model, messagesTokens(messages)) ?? 0
       corrected = correction(messages, tools, outcome.promptTokens) ?? corrected
-      if (last) break
+      if (last) {
+        // The truth check on the last answer (once an answer): a claim of what was never done buys one more go with
+        // the tools (sent at the top of the next round) and a last request after it. Not when the room ran out: the
+        // tools' results would no longer fit.
+        const again =
+          !rechecked && fitted.fits && outcome.status === 'complete' && !outcome.toolCalls?.length && !r.controller.signal.aborted
+            ? (agent.recheck?.(r.text) ?? null)
+            : null
+        if (!again) break
+        rechecked = true
+        pending = again
+        limit = step + 4
+      }
+    }
+    // The truth check's last word: a claim still standing is put right before anyone sees the answer as finished.
+    if (agent.settle && !r.controller.signal.aborted) {
+      const kept = agent.settle(r.text)
+      if (kept !== r.text) {
+        r.text = kept
+        progress()
+      }
     }
     outcome = {
       ...outcome,

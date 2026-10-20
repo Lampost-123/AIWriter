@@ -5,14 +5,19 @@ import { ArrowDownToLine, RefreshCw, Sparkles } from '@/components/ui/icons'
 import { useId, type ReactNode } from 'react'
 import type { Creativity } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button, Field, Textarea } from '@/components/ui'
+import { Button } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { costLabel } from '@/features/variants/cost'
+import { setSteer, useDeskStore } from '@/features/desk/deskStore'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { useDesk } from '@/features/look/look'
 import { LengthField } from './LengthField'
 import { setPolishOn } from './polishRun'
 import { CREATIVITY_HINTS } from './format'
 import { PopoverPanel, Segmented } from './parts'
+import { DirectedToggle } from '@/features/director/DirectedToggle'
+import { PlanFirstToggle } from '@/features/planReview/PlanFirstToggle'
 import type { DraftMode, Generate } from './useGenerate'
 
 const CREATIVITY_OPTIONS = (Object.keys(CREATIVITY_PRESETS) as Creativity[]).map((k) => ({ value: k, label: CREATIVITY_PRESETS[k].label }))
@@ -77,6 +82,12 @@ function ModeChoice({
 /** The open panel, if any: each is its own popover (keyed), so switching from one to another opens it afresh. */
 export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'bottom' }): React.JSX.Element | null {
   const { popover, setPopover, popoverRef, beforeChoice, choiceByKey, choiceFromOptions, generate, opts, updateOpts } = g
+  // The direction for the next draft. On the desk it is the dock's steer box (one box, in sight, used once); on the
+  // panels the draft options keep it, shown beside Generate until a draft has used it (features/direction).
+  const desk = useDesk()
+  const steer = useDeskStore((s) => s.steer[g.sceneId] ?? '')
+  const direction = desk ? steer : opts.direction
+  const setDirection = (text: string): void => (desk ? setSteer(g.sceneId, text) : updateOpts({ direction: text }))
   if (popover === 'choose') {
     return (
       <PopoverPanel
@@ -201,62 +212,68 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
   if (popover === 'options') {
     const { cardPlanned, cardWords, creativity, fixedCreativity, polishOn, modelName, draftCost } = g
     return (
-      <PopoverPanel key="options" className="w-[340px]" side={side}>
-        <div className="flex flex-col gap-4">
+      // In a short window the choices scroll on their own between the direction and Generate, which stay in sight.
+      <PopoverPanel key="options" className="flex max-h-[var(--radix-popover-content-available-height)] w-[340px] flex-col" side={side}>
+        <div className="flex min-h-0 flex-col gap-4">
           <div>
             <h3 className="text-[13.5px] font-semibold text-fg">Draft options</h3>
             <p className="text-[12px] leading-relaxed text-muted">{g.hasText ? AFTER_TEXT : "For this scene's next draft."}</p>
           </div>
-          <Field label="Direction for this draft (optional)">
-            {(id) => (
-              <Textarea
-                id={id}
-                minRows={2}
-                maxRows={6}
-                value={opts.direction}
-                placeholder="Make it tense, end on the knock at the door"
-                onChange={(e) => updateOpts({ direction: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault()
-                    void generate(undefined, true)
-                  }
-                }}
-              />
-            )}
-          </Field>
-          {cardPlanned === false && !opts.direction.trim() ? (
+          <DirectionComposer
+            label="Direction for this draft (optional)"
+            value={direction}
+            onChange={setDirection}
+            minRows={2}
+            maxRows={6}
+            placeholder="Make it tense, end on the knock at the door"
+            side={side}
+            // Enter (or Ctrl+Enter) drafts with it; Shift+Enter starts a new line.
+            onSubmit={() => void generate(undefined, true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void generate(undefined, true)
+              }
+            }}
+          />
+          {cardPlanned === false && !direction.trim() ? (
             <p className="-mt-2 text-[12px] leading-relaxed text-faint">
               Tip: add a beat or two on the scene card, so the AI knows what happens in this scene.
             </p>
           ) : null}
-          <LengthField value={opts.targetWords} cardWords={cardWords} onChange={(targetWords) => updateOpts({ targetWords })} />
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-muted">Creativity</span>
-            {fixedCreativity ? (
-              <p className="text-[12px] leading-relaxed text-faint">This model sets its own creativity, so there's nothing to choose here.</p>
-            ) : (
-              <>
-                <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
-                <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
-              </>
-            )}
-          </div>
-          <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              checked={polishOn}
-              onChange={(e) => setPolishOn(e.target.checked)}
-              className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-            />
-            <span className="min-w-0">
-              <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
-              <span className="block text-[12px] leading-relaxed text-faint">
-                A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
-                result in one step. Costs about twice as much.
+          <div className="-mx-4 -my-1 flex min-h-0 flex-col gap-4 overflow-y-auto px-4 py-1" data-draft-choices>
+            <LengthField value={opts.targetWords} cardWords={cardWords} onChange={(targetWords) => updateOpts({ targetWords })} />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-medium text-muted">Creativity</span>
+              {fixedCreativity ? (
+                <p className="text-[12px] leading-relaxed text-faint">This model sets its own creativity, so there's nothing to choose here.</p>
+              ) : (
+                <>
+                  <Segmented label="Creativity" value={creativity} onChange={(c) => updateOpts({ creativity: c })} options={CREATIVITY_OPTIONS} className="w-full" />
+                  <p className="text-[12px] text-faint">{CREATIVITY_HINTS[creativity]}</p>
+                </>
+              )}
+            </div>
+            <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={polishOn}
+                onChange={(e) => setPolishOn(e.target.checked)}
+                className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
+                <span className="block text-[12px] leading-relaxed text-faint">
+                  A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
+                  result in one step. Costs about twice as much.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+            {/* Directed writing, for this draft (src/main/director). */}
+            <DirectedToggle sceneId={g.sceneId} />
+            {/* Show me the plan first, for this draft (src/main/plan/review.ts). */}
+            <PlanFirstToggle sceneId={g.sceneId} />
+          </div>
           <div className="flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px] text-muted">
             <span className="min-w-0 truncate">
               Writer:{' '}

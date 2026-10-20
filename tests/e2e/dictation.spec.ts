@@ -8,7 +8,7 @@
 // Settings and Try again; the shortcuts list's line. Chromium's fake microphone (AIWRITE_FAKE_MIC=1: a
 // beep every half second) does the talking, and the fake speech server (tests/fake-speech) writes it down.
 import type { ElectronApplication, Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
+import { createWorldFromWelcome, expect, invoke, openPage, openSettings, startFake, test, useFakeModel } from './helpers'
 
 interface Heard {
   bytes: number
@@ -445,7 +445,7 @@ test('the Quick start box has a microphone button: one click listens, the next p
   try {
     const { app, win } = await setUp(launch, speech)
     await useFakeModel(win, fake)
-    await binder(win).getByRole('button', { name: 'Characters' }).click()
+    await openPage(win, 'Characters')
     await main(win)
       .getByRole('button', { name: /^Quick start (an? \w+ )?from a few notes$/ })
       .click()

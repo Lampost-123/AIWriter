@@ -3,7 +3,7 @@
 // it back; a new place it proposes is made only on Apply; Ask about this quotes the selected words in the box; a model
 // that can't use tools is said so in plain words. The fake provider works as tests/fake-provider/m4/ask.mjs says.
 import type { Page } from '@playwright/test'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { areaButton, binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
 
 const panel = (win: Page) => win.getByRole('region', { name: 'Ask the world' })
 const box = (win: Page) => panel(win).getByRole('textbox', { name: 'Ask about your world' })
@@ -38,7 +38,7 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
 
     // Asked to fix something: it reads the scene first, then proposes; the page is untouched.
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Please fix the first sentence')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('THE TIDE CAME IN OVER THE FLATS.')
@@ -86,10 +86,60 @@ test('the editor chat reads the scene, proposes a change, and changes nothing un
     await expect(tidied).toContainText('Tidied, as claimed.')
     await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
     await expect(panel(win)).not.toContainText('I’ve tidied up the opening.')
-    // One that still doesn't propose them is put right under its answer.
+    // One that still doesn't propose them never shows the claim (the truth check, 2026-10-19): it says no change was
+    // made, with what it would suggest.
     await ask(win, 'Pretend stubbornly to tidy the opening')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveText('No changes came with this answer, so there’s nothing to apply. Ask again to have them proposed.')
-    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(1)
+    const stubborn = panel(win).locator('[data-turn-status]').last()
+    await expect(stubborn).toHaveAttribute('data-turn-status', 'complete')
+    await expect(stubborn.locator('[data-answer]')).toContainText('No change was made, so there’s nothing to apply. Here’s what I’d suggest:')
+    await expect(stubborn.locator('[data-answer]')).toContainText('I’d tidy up the opening.')
+    await expect(stubborn.locator('[data-answer]')).not.toContainText('I’ve tidied')
+    await expect(stubborn.locator('[data-answer]')).not.toContainText('Apply the changes below')
+    await expect(panel(win).locator('[data-no-changes]')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a model that claims changes it never made: the chat shows the honest result, and why when a check turned one down (2026-10-19)', async ({
+  launch
+}) => {
+  const { startFakeProvider } = await import('../fake-provider/server.mjs')
+  const fake = await startFakeProvider({ delayMs: 2 })
+  try {
+    const { win } = await launch()
+    await createWorldFromWelcome(win, 'Harbour')
+    // A model that says it made the change and never calls a tool, even when made to (m4/ask.mjs fake/claims-stubborn).
+    await useFakeModel(win, fake, 'fake/claims-stubborn')
+    await prose(win).click()
+    await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
+    const sceneId = await firstScene(win)
+    await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
+    await areaButton(win, 'Ask').click()
+    await ask(win, 'Tighten the opening line')
+    const turn = panel(win).locator('[data-turn-status]').last()
+    await expect(turn).toHaveAttribute('data-turn-status', 'complete')
+    const answer = turn.locator('[data-answer]')
+    await expect(answer).toContainText('No change was made, so there’s nothing to apply. Here’s what I’d suggest:')
+    await expect(answer).toContainText('I’d tighten the opening line for you.')
+    await expect(answer).not.toContainText('I’ve tightened')
+    await expect(answer).not.toContainText('ready to apply')
+    await expect(turn.locator('[data-proposal]')).toHaveCount(0)
+    await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
+
+    // A model whose change its check turns down (words not in the scene), and that claims it all the same: the reason,
+    // in plain words, in place of the claim.
+    await useFakeModel(win, fake, 'fake/bad-proposal')
+    if (!(await box(win).isVisible())) await areaButton(win, 'Ask').click()
+    await ask(win, 'Fix the first sentence')
+    const bad = panel(win).locator('[data-turn-status]').last()
+    await expect(bad).toHaveAttribute('data-turn-status', 'complete')
+    await expect(bad.locator('[data-answer]')).toContainText(
+      'No change was made: I couldn’t make it because the words it meant to change aren’t in the scene as written.'
+    )
+    await expect(bad.locator('[data-answer]')).not.toContainText('I’ve fixed')
+    await expect(bad.locator('[data-proposal]')).toHaveCount(0)
+    await expect(prose(win)).toHaveText('The tide came in over the flats. The gulls went quiet.')
   } finally {
     await fake.close()
   }
@@ -107,7 +157,7 @@ test('What the AI saw shows each request of an answer that used tools: request 2
     const sceneId = await firstScene(win)
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
 
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Please fix the first sentence')
     await expect(changes(win).locator('[data-proposal]').first()).toContainText('THE TIDE CAME IN OVER THE FLATS.')
     await expect(panel(win).locator('[data-turn-status]').first()).toHaveAttribute('data-turn-status', 'complete')
@@ -146,7 +196,7 @@ test('each tool call shows as it happens (running, then ✓), opens to what it w
     const sceneId = await firstScene(win)
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('gulls went quiet')
 
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Please fix the first sentence')
     const calls = panel(win).getByRole('list', { name: 'Tool calls' })
     const read = calls.locator('[data-tool="read_scene"]')
@@ -181,7 +231,7 @@ test('each tool call shows as it happens (running, then ✓), opens to what it w
     await win.getByRole('menuitemradio', { name: /^Always open/ }).click()
     await win.reload()
     await expect(prose(win)).toBeVisible()
-    if (!(await panel(win).count())) await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    if (!(await panel(win).count())) await areaButton(win, 'Ask').click()
     await expect(panel(win).locator('[data-tools-toggle]')).toHaveAttribute('aria-expanded', 'true')
     await expect(panel(win).getByRole('list', { name: 'Tool calls' }).locator('[data-tool="read_scene"]')).toHaveAttribute('data-status', 'done')
   } finally {
@@ -205,7 +255,7 @@ test('a passage across paragraphs is proposed as one rewrite; Apply replaces it 
     const paragraphs = prose(win).locator('p')
     await expect(paragraphs).toHaveCount(2)
 
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Push this beat harder')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Rewrite · Ch 1, Sc 1')
@@ -271,7 +321,7 @@ test('text tools: an insert goes in after its paragraph and Undo takes it out; a
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('waited by the wall')
     const paragraphs = prose(win).locator('p')
     await expect(paragraphs).toHaveCount(3)
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
 
     // An insert: the paragraph it goes after, faint, then the new words; nothing changes until Apply.
     await ask(win, 'Add a line where she hesitates')
@@ -339,7 +389,7 @@ test('a question with options shows as buttons; a pick is the next question, and
     await useFakeModel(win, fake)
     await prose(win).click()
     await win.keyboard.type('The tide came in over the flats. The gulls went quiet.')
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Make it better')
 
     const choice = panel(win).locator('[data-choice]')
@@ -385,7 +435,7 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     await createWorldFromWelcome(win, 'Harbour')
     await useFakeModel(win, fake)
     await expect(prose(win)).toHaveText('')
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Please draft the scene')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Draft · Ch 1, Sc 1')
@@ -481,7 +531,7 @@ test('the chat lists the scene’s open issues and fixes one with the check’s 
     await expect.poll(open, { timeout: 30_000 }).toHaveLength(1)
     const [issueId] = await open()
 
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, 'Fix the open continuity issue in this scene')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Issue fix · Ch 1, Sc 1')
@@ -520,7 +570,7 @@ test('the chat reads a chapter card and proposes its point of view by name: Appl
     await win.reload()
     await expect(prose(win)).toBeVisible()
 
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
     await ask(win, "Set chapter 1's POV to Ilse")
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText(/Chapter card · Ch 1/)
@@ -569,7 +619,7 @@ test('replace all: the card shows how many and where, Apply changes every scene 
     await prose(win).click()
     await win.keyboard.type('Mara pushed the door open. Bram waited for Mara.')
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toContain('waited for Mara')
-    await win.getByRole('button', { name: 'Ask the world', exact: true }).click()
+    await areaButton(win, 'Ask').click()
 
     await ask(win, 'Replace Mara with Wren everywhere')
     const card = changes(win).locator('[data-proposal]').first()
@@ -604,6 +654,40 @@ test('replace all: the card shows how many and where, Apply changes every scene 
     await expect(card).toHaveAttribute('data-status', 'pending')
     await expect(prose(win)).toContainText('At the ford Mara said nothing.')
     await expect.poll(async () => (await invoke(win, 'getScene', sceneId)).text).toBe('Mara pushed the door open. Bram waited for Mara.')
+  } finally {
+    await fake.close()
+  }
+})
+
+// The overhaul's phase 2 (LOOKUPS, PACKS; on by default, named here so this test keeps them whatever the defaults).
+const SHARED = { env: { AIWRITE_EXP_CHAT_LOOKUPS: 'on', AIWRITE_EXP_CHAT_PACKS: 'on', AIWRITE_KEEPER_QUIET_MS: '600000' } }
+
+test('the chat looks a thing up in the story index and loads an instruction pack, each a row in plain words', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await launch(SHARED)
+    await createWorldFromWelcome(win, 'Saltreach')
+    await useFakeModel(win, fake)
+    await areaButton(win, 'Ask').click()
+
+    await ask(win, 'Where is the letter?')
+    const where = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="where_is"]')
+    await expect(where).toHaveAttribute('data-status', 'done')
+    await expect(where).toContainText('Checked where “the letter” is')
+    // Offered the shared look-ups (the chat's own search and get_entry, once each) and load_instructions, with the packs
+    // listed in its instructions.
+    const sent = fake.lastRequest()!.body as { messages: { role: string; content: string }[]; tools?: { function: { name: string } }[] }
+    const names = sent.tools?.map((t) => t.function.name) ?? []
+    expect(names).toEqual(expect.arrayContaining(['where_is', 'state_of', 'who_knows', 'load_instructions', 'search', 'get_entry']))
+    expect(names).not.toContain('find_in_story')
+    expect(names.filter((n) => n === 'get_entry')).toHaveLength(1)
+    expect(sent.messages[0].content).toContain('Instruction packs')
+
+    await ask(win, 'How does the memory work?')
+    const pack = panel(win).getByRole('list', { name: 'Tool calls' }).last().locator('[data-tool="load_instructions"]')
+    await expect(pack).toHaveAttribute('data-status', 'done')
+    await expect(pack).toContainText('Read the instructions for explaining the memory')
+    expect(JSON.stringify(fake.lastRequest()!.body)).toContain('How AI Write')
   } finally {
     await fake.close()
   }

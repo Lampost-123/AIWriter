@@ -182,7 +182,7 @@ describe('the switch', () => {
 describe('how it is told', () => {
   it('to the writer: the lead, then each list under its heading in order; short: what matters and what must not be contradicted', () => {
     const full = briefText(BRIEF)
-    expect(full.startsWith(BRIEF_LEAD.record)).toBe(true)
+    expect(full.startsWith(BRIEF_LEAD)).toBe(true)
     expect(full).toContain(`${BRIEF_TITLES.matters}:\n- The survey case Wren carries: the weir plans are in it.`)
     expect(full).toContain(
       `${BRIEF_TITLES.keep}:\n- Wren’s left arm is in a sling (since Ch 2, Sc 4).\n- Ash drowned at the weir (Ch 1, Sc 2).`
@@ -193,8 +193,6 @@ describe('how it is told', () => {
     expect(short).toContain(BRIEF_TITLES.keep)
     expect(short).not.toContain(BRIEF_TITLES.knows)
     expect(short).not.toContain(BRIEF_TITLES.time)
-    // Read with the book so far, word for word: the lead says so.
-    expect(briefText({ ...BRIEF, book: true }).startsWith(BRIEF_LEAD.book)).toBe(true)
     // Nothing to say: no text, and an empty list is left out.
     expect(briefText(null)).toBe('')
     expect(briefText({ parts: { matters: [' ', ''] } })).toBe('')
@@ -204,7 +202,9 @@ describe('how it is told', () => {
 
   it('is read back from a record as it was written (the Context tab shows the last one)', () => {
     expect(readBriefText(briefText(BRIEF))).toEqual(BRIEF)
-    expect(readBriefText(briefText({ ...BRIEF, book: true }))).toEqual({ ...BRIEF, book: true })
+    // One written before 2026-10-20, when its reader read the book so far too, reads back the same.
+    const older = briefText(BRIEF).replace(BRIEF_LEAD, 'Written just before this draft by a reader of the whole story record and the book so far, word for word: what bears on this scene. Keep to it; it is for reference, not to retell.')
+    expect(readBriefText(older)).toEqual(BRIEF)
     expect(readBriefText(briefText(BRIEF, true))).toEqual({ parts: { matters: BRIEF.parts.matters, keep: BRIEF.parts.keep } })
     expect(readBriefText('')).toBeNull()
     expect(readBriefText('Something else entirely.\n- a line')).toBeNull()
@@ -250,7 +250,7 @@ describe('in the writer’s briefing', () => {
     expect(assembleContext({ ...inp, brief: { parts: { keep: [] } } }, countRaw)).toEqual(before)
   })
 
-  it('a late block right before the scene card, never left out; the story so far, the passages and who knows what go short', () => {
+  it('a late block just before the scene card, never left out; the story so far, the passages and who knows what go short', () => {
     const off = assembleContext(briefingInput(), countRaw)
     const on = assembleContext(briefingInput({ brief: BRIEF }), countRaw)
     const b = block(on, BRIEF_BLOCK.id)!
@@ -258,8 +258,12 @@ describe('in the writer’s briefing', () => {
     expect(b.priority).toBe(MUST_PRIORITY)
     expect(b.dropped).toBe(false)
     expect(b.text).toBe(briefText(BRIEF))
-    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf('scene-card') - 1)
-    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1)
+    // Since the overhaul (2026-10-19) only what the plan looked up, how they sound and the end of the previous scene come
+    // between it and the card.
+    expect(SEND_ORDER.slice(SEND_ORDER.indexOf(BRIEF_BLOCK.id) + 1, SEND_ORDER.indexOf('scene-card'))).toEqual(['looked-up', 'voices', 'previous-scene'])
+    // Who knows what, then what the reader knows that someone here doesn't (the reader ledger, 2026-10-19), then the brief.
+    expect(SEND_ORDER[SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 1]).toBe('reader')
+    expect(SEND_ORDER.indexOf(BRIEF_BLOCK.id)).toBe(SEND_ORDER.indexOf(LEDGER_BLOCK.id) + 2)
     const user = on.messages[1].content
     expect(user.indexOf('## Continuity brief')).toBeGreaterThan(user.indexOf('## Who knows what'))
     expect(user.indexOf('## Continuity brief')).toBeLessThan(user.indexOf('## Scene card'))
@@ -290,7 +294,7 @@ describe('in the writer’s briefing', () => {
     expect(block(full, 'story-so-far')!.shortFor).toBeUndefined()
   })
 
-  it('a later book keeps its story so far whole: the brief’s reader read only this book word for word (fix 14’s review)', () => {
+  it('a later book keeps its story so far whole: the brief’s reader reads only this book’s chapters (fix 14’s review)', () => {
     expect(briefShortens(BRIEF, { earlierBooks: true })).toEqual(['recalled', LEDGER_BLOCK.id])
     const book2 = briefingInput()
     book2.memory.storySoFar = {

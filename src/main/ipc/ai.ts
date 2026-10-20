@@ -18,6 +18,10 @@ import { memorySettingsChanged } from '../keeper'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { noteWriterSpeakers } from '../readAloud'
 import { chapterWriterHolds, HELD } from '../chapterWriter/active'
+import { directDraft, directedWanted, directorModel } from '../director'
+import { draftStep } from '../ai/steps'
+import { reviewOf, reviewWanted, waitForReview } from '../plan/review'
+import { watchWorldForPlans } from './planReview'
 
 type AiMethods =
   | 'listProviders' | 'saveProvider' | 'deleteProvider' | 'restoreProvider' | 'testProvider' | 'listModels'
@@ -64,11 +68,33 @@ export const aiHandlers: Handlers<AiMethods> = {
       // far, where things stand at its end, and a closing instruction to carry on rather than start the scene.
       const soFar = options?.addBelow ? repo.getScene(db, sceneId).text : ''
       const block = soFar.trim() ? soFarBlock(soFar, getSettings().models.writer?.contextLength ?? null) : null
+      // Show me the plan first (plan/review.ts): the plan waits for Adam before anything is written; Stop ends the wait.
+      const review = reviewWanted(options, getSettings())
+        ? (made: Parameters<typeof reviewOf>[1], notes: string[]) => {
+            watchWorldForPlans()
+            return waitForReview(reviewOf(sceneId, made, notes, !!block), stop.signal, (name, payload) => emit(name, payload as never))
+          }
+        : undefined
       const b = await draftBriefing(
         sceneId,
         block ? options : { ...options, addBelow: false },
-        block ? { signal: stop.signal, soFar, extras: { extraBlocks: [block] } } : { signal: stop.signal }
+        block
+          ? { signal: stop.signal, soFar, extras: { extraBlocks: [block] }, ...(review ? { review } : {}) }
+          : { signal: stop.signal, ...(review ? { review } : {}) }
       )
+      // Directed writing (src/main/director): a stretch at a time, with the director's notes between, when the draft options
+      // or Settings › Models say so.
+      const settings = getSettings()
+      const stream = directedWanted(options, settings)
+        ? directDraft({
+            db,
+            sceneId,
+            briefing: b,
+            carryOn: block ? soFar : '',
+            model: directorModel({ settings, getProvider: providers.getProvider, providerTarget: providers.providerTarget }),
+            emit
+          })
+        : null
       const started = startDraftJob({
         db,
         sceneId,
@@ -81,8 +107,11 @@ export const aiHandlers: Handlers<AiMethods> = {
         entryVersions: b.entryVersions,
         emit,
         onSpeakers: (speakers) => noteWriterSpeakers(sceneId, speakers),
+        ...(stream ? { stream } : {}),
         ...providerNotes(b.target.id)
       })
+      // The calm overhaul: the request is out; the first words are on their way (ai/steps.ts).
+      draftStep(sceneId, 'writing')
       // Check and repair: the draft's words are checked against where things stood as the writer was told it, and against
       // the scene's contract it was given (long story memory fix 13).
       noteStage(started.generationId, sceneId, stageTold(b, !!block))

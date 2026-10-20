@@ -56,7 +56,8 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     expect(plan.text).toContain('- Mara is wearing: grey cloak')
     expect(plan.text).not.toContain('red coat')
     expect(plan.text).not.toContain('silver knife')
-    expect(plan.text).toContain('1. Mara takes off the grey cloak and hangs it over the chair.')
+    // Each change whole in itself (2026-10-19): who, what, from and to, and how it happens.
+    expect(plan.text).toContain('1. Mara, wearing: grey cloak → grey cloak off, over the chair. Mara takes off the grey cloak and hangs it over the chair.')
     expect(plan.text).not.toContain('puts on')
     expect(plan.text).not.toContain('stranger')
     expect(user.trimEnd().endsWith('Now the prose itself:')).toBe(true)
@@ -67,7 +68,7 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
 
     // Settings › Models: "Plan before writing", on by default. Off: no plan; the list still goes in.
     await openSettings(win, 'Models')
-    const toggle = win.getByRole('switch', { name: 'Plan before writing' })
+    const toggle = win.getByRole('switch', { name: 'Plan before writing', exact: true })
     await expect(toggle).toBeChecked()
     await toggle.click()
     await expect(toggle).not.toBeChecked()
@@ -75,7 +76,11 @@ test('a draft is planned first and keeps to what must stay true; off in Settings
     const again = await draft(win, next.id)
     expect(again.blocks.find((b) => b.id === 'plan')).toBeUndefined()
     expect(again.blocks.find((b) => b.id === 'must-stay-true')?.text).toContain('- Mara: No left hand')
-    expect(again.messages.find((m) => m.role === 'user')!.content.trimEnd().endsWith('- Never contradict the facts given above.')).toBe(true)
+    // The closing instruction is last, with no notes after it.
+    const plain = again.messages.find((m) => m.role === 'user')!.content
+    expect(plain).toContain('Write the scene now.')
+    expect(plain).not.toContain('My notes before I write')
+    expect(plain.trimEnd().endsWith('Now the prose itself:')).toBe(false)
   } finally {
     await fake.close()
   }

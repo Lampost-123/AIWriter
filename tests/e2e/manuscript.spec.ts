@@ -3,7 +3,7 @@
 // character" from selected words, and a page that stays wide enough to read in a small window.
 import type { ElectronApplication, Page } from '@playwright/test'
 import { emptySceneCard } from '@shared/defaults'
-import { binder, createWorldFromWelcome, expect, invoke, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, sceneTitle, startFake, test, useFakeModel } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const names = (win: Page, entryId: string) => prose(win).locator(`.aw-name[data-name-of="${entryId}"]`)
@@ -154,7 +154,8 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
   await win.keyboard.press('Escape')
   await expect(scenePanel(win).getByRole('tab', { name: 'Cast', selected: true })).toBeFocused()
 
-  // Six tabs (milestone 5 adds Issues, the critic adds Critique) fit the panel at its narrowest, each label on one line.
+  // Five tabs (milestone 5 adds Issues; the critic's notes are its Craft notes since the calm overhaul) fit the panel at
+  // its narrowest, each label on one line.
   await invoke(win, 'updateSettings', { layout: { inspectorWidth: 260 } })
   await win.reload()
   await expect(scenePanel(win)).toBeVisible()
@@ -164,7 +165,7 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
     const right = list.getBoundingClientRect().right
     return [...list.querySelectorAll('[role="tab"]')].map((t) => {
       // One line: every piece of its words that shows is on the same line (a label read out in full but
-      // shown short has a piece that is only read out). A tab shown as its icon (Critique, when narrow) shows no words.
+      // shown short has a piece that is only read out). A tab shown as its icon (Sounds, when narrow) shows no words.
       const icon = !!t.querySelector('svg')
       const tops = new Set()
       const walk = document.createTreeWalker(t, NodeFilter.SHOW_TEXT)
@@ -178,7 +179,7 @@ test('names in the page: underlines, the hover card, Ctrl+click beside the page,
       return t.getBoundingClientRect().right <= right + 0.5 && (tops.size === 1 || (icon && tops.size === 0))
     })
   })()`)
-  expect(fits).toEqual([true, true, true, true, true, true])
+  expect(fits).toEqual([true, true, true, true, true])
 })
 
 test('Add to memory and Quick start from selected words', async ({ launch }) => {
@@ -332,7 +333,7 @@ test('quick adds share one toast: Undo takes them all back, and Open shows the l
 
   // From another page, Open goes to the entry's own page (the scene panel isn't there to show it).
   await addChange('Sold the bellows.')
-  await binder(win).getByRole('button', { name: 'Codex' }).click()
+  await openPage(win, 'Codex')
   await toasts(win).getByRole('button', { name: 'Open' }).click()
   await expect(win.locator('main').getByRole('textbox', { name: 'Name' })).toHaveValue('Mara Venn')
 })
@@ -349,7 +350,7 @@ test('words the app selects to show where a fact came from aren’t offered for 
     const quoted = async () => (await invoke(win, 'listMemoryLog', {})).find((l) => l.what === 'change' && l.quote)?.quote ?? ''
     await expect.poll(quoted, { timeout: 30_000 }).toContain('left hand')
     const quote = (await quoted()).trim()
-    await binder(win).getByRole('button', { name: 'What changed' }).click()
+    await openPage(win, 'What changed')
     await win.locator('main').getByTitle('Show these words in the scene').filter({ hasText: 'left hand' }).click()
 
     // The scene opens with those words selected, and no bar offers to add them to memory.
@@ -386,10 +387,14 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
     await expect(win.locator('main header').getByRole('button', { name: 'Stop' })).toBeVisible()
     await expect(prose(win).locator('hr')).toHaveCount(1)
     // Adam scrolls up to the name, as he would: the page stops following the draft (since the overhaul it follows a draft
-    // below a scene break too), so the name stays under the pointer rather than gliding away from it.
+    // below a scene break too), so the name stays under the pointer rather than gliding away from it. First the draft
+    // runs on past the window: on a page barely taller than the window, its top is still near enough the end for the
+    // page to go on following.
+    const scroller = win.locator('main .overflow-y-auto').first()
+    await expect.poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 30_000 }).toBeGreaterThan(300)
     await prose(win).hover()
     await win.mouse.wheel(0, -5000)
-    await expect.poll(() => win.locator('main .overflow-y-auto').first().evaluate((el) => el.scrollTop)).toBe(0)
+    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(0)
     await names(win, w.tobin).first().hover()
     await expect(card(win)).toBeVisible()
     await win.keyboard.press('Escape')
@@ -398,7 +403,7 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
 
     // Ctrl+Enter marks the scene done, with a card open.
     await prose(win).locator('p').first().click()
-    await names(win, w.tobin).hover()
+    await names(win, w.tobin).first().hover()
     await expect(card(win)).toBeVisible()
     await win.keyboard.press(`${mod}+Enter`)
     await expect.poll(async () => (await invoke(win, 'getScene', w.sceneId)).status).toBe('done')
@@ -524,11 +529,12 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   const before = (await invoke(win, 'getSettings')).layout
   await win.reload()
   await expect(prose(win)).toContainText('The harbour lamps')
-  const title = win.locator('main header').getByRole('button', { name: 'The Knock at the Door' })
+  const title = sceneTitle(win, 'The Knock at the Door')
   const notCutShort = () => title.evaluate((el) => el.scrollWidth <= el.clientWidth)
 
-  // A 1366 px laptop at 125%: both panels beside the page, squeezed, and the page keeps its room.
-  await resize(app, win, 1093, 700)
+  // Both panels beside the page, squeezed, and the page keeps its room: a 1366 px laptop at 125% (1093 px) with the
+  // area rail's 64 px on top, which the New look's panels share the window with.
+  await resize(app, win, 1157, 700)
   await expect(binder(win)).toBeVisible()
   await expect(scenePanel(win)).toBeVisible()
   let lines = await charsPerLine(win)
@@ -567,7 +573,7 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   await binderButton.click()
   await binder(win).locator('[data-row]', { hasText: 'The Ferry' }).click()
   await expect(binder(win)).toBeHidden()
-  await expect(win.locator('main header').getByRole('button', { name: 'The Ferry' })).toBeVisible()
+  await expect(sceneTitle(win, 'The Ferry')).toBeVisible()
   // So does a click outside it.
   await binderButton.click()
   await expect(binder(win)).toBeVisible()
@@ -583,14 +589,16 @@ test('a small window keeps the page wide enough to read, and the binder floats o
   expect(await pagePadding(win)).toBe('40px')
 
   // Large text in the smallest window: the page can't be given its full minimum, so it keeps the
-  // narrow padding and leaves that room to the words.
+  // narrow padding and leaves that room to the words. (In the New look the area rail's 64 px and the sheet's margins
+  // come out of the window too, so beside the scene panel at its narrowest the words have 562 px: about 48 characters
+  // at 22 px, where the wide padding would leave them about 44. Classic, with neither, had room for 55.)
   await binder(win).locator('[data-row]', { hasText: 'The Knock at the Door' }).click()
   await invoke(win, 'updateSettings', { editor: { ...(await invoke(win, 'getSettings')).editor, fontSize: 22 } })
   await win.reload()
   await expect(prose(win)).toContainText('The harbour lamps')
   await resize(app, win, 960, 600)
   expect(await pagePadding(win)).toBe('24px')
-  expect(Math.min(...(await charsPerLine(win)))).toBeGreaterThanOrEqual(55)
+  expect(Math.min(...(await charsPerLine(win)))).toBeGreaterThanOrEqual(46)
 })
 
 const MANY = Array.from({ length: 13 }, (_, i) =>
@@ -690,7 +698,8 @@ test('the Add to memory form fits the smallest window, and stays where it opened
 test('a squeezed panel is dragged from where it shows, and stays where it is let go', async ({ launch }) => {
   const { app, win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
-  await resize(app, win, 1200, 800)
+  // 1200 px for the panels and the page, with the area rail's 64 px beside them.
+  await resize(app, win, 1264, 800)
   const width = () => binder(win).evaluate((el) => Math.round(el.getBoundingClientRect().width))
   const shown = await width()
   // Squeezed below the 272 px it was given, so the page keeps its room.

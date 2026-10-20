@@ -3,7 +3,7 @@
 // queue and stop with the search (Stop, or it ran out of time); everything else (facts, summaries) is read in the
 // background, behind any search's words, and kept for the next search even when this one has stopped waiting.
 
-import type { SearchIndex } from './store'
+import type { SearchIndex, VectorKind } from './store'
 import type { Embedder } from './types'
 
 export interface ToRead {
@@ -69,7 +69,7 @@ export class Vectors {
     texts: ToRead[]
     now: boolean
     index?: SearchIndex | null
-    store?: 'passage' | 'other'
+    store?: VectorKind
     signal?: AbortSignal
     background?: AbortSignal
   }): Promise<Map<string, Float32Array>> {

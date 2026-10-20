@@ -2,7 +2,7 @@
 // and, if Adam wants others, the memory, character builder, world builder, chat and brainstorm, consistency
 // check and read aloud models.
 // Keys are sent to the main process once and never come back.
-import { AudioLines, BookOpenText, Check, CookingPot, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from '@/components/ui/icons'
+import { AudioLines, BookOpenText, Check, CookingPot, Drama, Globe2, ListChecks, KeyRound, MessagesSquare, NotebookText, PenLine, Plus, Search, Server, UserRoundPen } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Creativity, DeepPartial, ID, ModelChoice, ModelInfo, ProviderConfig, Settings, ThinkingJob, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, OPENROUTER_BASE_URL } from '@shared/defaults'
@@ -14,11 +14,14 @@ import { useApp } from '@/lib/store'
 import { PlanSettings } from '@/features/plan/PlanSettings'
 import { ContractSettings } from '@/features/contract/ContractSettings'
 import { BriefSettings } from '@/features/brief/BriefSettings'
+import { DirectorSettings } from '@/features/director/DirectorSettings'
+import { WriteInSettings } from '@/features/receipt/WriteInSettings'
 import { cn } from '@/lib/cn'
 import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 import { RepairSettings } from '@/features/repair/RepairSettings'
 import { AutoCheckSettings } from './AutoCheckSettings'
+import { AutomaticAiSettings } from './AutomaticAiSettings'
 import { useNewLook } from '@/features/look/look'
 import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
@@ -166,6 +169,15 @@ export function ModelsSettings(): React.JSX.Element {
         onTest={(pid, mid) => void test('check', pid, mid)}
         onClearResult={() => clearResult('check')}
       />
+      {/* Directed writing's director (src/main/director): its own model, the memory model unless Adam picks another. */}
+      <HelperModel
+        job="director"
+        providers={providers}
+        result={results.director}
+        providerResults={results}
+        onTest={(pid, mid) => void test('director', pid, mid)}
+        onClearResult={() => clearResult('director')}
+      />
       <HelperModel
         job="recipe"
         providers={providers}
@@ -196,10 +208,13 @@ export function ModelsSettings(): React.JSX.Element {
       </div>
       <DefaultCreativity />
       {/* Before writing and straight after: the plan, the scene's contract and brief, then the check of the new words. */}
+      <AutomaticAiSettings />
       <PlanSettings />
       <ContractSettings />
       <BriefSettings />
+      <DirectorSettings />
       <RepairSettings />
+      <WriteInSettings />
       <AutoCheckSettings />
       <FindByMeaningSettings />
     </div>
@@ -690,7 +705,7 @@ function ProviderForm({
  * character builder's, the world builder's, Ask the world's and the outline helper's (chat and brainstorm),
  * and read aloud's.
  */
-export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
+export type ModelJob = 'writer' | 'memory' | 'builder' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter' | 'director'
 type HelperJob = Exclude<ModelJob, 'writer'>
 
 const setModel = (job: ModelJob, choice: ModelChoice | null): DeepPartial<Settings> => ({ models: { [job]: choice } })
@@ -820,6 +835,16 @@ const HELPERS: Record<
     waiting: 'Once a provider is connected above, the consistency checks use the memory model, or one you choose here.',
     noWriter: 'Choose a writer model above, or a model just for the consistency checks here.',
     thinking: 'Off is quickest, and checks finish sooner. It applies even when the checks use the memory model.',
+    fallback: 'memory'
+  },
+  director: {
+    title: 'Director model',
+    description:
+      'Steers the writer between stretches when Directed writing is on: reads each stretch against the plan and the story, and gives a short note. It never writes the story itself. A stronger model here can direct a cheaper writer.',
+    icon: <Drama size={16} />,
+    waiting: 'Once a provider is connected above, the director uses the memory model, or one you choose here.',
+    noWriter: 'Choose a writer model above, or a model just for the director here.',
+    thinking: 'Off is quickest, and the draft waits less between stretches. It applies even when the director uses the memory model.',
     fallback: 'memory'
   },
   recipe: {
@@ -1055,6 +1080,8 @@ function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: M
                     ? "AI Write reads a story for a recipe in parts that fit this. Change it if the model's page says it can read more or less."
                   : job === 'chapter'
                     ? "AI Write fits what it tells the chapter writer, and what its look-ups bring back, to this. Change it if the model's page says it can read more or less."
+                  : job === 'director'
+                    ? "The director reads a stretch and the end of the scene before it, which fits in much less than this. Change it if the model's page says it can read more or less."
                   : "AI Write fits what it tells the builder about your world to this. Change it if the model's page says it can read more or less."
         }
       >
@@ -1294,6 +1321,7 @@ const THINKING_NAMES: Record<ThinkingJob, string> = {
   check: 'Consistency check model thinking',
   recipe: 'Recipe maker thinking',
   chapter: 'Chapter writer model thinking',
+  director: 'Director model thinking',
   speech: 'Read aloud model thinking',
   sample: 'Thinking for sample passages',
   polish: 'Thinking for the polish pass',

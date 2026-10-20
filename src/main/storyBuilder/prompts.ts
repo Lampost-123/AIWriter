@@ -136,6 +136,16 @@ Rules
 ${OUTLINE_RULES(o.withActs)}`
 }
 
+/** The Story builder's rules for a stage of the outline (2026-10-19): what wins, its cast by name, events and the recipe. */
+export function storyStageRules(recipe: boolean): string[] {
+  return [
+    ORDER,
+    'Use the characters, places, groups and items given, by their exact names: they were made for this story.',
+    'Place each event given where it happens. Everything that must happen happens; nothing that must never happen does.',
+    ...(recipe ? ["Follow the recipe's shape, beats and pacing: put its turning points at about the same share of the way through."] : [])
+  ]
+}
+
 // ---------- Talking a plan over ----------
 
 export function planChatSystem(): string {

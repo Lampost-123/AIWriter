@@ -10,7 +10,6 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDown, ArrowDownToLine, Check, Sparkles, Square, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
-import { useToastsAbove } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { layerOpen } from '@/lib/layers'
 import { isShortcut, shortcutKeys, withShortcut } from '@/lib/shortcuts'
@@ -27,9 +26,13 @@ import { useDraft } from '@/features/generate/draftRun'
 import { usePolish } from '@/features/generate/polishRun'
 import { useGenerate, type Generate } from '@/features/generate/useGenerate'
 import { keyboardDriven } from '@/features/look/motion'
-import { setSteer, steerOf, steerSettled, steerTaken, useDeskStore } from '../deskStore'
-import { activityLine, activityOf, isBusy, progressOf, type Activity } from './activity'
+import { setSteer, steerOf, steerTaken, useDeskStore } from '../deskStore'
+import { activityLine, activityOf, dockKindOf, progressOf, type Activity } from './activity'
 import { DockMenu } from './DockMenu'
+import { setDockKind } from './foot'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { memoryFor, memoryWords } from '@/features/consistency/runsLogic'
+import { useCalmLine } from '@/features/waits/useDraftWait'
 
 /** The change waiting (or being written) in the page for this scene, followed as the editor changes. */
 function useChange(editor: Editor, sceneId: ID): Suggestion | null {
@@ -46,8 +49,8 @@ function useChange(editor: Editor, sceneId: ID): Suggestion | null {
   return active && active.sceneId === sceneId ? active : null
 }
 
-/** What the AI is doing in the scene now (activity.ts). */
-function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Activity; changeId: ID | null } {
+/** What the AI is doing in the scene now (activity.ts); without Generate's workings (`g`), no words counted. */
+function useActivity(editor: Editor, sceneId: ID, g: Pick<Generate, 'written' | 'targetWords' | 'status'> | null): { activity: Activity; changeId: ID | null } {
   const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
   const retrying = useDraft((d) => (d.sceneId === sceneId ? !!d.retrying : false))
   const polishing = usePolish((p) => p.sceneId === sceneId)
@@ -55,14 +58,30 @@ function useActivity(editor: Editor, sceneId: ID, g: Generate): { activity: Acti
   const beats = useBeats((s) => s.session?.sceneId === sceneId)
   const memoryReading = useApp((s) => !!s.memoryStatus?.reading)
   const change = useChange(editor, sceneId)
+  const catching = useApp((s) => memoryFor(s.memoryStatus, sceneId))
+  const changeWait = useCalmLine(catching ? memoryWords(catching) : '') || null
   const activity = activityOf({
-    draft: { phase: draftPhase, retrying, written: g.written, target: g.targetWords },
+    draft: { phase: draftPhase, retrying, written: g?.written ?? null, target: g?.targetWords ?? null },
     polish: { running: polishing, stopping: polishStopping },
     change,
     beats,
-    memoryReading
+    memoryReading,
+    // Each step before the first word, named calmly (the same words as Generate's status: useGenerate's `status`); for
+    // Continue getting ready, the memory catching up when it is (features/waits).
+    waitLine: draftPhase === 'starting' ? (g?.status ?? null) : change?.status === 'starting' ? changeWait : null
   })
   return { activity, changeId: change?.id ?? null }
+}
+
+/**
+ * The panels have no dock, but what lies at the foot of their page takes the same turns (foot.ts): this says what the AI
+ * is doing in the scene as the dock would, so the direction receipt waits while the AI writes, and while a change waits
+ * for Accept or Reject shows only with nothing to press.
+ */
+export function FootActivity({ editor, sceneId }: { editor: Editor; sceneId: ID }): null {
+  const kind = dockKindOf(useActivity(editor, sceneId, null).activity)
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
+  return null
 }
 
 /** "Ctrl ⇧ ⏎": Continue's keys as small keycaps. */
@@ -96,17 +115,15 @@ export function Dock({
   const steer = useDeskStore((s) => s.steer[sceneId] ?? '')
   // Generate's workings, with its keys (Ctrl+G, Esc stops the draft, Ctrl+Z on the dock), and the steer box's words for
   // the next draft (Add below, Draft the scene, a choice from Ctrl+G).
-  const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId) } })
+  const g = useGenerate(sceneId, { keys: true, steer: { get: () => steerOf(sceneId), taken: () => steerTaken(sceneId, 'draft') } })
   const { activity, changeId } = useActivity(editor, sceneId, g)
-  const busy = isBusy(activity)
   const hasWords = useApp((s) => (s.sceneId === sceneId ? s.sceneWords > 0 : false))
-  // Messages show above the dock, never over it.
+  // Messages show above the dock and what lies over it, never over them (SceneView keeps them above the whole foot).
   const dockRef = useRef<HTMLDivElement>(null)
-  useToastsAbove(dockRef)
   const question = useBeats((s) => (s.question?.sceneId === sceneId && s.question.from === 'button' ? s.question : null))
 
   // A state change asked from the keyboard (Ctrl+Shift+Enter, Tab, Esc) shows at once; from a click, it crossfades.
-  const kind = activity.kind === 'starting' || activity.kind === 'writing' || activity.kind === 'polishing' ? 'busy' : activity.kind
+  const kind = dockKindOf(activity)
   const [instant, setInstant] = useState(false)
   const lastKind = useRef(kind)
   useLayoutEffect(() => {
@@ -114,19 +131,11 @@ export function Dock({
     lastKind.current = kind
     setInstant(keyboardDriven())
   }, [kind])
+  // What lies over the dock reads what it is doing (foot.ts): a prompt waits while the AI writes or a change waits.
+  useLayoutEffect(() => setDockKind(sceneId, kind), [sceneId, kind])
 
-  // The steer box's words come back if the writing they started ends with no words at all.
-  const wrote = useRef(false)
-  const wasBusy = useRef(false)
-  useEffect(() => {
-    if (busy) {
-      if (!wasBusy.current) wrote.current = false
-      if (activity.kind === 'writing' && activity.words > 0) wrote.current = true
-    } else if (wasBusy.current) {
-      steerSettled(sceneId, wrote.current || activity.kind === 'review')
-    }
-    wasBusy.current = busy
-  }, [busy, activity, sceneId])
+  // The steer box's words are used once the AI starts with them: the box stays empty after (steerTaken), and ↑ in it or
+  // its recent directions bring them back.
 
   /** Continue from the end of the scene, steered by the box; on an empty page, a first draft of the scene. */
   const runContinue = useCallback(
@@ -190,25 +199,24 @@ export function Dock({
           {/* Idle: steer, Add below, Continue, more. */}
           <div className="desk-dock-layer" data-layer="idle" inert={kind !== 'idle'} aria-hidden={kind !== 'idle' || undefined}>
             <span aria-hidden className="desk-dock-dot" />
-            <label htmlFor={`steer-${sceneId}`} className="sr-only">
-              Steer the next bit (optional)
-            </label>
-            <input
+            {/* The steer box is the direction composer (features/direction): Enter continues with it, ↑ brings back the
+                last direction, and the clock beside it holds the quick asks and the directions given before. */}
+            <DirectionComposer
               id={`steer-${sceneId}`}
-              type="text"
-              className="desk-steer"
-              placeholder="Steer the next bit… (optional)"
-              autoComplete="off"
-              spellCheck
+              lines="one"
+              tools="menu"
+              bare
+              className="min-w-0 flex-1"
+              boxClassName="desk-steer"
+              menuClassName="desk-steer-tools"
+              ariaLabel="Steer the next bit (optional)"
+              // Short, so it fits beside the clock in a narrow dock (the box's name still says it is optional).
+              placeholder="Steer the next bit…"
+              side="top"
               value={steer}
-              onChange={(e) => setSteer(sceneId, e.target.value)}
-              onKeyDown={(e) => {
-                // Enter in the box: Continue (with what it says).
-                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  runContinue(true)
-                }
-              }}
+              onChange={(text) => setSteer(sceneId, text)}
+              // Enter in the box: Continue (with what it says).
+              onSubmit={() => runContinue(true)}
             />
             <button
               type="button"

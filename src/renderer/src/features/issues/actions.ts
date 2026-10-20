@@ -2,12 +2,11 @@
 // a tracked change, or the AI tools' Rewrite on the sentence), update the memory, ignore, later and reopen (each
 // undoable), check the scene, and follow an issue's links. Nothing asks "are you sure?". An accepted fix is saved at
 // once, so the scene's other issues on the same words go with it, and Ctrl+Z taking it back reopens it (fixHistory.ts).
-import { ALL_CHECKS } from '@shared/contracts/checks'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Entry, EntryInput, ID } from '@shared/types'
 import { toast } from '@/components/ui'
-import { api, type ApiError } from '@/lib/api'
+import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { plainReason } from '@/lib/reason'
@@ -31,7 +30,7 @@ import {
   sentenceAround,
   usableFix
 } from './issuesLogic'
-import { loadIssues, patchIssue, useIssuesStore } from './issuesStore'
+import { loadIssues, patchIssue } from './issuesStore'
 import { fixUndone, noteIssueFix, onFixHistory } from './fixHistory'
 
 const WORDS_GONE = 'Those words aren’t in the scene any more.'
@@ -276,27 +275,8 @@ export async function reopen(issue: Issue): Promise<void> {
   }
 }
 
-/** Check this scene: every check, after the page's last words are saved. A problem is shown in the tab. */
+/** Check this scene: the one Check (features/check), after the page's last words are saved. A problem shows in the list. */
 export async function checkThisScene(sceneId: ID): Promise<void> {
-  const fail = (message: string): void => useIssuesStore.setState({ failed: { ...useIssuesStore.getState().failed, [sceneId]: message } })
-  const clear = (): void => {
-    const failed = { ...useIssuesStore.getState().failed }
-    delete failed[sceneId]
-    useIssuesStore.setState({ failed })
-  }
-  clear()
-  try {
-    await flushAll()
-    await api.startCheck({ runId: globalThis.crypto.randomUUID(), target: { scope: 'scene', id: sceneId }, checks: [...ALL_CHECKS] })
-  } catch (e) {
-    fail((e as ApiError).message || plainReason(e))
-  }
-}
-
-export async function stopRun(runId: ID): Promise<void> {
-  try {
-    await api.stopCheck(runId)
-  } catch (e) {
-    toast(plainReason(e))
-  }
+  const { runCheck } = await import('@/features/check/runCheck')
+  await runCheck('scene', { sceneId, show: false })
 }

@@ -5,21 +5,27 @@
 // With "Polish after drafting" on, a draft that finishes in full is then polished (polishRun.ts).
 import { create } from 'zustand'
 import type { AppEvents } from '@shared/api'
-import type { ID } from '@shared/types'
+import type { DraftOptions, ID, ModelChoice } from '@shared/types'
 import { toast } from '@/components/ui'
 import { api, ApiError, modKey, onEvent } from '@/lib/api'
-import type { EditorBridge } from '@/lib/editorBridge'
+import { editorBridge, type EditorBridge } from '@/lib/editorBridge'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { snapshotBefore } from '@/features/history/snapshot'
 import { openScene } from '@/features/memory/openScene'
 import { activeStream } from '@/features/editor/streamDoc'
+import { continueAtEnd } from '@/features/edits/continue'
+import { sceneInPage } from '@/features/ask/sceneInPage'
+import { draftEndActions, type DraftEndAction } from './draftEnd'
 import { resolveDraftOptions, type SceneDraftOptions } from './draftOptions'
 import { blockIndexAt, draftPlace, polishable } from './polish'
 import { polishingScene, startPolish, stopPolish, usePolish } from './polishRun'
 import { repairLanded } from '@/features/repair/repairRun'
 import { cardLength } from '@shared/defaults'
+import { withDirected } from '@/features/director/store'
+import { beginDraftNote, draftNoteRecord, noteDraftEnd, noteDraftStart } from '@/features/draftNote/draftNote'
+import { anotherModel, modelName } from '@/features/draftNote/compose'
 
 export type Phase = 'idle' | 'starting' | 'streaming' | 'stopping'
 
@@ -34,6 +40,13 @@ interface Run {
   cancelled: boolean
   /** "Polish after drafting" was on when the draft started. */
   polish: boolean
+  /** How it was asked for, so a refusal can be tried again with another model (the calm overhaul). */
+  replace: boolean
+  options: () => SceneDraftOptions
+  /** The model this draft was written with in place of the writer model ("Try with …"), if any. */
+  model: DraftOptions['model'] | null
+  /** The scene had words before the draft. */
+  hadText: boolean
 }
 
 interface DraftState {
@@ -72,6 +85,19 @@ const showScene = (sceneId: ID): (() => void) => () => {
 }
 
 /**
+ * Continue from here, on a draft that stopped short: Continue (features/edits) writes on from the end of the scene, as
+ * a change to accept or reject. The scene opens again first if Adam has gone elsewhere since.
+ */
+async function continueFromEnd(sceneId: ID): Promise<void> {
+  if (useApp.getState().sceneId !== sceneId) await openScene(sceneId)
+  // It isn't in any story now (deleted, say): openScene has said so.
+  if (useApp.getState().sceneId !== sceneId) return
+  if (!(await sceneInPage(sceneId))) return void toast("The scene didn't open in time, so nothing was sent. Try again in a moment.")
+  // Continue says itself why it can't start (another change waiting, a draft being written).
+  if (!continueAtEnd()) toast('The scene has no words to carry on from.')
+}
+
+/**
  * Says so when Generate's draft is writing into a scene other than `sceneId` (one draft at a time), with a
  * button to go there. True when it is.
  */
@@ -104,6 +130,12 @@ export function listenForDrafts(): void {
     if (p.generationId !== r.generationId) return
     r.bridge.appendStream(p.generationId, p.text)
     if (useDraft.getState().retrying) useDraft.setState({ retrying: null })
+  })
+  // Directed writing (src/main/director): the draft's last paragraph is taken back for a retake.
+  onEvent('generation:takeBack', (p) => {
+    const r = run
+    if (!r || r.cancelled || r.generationId !== p.generationId) return
+    r.bridge.takeBackStream?.(p.generationId)
   })
   onEvent('generation:retrying', (p) => {
     const r = run
@@ -144,40 +176,88 @@ function finish(p: AppEvents['generation:done']): void {
   useDraft.setState(idle())
   const app = useApp.getState()
   if (app.activeGeneration?.id === p.generationId) app.setActiveGeneration(null)
-  const showRecord = { label: 'What the AI saw', run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId }) }
   // The draft took the place of the scene's text: how to have the old text back.
   const oldText = replaced ? (away ? ` ${modKey()}+Z in that scene puts its old text back.` : ` ${modKey()}+Z puts the scene's old text back.`) : ''
   // Written while Adam was in another scene: which scene the message is about.
   const name = away ? (titled(r.sceneId) ?? 'the scene') : null
-  if (p.status === 'error' && p.error) {
-    // The button goes where the message says the fix is: the draft options (a length the
-    // model can't manage), Settings (key, credit, model), or else the draft's record.
-    const action = /\bdraft options\b/.test(p.error)
+  // The message's buttons (draftEnd.ts): where the fix is, or, for a draft that stopped short with its words in the
+  // page, Continue from here beside the draft's record.
+  const button = (kind: DraftEndAction): { label: string; run: () => void } =>
+    kind === 'options'
       ? { label: 'Draft options', run: () => openPanel(r.sceneId, 'options') }
-      : /\bSettings\b/.test(p.error)
+      : kind === 'settings'
         ? { label: 'Open Settings', run: () => useApp.getState().navigate({ kind: 'settings', tab: 'models' }) }
-        : showRecord
-    toast((name ? `The draft of ${name} ran into a problem. ` : '') + p.error + oldText, { tone: 'danger', action })
-  } else if (p.cutOff) {
-    toast(
-      `The model ran out of room before the end of ${name ?? 'the scene'}, so the draft stops mid-way. The text so far is kept. Try a shorter target length, or a writer model that can write more in one go.${oldText}`,
-      { action: showRecord }
+        : kind === 'continue'
+          ? { label: 'Continue from here', run: () => void continueFromEnd(r.sceneId) }
+          : { label: 'What the AI saw', run: () => useApp.getState().navigate({ kind: 'generation', generationId: p.generationId }) }
+  // One note for the draft (features/draftNote): how it ended, and later what check and repair, the live checks and the
+  // check after it found, all in the same note. A draft written here with nothing to say says nothing.
+  const fixes = (): DraftEndAction[] =>
+    draftEndActions({ error: p.status === 'error' ? p.error : null, cutOff: !!p.cutOff, wrote: !!stream?.wrote, here: !!stream && !away })
+  const handlers = {
+    options: button('options'),
+    settings: button('settings'),
+    continue: button('continue'),
+    record: button('record'),
+    scene: { label: 'Show', run: showScene(r.sceneId) }
+  }
+  // The writer model turned the scene down (the calm overhaul): one click tries again with another model Adam has set up.
+  if (p.refused && p.status !== 'stopped') {
+    const settings = useApp.getState().settings
+    const other = anotherModel(settings?.models, [settings?.models.writer, r.model, ...(triedModels.get(r.sceneId) ?? [])])
+    // Words that are a refusal, in a scene that had none before, are what the next draft replaces.
+    const retryReplace = r.replace || (p.status === 'complete' && !r.hadText)
+    const retry = other && (p.status === 'error' || retryReplace) ? other : null
+    noteDraftEnd(
+      r.sceneId,
+      { kind: 'refused', message: p.status === 'error' ? (p.error ?? null) : REFUSAL_WORDS },
+      {
+        away: name,
+        oldText,
+        retryWith: retry ? modelName(retry) : null,
+        handlers: { ...handlers, ...(retry ? { retry: { label: `Try with ${modelName(retry)}`, run: () => void retryWith(r, retry, retryReplace) } } : {}) }
+      }
     )
+    return
+  }
+  if (p.status === 'error' && p.error) {
+    noteDraftEnd(r.sceneId, { kind: 'error', message: p.error }, { away: name, oldText, fixes: fixes(), handlers })
+  } else if (p.cutOff) {
+    noteDraftEnd(r.sceneId, { kind: 'cutOff' }, { away: name, oldText, fixes: fixes(), handlers })
   } else if (name) {
-    const done = p.status === 'stopped' ? `Drafting ${name} stopped. The text so far is kept.` : `The draft of ${name} is finished.`
     // Polishing needs the draft in front of it, so a draft that finished in another scene isn't polished.
-    const unpolished = toPolish ? ' It wasn’t polished, because you were in another scene when it finished.' : ''
-    toast(done + unpolished + oldText, { action: { label: 'Show', run: showScene(r.sceneId) } })
+    noteDraftEnd(r.sceneId, { kind: 'written', stopped: p.status === 'stopped', unpolished: toPolish }, { away: name, oldText, handlers })
   } else if (toPolish && start && polishable(start.replace, replaced)) {
     const place = editor && !editor.isDestroyed ? draftPlace(editor.state.doc, start.index, start.breakAdded) : null
     // Polished, the draft's words are checked once Adam accepts the polished version (polishRun.ts).
     if (place) return void startPolish({ sceneId: r.sceneId, draftId: p.generationId, place })
+  } else {
+    noteDraftEnd(r.sceneId, { kind: 'written', stopped: p.status === 'stopped' }, { away: null, oldText, handlers })
   }
   // The draft's words are in the page: checked claim by claim now, slips mended in amber (features/repair). Not a draft
   // that went wrong, nor one that finished while Adam was in another scene (the check after the draft covers those).
-  if (landed !== null && !away && p.status !== 'error' && editor && !editor.isDestroyed && r.bridge.sceneId === r.sceneId) {
+  if (landed !== null && !away && p.status !== 'error' && !p.refused && editor && !editor.isDestroyed && r.bridge.sceneId === r.sceneId) {
     repairLanded({ sceneId: r.sceneId, recordId: p.generationId, from: landed, to: editor.state.doc.content.size })
   }
+}
+
+/** Said of a draft whose words are a refusal (it came back as if finished). */
+const REFUSAL_WORDS = 'The writer model sent back a refusal instead of the scene'
+
+/** The models each scene's refused drafts were tried again with, so a second refusal offers yet another. */
+const triedModels = new Map<ID, ModelChoice[]>()
+
+/**
+ * "Try with …" after a refusal: the same draft again, written this once by another of Adam's models (the writer model
+ * stays as he chose it). Opens the scene first if he has gone elsewhere.
+ */
+async function retryWith(r: Run, model: ModelChoice, replace: boolean): Promise<void> {
+  triedModels.set(r.sceneId, [...(triedModels.get(r.sceneId) ?? []), model])
+  if (useApp.getState().sceneId !== r.sceneId || useApp.getState().view.kind !== 'write') await openScene(r.sceneId)
+  if (!(await sceneInPage(r.sceneId))) return void toast("The scene didn't open in time, so nothing was sent. Try again in a moment.")
+  const bridge = editorBridge()
+  if (!bridge || bridge.sceneId !== r.sceneId) return void toast("The editor wasn't ready for this scene, so nothing was sent. Try again in a moment.")
+  await startDraft(r.sceneId, bridge, { replace, takeKeyboard: false, options: r.options, model: { providerId: model.providerId, modelId: model.modelId } })
 }
 
 /**
@@ -189,7 +269,7 @@ function finish(p: AppEvents['generation:done']): void {
 export async function startDraft(
   sceneId: ID,
   bridge: EditorBridge,
-  o: { replace: boolean; takeKeyboard: boolean; options: () => SceneDraftOptions }
+  o: { replace: boolean; takeKeyboard: boolean; options: () => SceneDraftOptions; model?: DraftOptions['model'] }
 ): Promise<boolean> {
   // One at a time, and not while the last draft is being polished.
   if (run || polishingScene()) return false
@@ -210,9 +290,15 @@ export async function startDraft(
     early: [],
     earlyDone: null,
     cancelled: false,
-    polish: false
+    polish: false,
+    replace: o.replace,
+    options: o.options,
+    model: o.model ?? null,
+    hadText: !!bridge.editor && bridge.sceneId === sceneId && bridge.editor.state.doc.textContent.trim().length > 0
   }
   run = r
+  // The draft's one note begins (features/draftNote).
+  beginDraftNote(sceneId, null)
   useDraft.setState({ sceneId, phase: 'starting', retrying: null })
   // If Adam opens another scene while it gets ready, this one is kept for the draft.
   bridge.expectDraft(sceneId)
@@ -228,10 +314,15 @@ export async function startDraft(
     // Save the card and the page first, so the draft is built from the latest of both.
     await flushAll()
     const card = (await api.getScene(sceneId)).card
-    const options = resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on)
+    // Directed writing: the draft options' choice for this one draft, if Adam made one (features/director).
+    const options = withDirected(
+      resolveDraftOptions(o.options(), cardLength(card), useApp.getState().settings?.creativity ?? 'balanced', usePolish.getState().on),
+      sceneId
+    )
     r.polish = !!options.polish
     if (r.cancelled) return giveUp()
-    const { generationId, note } = await api.startDraft(sceneId, options)
+    const { generationId, note } = await api.startDraft(sceneId, o.model ? { ...options, model: o.model } : options)
+    draftNoteRecord(sceneId, generationId)
     // History keeps the scene as it is just before the draft goes in (linked to the draft, for What the AI saw).
     await snapshotBefore(sceneId, 'Before a new draft', { generationId })
     if (r.cancelled || run !== r) {
@@ -252,8 +343,9 @@ export async function startDraft(
     r.generationId = generationId
     useApp.getState().setActiveGeneration({ id: generationId, sceneId })
     useDraft.setState({ phase: 'streaming' })
-    // Written without where things stand (it wasn't ready in time): said once, so Adam checks the opening follows on.
-    if (note) toast(note)
+    // Written without where things stand (it wasn't ready in time): said once, in the draft's note, so Adam checks the
+    // opening follows on.
+    if (note) noteDraftStart(sceneId, note)
     for (const c of r.early) if (c.generationId === generationId) bridge.appendStream(generationId, c.text)
     r.early = []
     if (r.earlyDone?.generationId === generationId) finish(r.earlyDone)

@@ -210,6 +210,7 @@ async function fillOne(o: FillOptions, id: ID, out: FillResult): Promise<boolean
   let done
   try {
     done = await runTask({
+      background: true,
       db: o.db,
       taskId,
       job: o.job,

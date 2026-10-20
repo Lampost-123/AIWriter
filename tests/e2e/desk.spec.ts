@@ -57,13 +57,9 @@ test('the Layout choice: in the New look, Desk or Panels; a pick shows at once a
   await expect(rooms(win)).toBeVisible()
   await expect(win.getByRole('navigation', { name: 'Areas' })).toHaveCount(0)
   await expect.poll(async () => (await invoke(win, 'getSettings')).arrangement).toBe('desk')
-  // Classic has no layout to choose.
-  await win.getByRole('radiogroup', { name: 'Style' }).getByRole('radio', { name: 'Classic' }).click()
-  await expect(layout).toHaveCount(0)
-  expect(await win.evaluate<string>('document.documentElement.dataset.look ?? ""')).toBe('classic')
-  await expect(rooms(win)).toHaveCount(0)
-  await win.getByRole('radiogroup', { name: 'Style' }).getByRole('radio', { name: 'New look' }).click()
-  await expect(rooms(win)).toBeVisible()
+  // Classic is retired: there is no Style to choose, only the layout.
+  await expect(win.getByRole('radiogroup', { name: 'Style' })).toHaveCount(0)
+  await expect(win.getByRole('radio', { name: 'Classic' })).toHaveCount(0)
   await app.close()
   // Kept: the next launch opens on the desk.
   const again = await launch({ dataDir, env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'panels' } })

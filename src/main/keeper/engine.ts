@@ -24,6 +24,10 @@
 // - A draft waits for the summaries it can't do without no longer than it waits for the memory at all (beforeDraft's
 //   `limitMs`); they go on being written in the background.
 // - After each read, where things stand as the scene ends is brought up to date as a follow-on (onSceneRead).
+// - One reading of a scene (overhaul phase 1, 2026-10-19): a scene read in one request also says where things stand at
+//   the end of the words read and, when the whole scene is read and its summary is due, writes the summary, so neither
+//   makes a call of its own (oneReading.ts); the follow-on then finds where things stand already kept, and the summary is
+//   kept as one written on its own would be (keepSceneSummary), else written as before.
 // - What the memory model turned down (some models won't read explicit scenes) isn't asked for again, before every draft
 //   or at every start, until the scene's words change, another memory model is picked, or Adam presses Try again
 //   (refusals.ts): a scene it wouldn't read keeps its "Memory not updated" note, which says so; a summary it wouldn't
@@ -39,6 +43,7 @@ import type { MemoryModel } from './model'
 import { runScene, failScene, type RunOutcome } from './run'
 import {
   askSummaryRefresh,
+  keepSceneSummary,
   markOutOfDate,
   nextRollUp,
   rollUpKey,
@@ -84,15 +89,32 @@ export interface KeeperDeps {
    * A scene was read (new words or not): told after the run, so where things stand as it ends can be brought up to
    * date as a follow-on (continuity/tracker.ts) that never holds up the memory.
    */
-  onSceneRead?: (sceneId: ID, model: MemoryModel) => void
+  onSceneRead?: (sceneId: ID, model: MemoryModel, read?: { staged: boolean }) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
   /** Between two summaries from the backlog (BACKLOG_GAP_MS), and before a failed one is tried again (RETRY_FIRST_MS): for tests. */
   backlogGapMs?: number
   retryFirstMs?: number
+  /**
+   * How long a story must go without a change before its own summary and its series' are written again
+   * (ROLLUP_QUIET_MS; 0 in tests that want them at once).
+   */
+  rollUpQuietMs?: number
+  /**
+   * One reading of a scene (oneReading.ts): a read also says where things stand and writes the scene's summary when it
+   * can, so they make no call of their own. On unless switched off (tests of the separate calls).
+   */
+  oneReading?: boolean
 }
 
 export const QUIET_MS = 30_000
+/**
+ * A story's own summary and its series' are read only when another story is written (a sequel, a book in the series:
+ * memory/scene.ts storySoFar), never for the story being written. So while Adam is working on a story they wait until
+ * it has had no change for this long (the AI overhaul, 2026-10-19: a short test run wrote each about 30 times), and are
+ * written once then. Chapter summaries are not held back: the scenes after a chapter read them.
+ */
+export const ROLLUP_QUIET_MS = 5 * 60_000
 const RECHECK_MS = 60_000
 /** How long the AI waits for the scene's own unread words to be read before it writes (World Memory Overhaul A6). */
 export const FRESH_READ_MS = 8_000
@@ -121,12 +143,22 @@ export class Keeper {
   private urgent: ID[] = []
   /** Scenes marked done: their summary is refreshed after their run. */
   private readonly done = new Set<ID>()
+  /**
+   * Scenes Adam is still writing (saved since he last left them or marked them done). The writer reads such a scene's
+   * own words, never its summary, so its summary waits until he leaves it or marks it done (the AI overhaul,
+   * 2026-10-19: a chain of Add below and Continue rewrote one scene's summary after every step). A draft of a later
+   * scene still waits for the summaries it needs (queueDueSummaries).
+   */
+  private readonly writing = new Set<ID>()
   private summaryAsks: { sceneId: ID; logId: ID }[] = []
   /** Scenes whose summary is due (A3), written once nothing is waiting to be read. */
   private summaryDue: ID[] = []
   /** Scenes whose summary a draft is waiting for (summariesFirst), written before any other summary. */
   private summaryNow: ID[] = []
   private readonly dirtyStories = new Set<ID>()
+  /** When each story last changed (storyChanged), for holding back its own summary and its series' (ROLLUP_QUIET_MS). */
+  private readonly storyTouched = new Map<ID, number>()
+  private readonly rollUpQuietMs: number
   /** Stories whose end-of-chapter snapshots may be out of date (fix 15), brought up to date before their roll-ups. */
   private readonly recordStories = new Set<ID>()
   /** Scene summaries marked out of date before, brought up to date one at a time when there is nothing else to do. */
@@ -147,6 +179,11 @@ export class Keeper {
   private closed = false
   private noModel: string | null = null
   private waiters: { ids: Set<ID>; resolve: () => void }[] = []
+  /**
+   * The calm overhaul: each wait on the memory before a draft or a check, as far as it has got (status().catchingUp), so
+   * the window can say "Catching up the memory: scene 3 of 5" rather than "Getting ready…".
+   */
+  private catching: { sceneId: ID; ids: Set<ID>; done: number; total: number; stage: 'earlier' | 'scene' }[] = []
   private lastStatus = ''
   /** Scenes Adam asked to have read again in full (B8), until each has been read; and how many he asked for at once. */
   private readonly rereads = new Set<ID>()
@@ -155,6 +192,7 @@ export class Keeper {
   constructor(private readonly deps: KeeperDeps) {
     this.db = deps.db
     this.quietMs = deps.quietMs ?? QUIET_MS
+    this.rollUpQuietMs = deps.rollUpQuietMs ?? ROLLUP_QUIET_MS
   }
 
   // ---------- Triggers ----------
@@ -243,6 +281,7 @@ export class Keeper {
   sceneSaved(id: ID): void {
     if (this.closed) return
     kdb.noteSceneSaved(this.db, id)
+    this.writing.add(id)
     this.clearTimer(id)
     this.timers.set(
       id,
@@ -254,11 +293,22 @@ export class Keeper {
     this.emitStatus()
   }
 
-  /** Adam left the scene: read it now if it changed. */
+  /** Adam is still writing this scene and hasn't marked it done: its summary waits (see `writing`). */
+  private stillWriting(id: ID): boolean {
+    return this.writing.has(id) && !this.done.has(id)
+  }
+
+  /** Adam left the scene: read it now if it changed (and its summary, held while he wrote it, is written then). */
   sceneLeft(id: ID): void {
     if (this.closed) return
     this.clearTimer(id)
+    const wasWriting = this.writing.delete(id)
     if (kdb.needsReading(this.db, id)) this.enqueue(id)
+    // Its summary waited while Adam was writing it: due now, after the read if there is one.
+    else if (wasWriting && this.deps.summaries !== false && !this.summaryDue.includes(id) && sceneSummaryDue(this.db, id, false, this.modelKey())) {
+      this.summaryDue.push(id)
+      this.kick()
+    }
   }
 
   /** Marked done (Ctrl+Enter): the memory and the scene's summary catch up with it now. */
@@ -266,6 +316,7 @@ export class Keeper {
     const meta = kdb.markSceneDone(this.db, id)
     if (!this.closed) {
       this.clearTimer(id)
+      this.writing.delete(id)
       this.done.add(id)
       this.enqueue(id)
     }
@@ -367,6 +418,8 @@ export class Keeper {
 
   /** Runs queued or failed runs for earlier scenes on the line; the earlier scenes, or null when nothing more is to be done. */
   private async catchUpEarlier(sceneId: ID): Promise<ID[] | null> {
+    // Writing another scene now: the earlier ones are no longer being written, so their summaries come with their reads.
+    for (const id of [...this.writing]) if (id !== sceneId) this.writing.delete(id)
     if (this.closed) return null
     // One query for the scenes left behind, not one per earlier scene (a long series has thousands).
     const behind = new Set(kdb.scenesToRead(this.db))
@@ -379,10 +432,25 @@ export class Keeper {
       this.urgent = [...ids, ...this.urgent.filter((x) => !ids.includes(x))]
       this.queue = this.queue.filter((x) => !ids.includes(x))
       const wait = new Promise<void>((resolve) => this.waiters.push({ ids: new Set(ids), resolve }))
-      this.kick()
-      await wait
+      await this.catchingUp(sceneId, ids, 'earlier', () => {
+        this.kick()
+        return wait
+      })
     }
     return before
+  }
+
+  /** Waits on `wait` while the status says how far the memory has got with `ids` for the scene (the calm overhaul). */
+  private async catchingUp<T>(sceneId: ID, ids: ID[], stage: 'earlier' | 'scene', wait: () => Promise<T>): Promise<T> {
+    const entry = { sceneId, ids: new Set(ids), done: 0, total: ids.length, stage }
+    this.catching.push(entry)
+    this.emitStatus()
+    try {
+      return await wait()
+    } finally {
+      this.catching = this.catching.filter((c) => c !== entry)
+      this.emitStatus()
+    }
   }
 
   /**
@@ -404,9 +472,11 @@ export class Keeper {
     const late = new Promise<'timed-out'>((resolve) => {
       if (Number.isFinite(limitMs)) timer = setTimeout(() => resolve('timed-out'), limitMs)
     })
-    this.kick()
     try {
-      return await Promise.race([read, late])
+      return await this.catchingUp(sceneId, [sceneId], 'scene', () => {
+        this.kick()
+        return Promise.race([read, late])
+      })
     } finally {
       clearTimeout(timer)
     }
@@ -499,7 +569,21 @@ export class Keeper {
     }
     if (this.reading?.sceneId !== sceneId && !this.queue.includes(sceneId) && !this.urgent.includes(sceneId)) return
     if ('error' in this.deps.model() || this.readRefused(sceneId)) return
-    await new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
+    const read = new Promise<void>((resolve) => this.waiters.push({ ids: new Set([sceneId]), resolve }))
+    await this.catchingUp(sceneId, [sceneId], 'scene', () => read)
+  }
+
+  /**
+   * Resolves once the reads queued or running (or waiting out their quiet time) for the last `few` scenes with words
+   * before this one have been tried: before a draft, where things stand as they end is worked out after them, since
+   * their reading can say it too (one reading of a scene), rather than read a second time alongside it.
+   */
+  async whenReadBefore(sceneId: ID, few: number): Promise<void> {
+    if (this.closed) return
+    const line = scenesBefore(this.db, sceneId)
+    const last: ID[] = []
+    for (let i = line.length - 1; i >= 0 && last.length < few; i--) if (kdb.keeperScene(this.db, line[i])?.text.trim()) last.push(line[i])
+    await Promise.all(last.map((id) => this.whenRead(id)))
   }
 
   /**
@@ -560,6 +644,14 @@ export class Keeper {
     return this.closed
   }
 
+  /**
+   * True while the keeper is at work or has scenes waiting to be read (or summaries a draft waits for): background work of
+   * lower priority (the story index's physical details, storyIndex/fill.ts) gives way meanwhile.
+   */
+  get busy(): boolean {
+    return !this.closed && (!!this.current || !!this.tidying || this.queue.length > 0 || this.urgent.length > 0 || this.summaryNow.length > 0)
+  }
+
   // ---------- Status ----------
 
   status(): MemoryStatus {
@@ -573,7 +665,11 @@ export class Keeper {
       error: (behind > 0 || this.rereads.size > 0) && this.noModel ? this.noModel : (failure?.error ?? null),
       lastUpdate: kdb.lastUpdate(this.db),
       // A re-read Adam asked for (B8): how many scenes are still to be read, of how many.
-      ...(this.rereads.size ? { rereading: { left: this.rereads.size, total: Math.max(this.rereadTotal, this.rereads.size) } } : {})
+      ...(this.rereads.size ? { rereading: { left: this.rereads.size, total: Math.max(this.rereadTotal, this.rereads.size) } } : {}),
+      // The calm overhaul: a draft or a check waiting on the memory, and how far it has got.
+      ...(this.catching.length
+        ? { catchingUp: this.catching.map(({ sceneId, done, total, stage }) => ({ sceneId, done, total, stage })) }
+        : {})
     }
   }
 
@@ -654,6 +750,9 @@ export class Keeper {
   }
 
   private settle(id: ID): void {
+    for (const c of this.catching) {
+      if (c.ids.delete(id)) c.done = Math.min(c.total, c.done + 1)
+    }
     for (const w of this.waiters) w.ids.delete(id)
     const ready = this.waiters.filter((w) => !w.ids.size)
     this.waiters = this.waiters.filter((w) => w.ids.size)
@@ -725,7 +824,11 @@ export class Keeper {
           },
           onRecord: (g) => records.add(g),
           fetchImpl: this.deps.fetchImpl,
-          retryDelays: this.deps.retryDelays
+          retryDelays: this.deps.retryDelays,
+          // The summary is due as after the read (summaries on, and sceneSummaryDue with the scene marked done or not).
+          ...(this.deps.oneReading === false
+            ? {}
+            : { oneReading: { summaryDue: () => this.deps.summaries !== false && !this.stillWriting(id) && sceneSummaryDue(this.db, id, this.done.has(id), this.modelKey()) } })
         },
         id
       )
@@ -806,17 +909,21 @@ export class Keeper {
         if (scene) this.storyChanged(scene.storyId)
         if (model && scene)
           try {
-            this.deps.onSceneRead?.(id, model)
+            this.deps.onSceneRead?.(id, model, { staged: outcome.status === 'done' && !!outcome.staged })
           } catch (e) {
             console.warn('Could not start bringing where things stand up to date', e)
           }
         const done = this.done.has(id)
         this.done.delete(id)
         if (this.deps.summaries === false || !model || !scene) return
+        if (!done && this.stillWriting(id)) return
         if (!sceneSummaryDue(this.db, id, done, this.modelKey())) return
         this.markRebuilding(id)
         const logRunId = outcome.status === 'done' && outcome.lines ? outcome.runId : null
-        if (await writeSceneSummary(this.summaryOptions(model, controller, records), id, logRunId, this.where(id))) {
+        const summaries = this.summaryOptions(model, controller, records)
+        // Written by the read itself (one reading of a scene), when it is of the scene's words as they are now; else asked for.
+        const fromRead = outcome.status === 'done' ? outcome.summary : undefined
+        if ((fromRead && keepSceneSummary(summaries, id, fromRead, logRunId)) || (await writeSceneSummary(summaries, id, logRunId, this.where(id)))) {
           this.retries.delete(`scene:${id}`)
           this.deps.emitChanged({ sceneId: id, entryIds: [] })
         } else this.summaryFailed(id)
@@ -879,9 +986,11 @@ export class Keeper {
     } catch (e) {
       console.warn('Could not tell which stories read this one', e)
     }
+    const now = Date.now()
     for (const id of ids) {
       this.dirtyStories.add(id)
       this.recordStories.add(id)
+      this.storyTouched.set(id, now)
     }
   }
 
@@ -1033,9 +1142,19 @@ export class Keeper {
     if ('error' in m) return false
     const shape = loadShapeSafe(this.db)
     const label = (place: { storyId: ID; chapterId?: ID | null }): string => placeWords(this.db, shape, place)
-    const r = nextRollUp(this.db, this.dirtyStories, label, m, this.waiting)
+    const now = Date.now()
+    /** How long until a story has been quiet long enough for its own summary and its series'; 0 when it has. */
+    const quietIn = (storyId: ID): number => Math.max(0, (this.storyTouched.get(storyId) ?? 0) + this.rollUpQuietMs - now)
+    const r = nextRollUp(this.db, this.dirtyStories, label, m, this.waiting, (storyId) => quietIn(storyId) === 0)
     if (!r) {
-      this.dirtyStories.clear()
+      // Stories still being worked on keep their place, and the keeper looks again once they have been quiet long enough.
+      let wait = Infinity
+      for (const id of [...this.dirtyStories]) {
+        const left = quietIn(id)
+        if (left > 0) wait = Math.min(wait, left)
+        else this.dirtyStories.delete(id)
+      }
+      if (wait < Infinity) this.wakeIn(wait)
       return false
     }
     const controller = new AbortController()

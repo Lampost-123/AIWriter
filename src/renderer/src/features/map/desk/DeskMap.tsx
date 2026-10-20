@@ -57,25 +57,29 @@ export function DeskMap(): React.JSX.Element {
 
   return (
     <div className="dm" data-desk-map data-quick={quick || undefined}>
+      {/* The title, the count and the choices on one row; in a narrow page (deskMap.css) the count goes above the
+          choices, so they stay beside the title and the map below keeps its height. */}
       <header className="dm-head">
-        <div>
-          <h1 className="dm-title">Relationship map</h1>
-          <p className="dm-sub">Who is tied to whom, and how each of them feels about it, scene by scene.</p>
-        </div>
-        <div className="dm-head-r">
+        <div className="dm-head-in">
+          <div className="dm-head-t">
+            <h1 className="dm-title">Relationship map</h1>
+            <p className="dm-sub">Who is tied to whom, and how each of them feels about it, scene by scene.</p>
+          </div>
           {data?.any ? (
             <span className="dm-count" data-map-count>
               <b>{data.nodes.length}</b> {data.nodes.length === 1 ? 'character' : 'characters'} · <b>{pairs}</b> {pairs === 1 ? 'tie' : 'ties'}
             </span>
           ) : null}
-          <AsSeenIn value={storyId} onChange={pickStory} className="w-[200px]" />
-          {hasOtherKinds(stories) ? null : <StoryFilter value={storyId} onChange={pickStory} />}
-          {groupOptions.length ? (
-            <label className="w-[200px]">
-              <span className="mb-1 block text-[11.5px] font-medium text-muted">Group</span>
-              <Select value={groupId} onChange={pickGroup} options={groupOptions} allowNone noneLabel="Everyone" />
-            </label>
-          ) : null}
+          <div className="dm-head-r">
+            <AsSeenIn value={storyId} onChange={pickStory} className="w-[200px]" />
+            {hasOtherKinds(stories) ? null : <StoryFilter value={storyId} onChange={pickStory} />}
+            {groupOptions.length ? (
+              <label className="w-[200px]">
+                <span className="mb-1 block text-[11.5px] font-medium text-muted">Group</span>
+                <Select value={groupId} onChange={pickGroup} options={groupOptions} allowNone noneLabel="Everyone" />
+              </label>
+            ) : null}
+          </div>
         </div>
       </header>
       {data ? (

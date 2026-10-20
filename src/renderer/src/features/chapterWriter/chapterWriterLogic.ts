@@ -25,9 +25,9 @@ export function planWords(plan: ChapterWriterPlan): { intro: string; warning: st
   const left = plan.scenes.filter((s) => !s.ready).map((s) => s.label)
   const written = ready.filter((s) => s.hasWords).length
   const intro =
-    `The AI studies this chapter against the memory, writes ${ready.length === 1 ? 'its scene' : `its ${n(ready.length, 'scene', 'scenes')}`} from the scene cards, ` +
-    'then checks them against the codex, Recall and the timeline, reads them as a critic would, fixes what it finds and proofreads. ' +
-    `It keeps going until the checks come back clean. ${LIMIT_WORDS} It works in the background; you can stop it at any time from the top bar.`
+    `The AI plans the whole chapter first and shows you the plan, which you can change. Then it writes ${ready.length === 1 ? 'its scene' : ready.length === 0 ? 'its scenes' : `its ${n(ready.length, 'scene', 'scenes')}`} to the plan, ` +
+    'checks each against the plan and the story so far, has a critic read the chapter, and fixes only what they flag. ' +
+    `${LIMIT_WORDS} It works in the background; you can stop it at any time from the top bar.`
   const warning = written
     ? `${written === ready.length ? (ready.length === 1 ? 'The scene already has words. They' : 'Every scene already has words. They') : `${n(written, 'scene already has', 'scenes already have')} words. They`} will be replaced: the words now are kept, and one Undo puts the whole chapter back.`
     : null
@@ -48,6 +48,8 @@ export function endWords(r: ChapterWriterReport, title: string): string {
       return `${title} is written, but the AI couldn't settle ${n(r.left.length, 'thing', 'things')}. The report lists ${r.left.length === 1 ? 'it' : 'them'}.`
     case 'stopped':
       return `Stopped writing ${title}. The words so far are kept; Undo puts the chapter back.`
+    case 'cancelled':
+      return r.message || `Cancelled before writing ${title}: nothing changed.`
     default:
       return r.message || `Writing ${title} stopped with a problem.`
   }
@@ -65,6 +67,8 @@ export function reportHeading(r: ChapterWriterReport): string {
       return `Written, with ${n(r.left.length, 'thing', 'things')} the AI couldn't settle.`
     case 'stopped':
       return 'Stopped before it was finished.'
+    case 'cancelled':
+      return 'Cancelled before anything was written.'
     default:
       return r.message || 'It stopped with a problem.'
   }

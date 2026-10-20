@@ -4,6 +4,7 @@ import { Button, Field, Notice, Select, Spinner } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { AiPhrasesRow } from '@/features/style/AiPhrasesSwitch'
+import { OwnSampleRow } from '@/features/style/OwnSampleSwitch'
 import { usePrefs } from '@/features/style/prefsStore'
 import { ChipListInput } from '@/features/world/parts/ChipListInput'
 import { createDraftCache } from '@/features/world/parts/draftCache'
@@ -147,6 +148,8 @@ function PrefsForm({ initial }: { initial: WritingPrefs }): React.JSX.Element {
         </p>
       </div>
       <AiPhrasesRow checked={prefs.avoidAiPhrases !== false} onChange={(avoidAiPhrases) => update({ avoidAiPhrases })} />
+      {/* On: while a sample passage is empty (left out); off: never. A style screen may turn it on over a sample passage. */}
+      <OwnSampleRow checked={prefs.ownSample !== false} onChange={(on) => update({ ownSample: on ? undefined : false })} />
       <Field label="Scene length" hint="What a scene aims for when neither its card nor its chapter sets a length. Leave it empty to let the AI pick.">
         {(id) => (
           <WordTargetInput id={id} value={prefs.sceneLength ?? null} onChange={(sceneLength) => update({ sceneLength })} limits={SCENE_LENGTH_LIMITS} placeholder="Auto" />

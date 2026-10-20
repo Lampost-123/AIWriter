@@ -255,5 +255,6 @@ test('the window opens already in the chosen theme', async ({ launch }) => {
   await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
   expect(await win.evaluate(() => (globalThis as unknown as { aiwrite: { initialTheme: string } }).aiwrite.initialTheme)).toBe('dark')
   await expect(win.locator('html')).toHaveAttribute('data-theme', 'dark')
-  expect((await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toLowerCase()).toBe('#161514')
+  // The New look's Dark frame (BACKGROUND_COLOUR in src/main/index.ts), so nothing flashes before the page paints.
+  expect((await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toLowerCase()).toBe('#12110f')
 })

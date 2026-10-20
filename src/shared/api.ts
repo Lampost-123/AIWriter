@@ -99,6 +99,11 @@ import type { CritiqueApi, CritiqueEvents } from './contracts/critique'
 import type { ChapterWriterApi, ChapterWriterEvents } from './contracts/chapterWriter'
 import type { PhoneApi } from './contracts/phone'
 import type { StoryBuilderApi, StoryBuilderEvents } from './contracts/storyBuilder'
+import type { StoryIndexApi, StoryIndexEvents } from './contracts/storyIndex'
+import type { DirectionApi } from './contracts/direction'
+import type { DirectorApi, DirectorEvents } from './contracts/director'
+import type { CalmApi, CalmEvents } from './contracts/calm'
+import type { PlanReviewApi, PlanReviewEvents } from './contracts/planReview'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -141,7 +146,12 @@ export interface AppApi
     CritiqueApi,
     ChapterWriterApi,
     PhoneApi,
-    StoryBuilderApi {
+    StoryBuilderApi,
+    StoryIndexApi,
+    DirectionApi,
+    DirectorApi,
+    CalmApi,
+    PlanReviewApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -203,7 +213,11 @@ export interface AppApi
   // ----- World bible entries -----
   listEntries(kind?: EntryKind): Promise<Entry[]>
   getEntry(id: ID): Promise<Entry>
-  createEntry(kind: EntryKind, input?: EntryInput): Promise<Entry>
+  /**
+   * Makes an entry (Adam's). `at`: an event made from a scene (Add to memory on its words, an Ask the world proposal
+   * for it, 2026-10-19) first exists at that scene, as one the memory finds there does; other kinds ignore it.
+   */
+  createEntry(kind: EntryKind, input?: EntryInput, at?: { sceneId: ID } | null): Promise<Entry>
   updateEntry(id: ID, patch: EntryInput): Promise<Entry>
   deleteEntry(id: ID): Promise<void>
 
@@ -414,7 +428,11 @@ export interface AppEvents
     ArtEvents,
     CritiqueEvents,
     ChapterWriterEvents,
-    StoryBuilderEvents {
+    StoryBuilderEvents,
+    StoryIndexEvents,
+    DirectorEvents,
+    CalmEvents,
+    PlanReviewEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID
@@ -427,6 +445,11 @@ export interface AppEvents
     cost: number | null
     /** The reply ran into the reply limit, so the draft stops before the scene's end (the text is kept). */
     cutOff?: boolean
+    /**
+     * The writer model turned the scene down (a content filter, a refusal, or words that are plainly a refusal): the note
+     * offers to try again with another model Adam has set up (the calm overhaul). Left out: not refused.
+     */
+    refused?: boolean
   }
   /** Shown while a request is being retried after a rate limit or server error. */
   'generation:retrying': { generationId: ID; attempt: number; waitMs: number; reason: string }

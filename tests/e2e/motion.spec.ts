@@ -92,13 +92,6 @@ test('the New look: what opens from the keyboard appears at once', async ({ laun
   await expect(win.getByRole('search', { name: 'Find in this scene' })).toBeVisible()
   expect(await animationsOf(win, '[role="search"]')).toEqual([])
   await win.keyboard.press('Escape')
-
-  // Classic keeps its pop (the same rules, with the look switched under them).
-  await win.evaluate(`document.documentElement.dataset.look = 'classic'`)
-  await win.locator('body').click({ position: { x: 600, y: 5 } })
-  await win.keyboard.press('Control+K')
-  await expect(win.getByRole('dialog', { name: 'Search' })).toBeVisible()
-  expect(await animationName(win, open)).toBe('pop-in')
 })
 
 test('the New look: a page change from the pointer crossfades; from the keyboard, back to the page and with less motion it is instant', async ({
@@ -202,12 +195,6 @@ test('the New look: an amber caret stands where a streaming draft’s words arri
       const c = document.querySelector('.scene-prose .aw-stream-caret')
       return c === window.streamCaret || c.parentElement !== window.streamCaret.parentElement
     })()`)).toBe(true)
-
-    // Classic never shows it.
-    await win.evaluate(`document.documentElement.dataset.look = 'classic'`)
-    await expect(caret).toHaveCount(0)
-    await win.evaluate(`document.documentElement.dataset.look = 'new'`)
-    await expect(caret).toHaveCount(1)
 
     // Stopped: gone that moment.
     await header.getByRole('button', { name: 'Stop' }).click()
@@ -455,14 +442,9 @@ test('the New look: a press goes in quickly and comes back softly', async ({ lau
   await expect(button).toHaveCSS('scale', 'none')
 })
 
-test('Classic: presses go in quickly and come back softly too', async ({ launch }) => {
-  // App tests start in Classic.
-  const { win } = await launch()
-  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
-  await invoke(win, 'openSampleWorld')
-  await win.reload()
-  await expect(win.locator('.scene-prose')).toContainText('A hundred and twelve steps to the lamp room.')
-  expect(await win.evaluate<string | undefined>('document.documentElement.dataset.look')).not.toBe('new')
+test('the Layout cards in Settings press in quickly and come back softly', async ({ launch }) => {
+  // App tests start on the panels.
+  const win = await sampleWorld(launch)
 
   /** Holds the pointer down on `button` (in over 90 ms), then lets go somewhere else, so nothing is chosen (back over `back`). */
   const press = async (button: ReturnType<Page['getByRole']>, scale: string, back: string): Promise<void> => {
@@ -479,11 +461,11 @@ test('Classic: presses go in quickly and come back softly too', async ({ launch 
     await expect(button).toHaveCSS('scale', 'none')
   }
 
-  // Settings › Appearance › Style (the same cards in both looks): they list scale and translate, so the press and the
-  // hover lift ease rather than snap.
+  // Settings › Appearance › Layout: the cards list scale and translate, so the press and the hover lift ease rather
+  // than snap. Let go elsewhere, nothing is chosen.
   await openSettings(win, 'Appearance')
-  const card = win.getByRole('radio', { name: 'New look' })
+  const card = win.getByRole('radiogroup', { name: 'Layout' }).getByRole('radio', { name: 'Desk' })
   await expect(card).toHaveCSS('transition-property', 'box-shadow, transform, translate, scale')
   await press(card, '0.98', '0.15s')
-  await expect.poll(async () => (await invoke(win, 'getSettings')).look).not.toBe('new')
+  await expect.poll(async () => (await invoke(win, 'getSettings')).arrangement).toBe('panels')
 })

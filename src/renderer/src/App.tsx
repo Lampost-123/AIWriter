@@ -42,7 +42,10 @@ import { AskPanel } from '@/features/ask/AskPanel'
 import { closeAsk } from '@/features/ask/open'
 import { ExportDialogs } from '@/features/transfer/ExportDialogs'
 import { RereadDialog } from '@/features/memory/RereadDialog'
+import { StoryFillDialog } from '@/features/memory/StoryFillDialog'
 import { ChapterWriterDialog } from '@/features/chapterWriter/ChapterWriterDialog'
+import { ChapterPlanReview } from '@/features/chapterWriter/ChapterPlanReview'
+import { ScenePlanReview } from '@/features/planReview/ScenePlanReview'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
@@ -147,7 +150,7 @@ export function App(): React.JSX.Element | null {
         <NoWorld />
       ) : null}
       {showStart ? <StartScreen /> : null}
-      {/* The New look: the one-time note offering Classic, after updating. */}
+      {/* The one-time notes about the look: Classic retired, the New look, the desk (LookNote.tsx). */}
       {setupStep ? null : <LookNote />}
       <Toaster />
       {/* Milestone 6: the monthly limit's toasts and its ask before an AI action. */}
@@ -432,7 +435,11 @@ function Workspace(): React.JSX.Element {
       <DictationLayer />
       <ExportDialogs />
       <RereadDialog />
+      <StoryFillDialog />
       <ChapterWriterDialog />
+      <ChapterPlanReview />
+      {/* Show me the plan first: a scene's plan waiting for Adam before its draft is written. */}
+      <ScenePlanReview />
       <FocusLayer />
       <FindLayer />
     </>

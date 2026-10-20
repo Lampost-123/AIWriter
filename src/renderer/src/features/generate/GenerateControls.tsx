@@ -19,6 +19,7 @@ import { formatCost } from './format'
 import { AFTER_TEXT, GeneratePanels } from './GeneratePanels'
 import { useGenerate } from './useGenerate'
 import { useDesk, useNewLook } from '@/features/look/look'
+import { DirectionLabel, useNextDirection } from '@/features/direction/DirectionLabel'
 
 /**
  * Below this header width the writer model's name is left out, so Generate always fits and the scene's
@@ -52,9 +53,18 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
   const g = useGenerate(sceneId, { keys: true })
   const { writer, phase, busy, popover, setPopover, hasText, checkText, loadCard, hasPrices, polishOn, draftCost, modelName } = g
   const { generate, stop, written, status, statusTitle, showStatus, openSettings } = g
+  // The header has little room: each step's short words (the calm overhaul), the full ones on hover.
+  const statusWords = g.statusShort ?? status
   const rootRef = useRef<HTMLDivElement>(null)
   const compact = useNarrowHeader(rootRef)
   const afterText = AFTER_TEXT
+  // A direction waiting for the next draft shows beside Generate (in the model's place) until a draft has used it.
+  const direction = useNextDirection(sceneId)
+  const openOptions = (): void => {
+    loadCard(true)
+    checkText()
+    setPopover('options')
+  }
 
   return (
     <div ref={rootRef} data-generate-controls className="flex items-center gap-1.5">
@@ -69,29 +79,35 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           ) : null}
         </span>
       ) : (
-        // Wide enough for the longest words that show while drafting ("Updating memory…"), so they never
-        // spill over the buttons beside them whatever the writer model is called.
+        // Wide enough for the words that show while drafting (each step's short words here: "Memory: 3 of 5",
+        // "Planning the scene…"; the full words in its tooltip), so they never spill over the buttons beside them.
         <div className="relative flex h-8 min-w-[150px] items-center justify-end">
-          <button
-            type="button"
-            onClick={openSettings}
-            tabIndex={showStatus ? -1 : 0}
-            title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings › Models.` : 'Choose a writer model in Settings › Models.'}
-            className={cn(
-              'flex h-7 max-w-[230px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-              showStatus && 'invisible'
-            )}
-          >
-            <span className="truncate">{modelName ?? 'No writer model'}</span>
-            {writer && hasPrices ? (
-              <span
-                className="w-[50px] shrink-0 text-left tabular-nums text-faint"
-                title={polishOn ? 'Estimated cost of a draft, with the polish pass (about twice as much)' : 'Estimated cost of a draft'}
-              >
-                {draftCost != null ? `· ${formatCost(draftCost)}` : ''}
-              </span>
-            ) : null}
-          </button>
+          {direction ? (
+            // The direction the next draft will follow, in the model's place, until a draft has used it.
+            <DirectionLabel sceneId={sceneId} onOpen={openOptions} className={cn(showStatus && 'invisible')} />
+          ) : (
+            <button
+              type="button"
+              onClick={openSettings}
+              tabIndex={showStatus ? -1 : 0}
+              title={writer ? `Writer model: ${writer.label || writer.modelId}. Change it in Settings › Models.` : 'Choose a writer model in Settings › Models.'}
+              className={cn(
+                // As wide as the toolbar has room for (it is a container), so a long model name never pushes Generate out.
+                'flex h-7 max-w-[150px] items-center gap-1.5 rounded-md px-2 text-[12px] text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg @min-[760px]:max-w-[190px] @min-[840px]:max-w-[230px]',
+                showStatus && 'invisible'
+              )}
+            >
+              <span className="truncate">{modelName ?? 'No writer model'}</span>
+              {writer && hasPrices ? (
+                <span
+                  className="w-[50px] shrink-0 text-left tabular-nums text-faint"
+                  title={polishOn ? 'Estimated cost of a draft, with the polish pass (about twice as much)' : 'Estimated cost of a draft'}
+                >
+                  {draftCost != null ? `· ${formatCost(draftCost)}` : ''}
+                </span>
+              ) : null}
+            </button>
+          )}
           {showStatus ? (
             <span
               role="status"
@@ -99,7 +115,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
               className="absolute inset-0 flex items-center justify-end gap-2 overflow-hidden whitespace-nowrap pr-2 text-[12.5px] font-medium text-ai animate-fade-in"
             >
               <span className="h-2 w-2 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />
-              <span className="truncate">{status}</span>
+              <span className="truncate">{statusWords}</span>
               {written !== null && written > 0 ? (
                 <span className="shrink-0 font-normal tabular-nums opacity-80">· {written.toLocaleString()} words</span>
               ) : null}
@@ -137,25 +153,25 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                     checkText()
                   }}
                   onFocus={checkText}
-                  title={`Draft this scene from its card (${modKey()}+G)${hasText ? `\n${afterText}` : ''}`}
+                  title={`Draft this scene from its card (${modKey()}+G)${direction ? `\nDirection: “${direction}”` : ''}${hasText ? `\n${afterText}` : ''}`}
                 >
                   Generate
                 </Button>
                 <Button
                   variant={desk ? 'ai' : 'primary'}
-                  className="w-7 rounded-l-none border-l border-accent-fg/25 px-0! desk:border-ai-fg/25"
+                  className="relative w-7 rounded-l-none border-l border-accent-fg/25 px-0! desk:border-ai-fg/25"
                   aria-label="Draft options"
-                  title="Draft options: direction, length, creativity and polish"
+                  title={direction ? `Draft options. Direction for the next draft: “${direction}”` : 'Draft options: direction, length, creativity and polish'}
                   onClick={() => {
                     if (popover === 'options') setPopover(null)
-                    else {
-                      loadCard(true)
-                      checkText()
-                      setPopover('options')
-                    }
+                    else openOptions()
                   }}
                 >
                   <ChevronDown size={14} />
+                  {/* A narrow header has no room for the direction's words: a dot says one is waiting for the next draft. */}
+                  {direction && compact ? (
+                    <span className="absolute right-[5px] top-[5px] h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+                  ) : null}
                 </Button>
               </>
             )}

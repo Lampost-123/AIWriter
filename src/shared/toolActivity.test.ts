@@ -60,6 +60,22 @@ describe('tool calls as records', () => {
     expect(changesSummary([{ kind: 'replace_all' }, { kind: 'edit' }])).toBe('1 replace all, 1 edit')
   })
 
+  it('knows the look-ups every agent shares (LOOKUPS) and load_instructions (PACKS), in plain words', () => {
+    expect(['state_of', 'where_is', 'who_knows', 'last_seen', 'who_was_there', 'timeline', 'open_threads', 'what_happened'].map(toolKind)).toEqual(
+      Array(8).fill('lookup')
+    )
+    expect([toolKind('read_passage'), toolKind('load_instructions')]).toEqual(['read', 'instructions'])
+    expect(argSummary('state_of', { name: 'Mara Venn' })).toBe('what’s true of Mara Venn')
+    expect(argSummary('where_is', { thing: 'the letter' })).toBe('where “the letter” is')
+    expect(argSummary('who_knows', { fact: 'the seal was stolen' })).toBe('who knows “the seal was stolen”')
+    expect(argSummary('last_seen', { name: 'Ash' })).toBe('where Ash was last seen')
+    expect(argSummary('who_was_there', { scene: 'Ch 2, Sc 1' })).toBe('who was in Ch 2, Sc 1')
+    expect(argSummary('timeline', {})).toBe('the story’s dates')
+    expect(argSummary('what_happened', {})).toBe('what happened before')
+    expect(argSummary('read_passage', { scene: 'Ch 1, Sc 2' })).toBe('Ch 1, Sc 2')
+    expect(argSummary('load_instructions', { name: 'plan-a-scene' })).toBe('plan a scene')
+  })
+
   it('reads a record made since Phase 2b as it was kept', () => {
     const kept = {
       label: 'Reading Ch 1, Sc 1',

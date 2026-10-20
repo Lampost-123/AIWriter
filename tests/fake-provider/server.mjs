@@ -40,6 +40,8 @@
 //   fake/no-thinking-option 400 for any thinking setting (reasoning / reasoning_effort), else a normal stream
 //   fake/content-parts     sends its reply as lists of content parts (with a thinking part that isn't text)
 //   fake/finish-error-once stops with finish_reason "error" and no text on the first request, then a normal stream
+//   fake/claims, fake/claims-stubborn, fake/claims-no-toolchoice, fake/bad-proposal, fake/bad-field, fake/sloppy
+//                          the editor chat says it made changes, made or not (m4/ask.mjs, SLOPPY)
 //   fake/stubborn          asked to fix an issue's words (Fix the text), sends them back unchanged every time (m4/edits.mjs)
 //   fake/critique-bad-json asked for a critique, answers the first time with words, not JSON (critique.mjs)
 //
@@ -58,12 +60,19 @@
 //   - "A clue: <x>."                                a clue for the first open plot thread listed (or one opened above)
 //   - "Things moved on: <x>."                       the same thread moves on (developing, note <x>)
 //   - "At last the answer came: <x>."               the same thread is closed (a "close" item, note <x>)
+//   - "In the end, <x>."                            the payoff read as a step on, as a live model once did: the same
+//                                                    thread only moves on (developing, note <x>)
+//   A request that asks a verdict on pay-offs ("## Pay-offs to judge", overhaul 2026-10-19) gets "payoffs": for each
+//   thread listed, "paid" with the sentence for "At last the answer came: …" or "In the end, …", "moved" (with its note)
+//   for "Things moved on: …", else "untouched"; a sentence goes to the listed thread whose name it says, else the first.
 //   - "<Name> found her|his|their <thing> again."   ends <Name>'s "lost her <thing>" (an "end" item; a leading
 //                                                    "The next morning," and the like is its "when")
 //   - "<Name> told them a secret: <x>."             a secret told by <Name> ("said", heard by nobody named: the
 //                                                    app adds who was on stage)
 //   - "<Name>, known as <words>, <anything>."        the words call <Name> <words> (a "name" item, long story
 //                                                    memory fix 12)
+//   A reading that also asks where things stand or for the scene's summary ("[AIWRITE-ONE-READING v1]") gets them in the
+//   same reply: "stage" as the tracker's request would, from its P paragraphs, and "summary" (oneReadingReply).
 //   A <Name> the memory doesn't list yet is added as a new character first. Facts whose words
 //   changed get "keep" (a sentence still much like their words), "update" (an edited sentence the
 //   rules above still read) or "remove". Summary requests get a short summary of the text's opening.
@@ -71,7 +80,8 @@
 //
 // Milestone 4's AI calls (AI edits, Ask the world, the outline helper, read aloud) are answered by
 // the modules in m4/ (see m4/index.mjs), by the marker their system prompt starts with; milestone 5's
-// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs; check and repair's by repair.mjs.
+// (the consistency checks) by those in m5/; Story recipes' by recipes.mjs; check and repair's by repair.mjs; Directed
+// writing's director, and the writer's stretches, by director.mjs.
 //
 // Use from code:  const fake = await startFakeProvider({ delayMs: 5 }); ... fake.url ... await fake.close()
 // Or from a shell: node tests/fake-provider/server.mjs --port 4545 --delay 20
@@ -79,14 +89,15 @@
 import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { m4Reply } from './m4/index.mjs'
-import { planReply } from './plan.mjs'
+import { planReply, planToolCalls } from './plan.mjs'
 import { askToolCalls } from './m4/ask.mjs'
-import { chapterToolCalls } from './chapter.mjs'
+import { chapterReply, chapterToolCalls } from './chapter.mjs'
 import { m5Reply } from './m5/index.mjs'
 import { recipeReply } from './recipes.mjs'
 import { storyReply } from './story.mjs'
 import { critiqueReply } from './critique.mjs'
 import { repairReply } from './repair.mjs'
+import { directorReply, stretchProse } from './director.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -122,7 +133,8 @@ const SENTENCES = [
 
 /**
  * Where things stand at the end of a scene (src/main/continuity/tracker.ts, "[AIWRITE-CONTINUITY v3]"): each
- * character from the cast list the scene names is "in the scene"; one named wearing something ("in her grey cloak")
+ * character from the cast list the scene puts on stage (onStage: not only in someone's words, as what is theirs, or as
+ * what they once said or may do) is "in the scene"; one named wearing something ("in her grey cloak")
  * wears it, a piece of clothing "on" ("<Name> took off her hood." takes it off: the hood "off"); "<Name> left for the
  * docks." puts them "gone to the docks"; "<Name> put his cup on the shelf." leaves them holding "nothing; his cup on the
  * shelf". "The door was barred." (or a window or gate locked, open or shut) is a thing in the place. The scene's time
@@ -132,17 +144,51 @@ const SENTENCES = [
  */
 function continuityReply(system, user) {
   if (!system.includes('[AIWRITE-CONTINUITY v3]')) return null
+  const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
+  return JSON.stringify(fakeStage(castOf(user), scene))
+}
+
+/** The cast list a request gives ("Characters in this story ...: - Mara Venn (also Mara)"), by the names to use. */
+function castOf(user) {
   const list = /^Characters in this story[^\n]*:\n((?:- .+\n?)+)/m.exec(user)?.[1] ?? ''
-  const cast = list
+  return list
     .split('\n')
     .map((l) => l.replace(/^- /, '').replace(/ \(also .*\)$/, '').trim())
     .filter(Boolean)
-  const scene = /The scene[^\n]*:\n"""\n([\s\S]*?)\n"""/.exec(user)?.[1] ?? ''
+}
+
+/** After a name: only what is theirs, or what they once said or may do ("Gale's men", "Gale would be watching it"). */
+const MENTION_AFTER = /^(?:['’]s\b|\s+(?:would|could|can|might|may|must|should|will|shall|had\s+(?:said|told|written|warned))\b)/
+
+/**
+ * True when some sentence puts `name` on stage, as a memory model would read it (2026-10-19: every name anywhere was "in
+ * the scene", so Gale sat in an inn he was days from): named outside quotation marks, and not only as what is theirs, or
+ * what they once said or may do.
+ */
+function onStage(name, sentences) {
+  /** True when `at` is inside quotation marks: the last mark before it opens them ("‘Gale can have it’" but "‘Come in,’ Gale said"). */
+  const quoted = (s, at) => {
+    const before = s.slice(0, at)
+    const open = Math.max(-1, ...[...before.matchAll(/(?:^|\s)[‘“"']/g)].map((m) => m.index + m[0].length))
+    const close = Math.max(-1, ...[...before.matchAll(/[’”"'](?=[\s.,;:!?]|$)/g)].map((m) => m.index + 1))
+    return open > close
+  }
+  return sentences.some((s) => {
+    for (let at = s.indexOf(name); at >= 0; at = s.indexOf(name, at + 1)) {
+      if (quoted(s, at)) continue
+      if (!MENTION_AFTER.test(s.slice(at + name.length))) return true
+    }
+    return false
+  })
+}
+
+/** Where things stand at the end of `scene` (the words read), by the rules above, as the tracker's reply object. */
+function fakeStage(cast, scene) {
   const sentences = scene.split(/(?<=[.!?])\s+/)
   const cloak = /in (?:her|his) ([a-z ]+cloak)/.exec(scene)
   const door = /[Tt]he (door|window|gate) was (barred|locked|open|shut)/.exec(scene)
   const characters = cast
-    .filter((n) => scene.includes(n))
+    .filter((n) => onStage(n, sentences))
     .map((name) => {
       // Check and repair's tests: "<Name> took off her hood.", "<Name> left for the docks." and "<Name> put his cup on the shelf."
       const took = new RegExp(`${name} took off (?:her|his) ([a-z ]+?)[.,]`).exec(scene)
@@ -163,7 +209,34 @@ function continuityReply(system, user) {
     })
   const opening = scene.split(/\s+/).slice(0, 3).join(' ')
   const things = door ? [{ thing: `the ${door[1]}`, state: door[2], quote: door[0] }] : []
-  return JSON.stringify({ time: { value: 'evening', quote: opening }, things, characters })
+  return { time: { value: 'evening', quote: opening }, things, characters }
+}
+
+/**
+ * One reading of a scene (src/main/keeper/oneReading.ts, "[AIWRITE-ONE-READING v1]"): a memory reading that also asks
+ * where things stand at the end of its P paragraphs ("## Where things stand before the P paragraphs", with the cast list)
+ * gets "stage" as the tracker's own request would (fakeStage, from the P paragraphs alone), and one that asks for the
+ * summary ("## The summary") gets "summary", as the summary's own request would (the opening words of the P paragraphs).
+ */
+function oneReadingReply(system, user, memory) {
+  if (!system.includes('[AIWRITE-ONE-READING v1]')) return memory
+  let reply
+  try {
+    reply = JSON.parse(memory)
+  } catch {
+    return memory
+  }
+  const text = String(user)
+    .split('\n')
+    .filter((l) => /^P\d+: /.test(l))
+    .map((l) => l.replace(/^P\d+: /, ''))
+    .join('\n\n')
+  if (user.includes('## Where things stand before the P paragraphs')) reply.stage = fakeStage(castOf(user), text)
+  if (user.includes('## The summary')) {
+    const words = text.split(/\s+/).filter(Boolean).slice(0, 40).join(' ')
+    reply.summary = `This part of the story begins: ${words.replace(/[.,;:!?"']+$/, '')}.`
+  }
+  return JSON.stringify(reply, null, 1)
 }
 
 /**
@@ -274,6 +347,8 @@ function readSentence(s) {
   if (m) return { kind: 'thread-developing', note: m[1].trim() }
   m = s.match(/^At last the answer came: ([^.!?]+)[.!?]/)
   if (m) return { kind: 'thread-resolved', note: m[1].trim() }
+  m = s.match(/^In the end, ([^.!?]+)[.!?]/)
+  if (m) return { kind: 'thread-ended', note: m[1].trim() }
   m = s.match(/\b([A-Z][a-z]+), known as ([^,.!?]+),/)
   if (m) return { kind: 'name', name: m[1], called: m[2].trim() }
   return null
@@ -316,7 +391,7 @@ export function fakeMemoryReply(user) {
       const target = threads[0] ? { entry: threads[0] } : opened ? { name: opened } : null
       if (!target) continue
       if (r.kind === 'thread-clue') add.push({ type: 'thread', ...target, status: 'clue', clue: r.clue, quote: s })
-      if (r.kind === 'thread-developing') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
+      if (r.kind === 'thread-developing' || r.kind === 'thread-ended') add.push({ type: 'thread', ...target, status: 'developing', note: r.note, quote: s })
       // Closed with the "close" action (World Memory Overhaul B7), as the reading prompt now asks.
       if (r.kind === 'thread-resolved') add.push({ type: 'close', ...target, note: r.note, quote: s })
       continue
@@ -363,7 +438,37 @@ export function fakeMemoryReply(user) {
     } else if (best && best.score >= 0.8) facts.push({ id: m[1], do: 'keep', quote: best.s })
     else facts.push({ id: m[1], do: 'remove' })
   }
-  return JSON.stringify({ facts, add, clashes: [] }, null, 1)
+  const payoffs = payoffVerdicts(lines, sentences)
+  return JSON.stringify({ facts, add, clashes: [], ...(payoffs ? { payoffs } : {}) }, null, 1)
+}
+
+/**
+ * The verdicts on the pay-offs a reading request asks about ("## Pay-offs to judge", src/main/keeper/prompts.ts): each
+ * listed thread is "untouched" unless a sentence pays it off ("At last the answer came: …", "In the end, …") or moves it
+ * on ("Things moved on: …"); a sentence goes to the listed thread whose name it says, else the first. Null when none are asked.
+ */
+function payoffVerdicts(lines, sentences) {
+  const at = lines.indexOf('## Pay-offs to judge')
+  if (at < 0) return null
+  const asked = []
+  for (const l of lines.slice(at + 1)) {
+    const m = l.match(/^- (E\d+) "([^"]+)":/)
+    if (m) asked.push({ id: m[1], name: m[2], is: 'untouched' })
+    else if (asked.length) break
+  }
+  if (!asked.length) return null
+  const rank = { untouched: 0, moved: 1, paid: 2 }
+  for (const s of sentences) {
+    const r = readSentence(s)
+    const is = r?.kind === 'thread-resolved' || r?.kind === 'thread-ended' ? 'paid' : r?.kind === 'thread-developing' ? 'moved' : null
+    if (!is) continue
+    const t = asked.find((x) => s.toLowerCase().includes(x.name.toLowerCase())) ?? asked[0]
+    if (rank[is] <= rank[t.is]) continue
+    t.is = is
+    t.quote = s
+    if (is === 'moved') t.note = r.note
+  }
+  return asked.map(({ id, is, note, quote }) => ({ id, is, ...(note ? { note } : {}), ...(quote ? { quote } : {}) }))
 }
 
 /**
@@ -492,12 +597,12 @@ export async function startFakeProvider(options = {}) {
     if (system.includes(READING_MARKER)) {
       memoryCounts[model] = (memoryCounts[model] ?? 0) + 1
       const broken = model === 'fake/memory-junk' || (model === 'fake/memory-bad-json' && memoryCounts[model] === 1)
-      memory = broken ? 'Here you go: {"facts": [ {"id": ' : fakeMemoryReply(firstUser)
+      memory = broken ? 'Here you go: {"facts": [ {"id": ' : oneReadingReply(system, firstUser, fakeMemoryReply(firstUser))
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
     memory ??= fakeBuilderReply(system, messages, model)
     // Plan before writing (src/main/plan/), answered by plan.mjs.
-    memory ??= planReply(system, firstUser)
+    memory ??= planReply(system, firstUser, messages)
     memory ??= m4Reply(system, messages, model)
     memory ??= m5Reply(system, messages, model)
     memory ??= continuityReply(system, firstUser)
@@ -507,13 +612,23 @@ export async function startFakeProvider(options = {}) {
     memory ??= storyReply(system, messages)
     // The scene and chapter critic, answered by critique.mjs.
     memory ??= critiqueReply(system, firstUser, model)
+    // Write the whole chapter's plan (asked at its last request, without tools) and its fixes, answered by chapter.mjs.
+    memory ??= chapterReply(system, messages, model)
+    // Directed writing's director (src/main/director), answered by director.mjs.
+    memory ??= directorReply(system, messages)
     // fake/prude turns down whatever has the word EXPLICIT in it, in so many words (a reply that finishes as usual, not a
     // content filter): a memory read, a summary, where things stand, a plan, a check or a draft alike.
     if (model === 'fake/prude' && messages.some((m) => textOf(m.content).includes('EXPLICIT'))) memory = PRUDE_REFUSAL
     let full = memory ?? (model === 'fake/empty' || model === 'fake/refuse' ? '' : model === 'fake/refuse-words' ? "I'm sorry, but I can't write this scene." : fakeProse(words))
-    // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would.
     const lastUser = textOf([...messages].reverse().find((m) => m.role === 'user')?.content)
-    if (memory === null && lastUser.includes('put who says it and how it is said in curly braces')) {
+    // Directed writing: each stretch opens with its beat and reads on from a place of its own; a paragraph taken again
+    // is one new paragraph (director.mjs).
+    const stretch = memory === null && full ? stretchProse(lastUser, words, SENTENCES, fakeProse) : null
+    if (stretch) full = stretch
+    // Asked to say who speaks each line (ai/speakerTags.ts), a draft tags its dialogue as a real writer would (a later
+    // stretch of a directed draft was asked in its briefing, the first user message).
+    const tagsAsked = (t) => t.includes('put who says it and how it is said in curly braces')
+    if (memory === null && (tagsAsked(lastUser) || (stretch !== null && tagsAsked(firstUser)))) {
       full = full.replaceAll('"You came,"', '{Tobin|dry, a little amused}"You came,"').replaceAll('"I said I would."', '{Mara|flat and certain}"I said I would."')
     }
     // With varyBeats, each beat of Beat by beat reads differently (its number picks the sentences).
@@ -547,6 +662,11 @@ export async function startFakeProvider(options = {}) {
       })
     }
 
+    // The editor chat: a model that won't be made to call a tool (m4/ask.mjs fake/claims-no-toolchoice) turns tool_choice
+    // down, naming it, as some providers do.
+    if (model === 'fake/claims-no-toolchoice' && body.tools?.length && body.tool_choice && typeof body.tool_choice === 'object') {
+      return json(res, 400, { error: { code: 400, message: 'tool_choice is not supported for this model' } })
+    }
     // The editor chat: a model that can't take tools turns them down, as OpenRouter does.
     if (body.tools?.length && model === 'fake/no-tools') {
       return json(res, 404, { error: { code: 404, message: 'No endpoints found that support tool use. To learn more about provider routing, visit: https://openrouter.ai/docs/provider-routing' } })
@@ -594,7 +714,13 @@ export async function startFakeProvider(options = {}) {
     // The editor chat: the fake may ask for tools (m4/ask.mjs), streamed as a real model's tool calls are: the call's id
     // and name, then its arguments.
     // Write the whole chapter's agent (chapter.mjs), else the editor chat's.
-    const calls = body.tools?.length ? (chapterToolCalls(system, messages, body.tools, model) ?? askToolCalls(system, messages, body.tools, body.tool_choice)) : null
+    // Plan before writing's look-ups (plan.mjs), else Write the whole chapter's agent (chapter.mjs), else the editor chat's.
+    // tool_choice 'none' (the planner's answering request): the tools are listed, but none may be called.
+    const calls = body.tools?.length && body.tool_choice !== 'none'
+      ? (planToolCalls(system, messages, body.tools) ??
+        chapterToolCalls(system, messages, body.tools, model) ??
+        askToolCalls(system, messages, body.tools, body.tool_choice, model))
+      : null
     if (calls) {
       for (const [i, c] of calls.entries()) {
         const id = `call_fake_${i}_${n}`

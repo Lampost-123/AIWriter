@@ -9,7 +9,7 @@ import * as repo from '../db/repo'
 import * as gens from '../db/generations'
 import { saveProposals, setOptionMark } from '../db/ask'
 import { setSpendHooks } from '../usage/gate'
-import { fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
+import { AGENT_ROOM, fitToRoom, repeatKey, messagesTokens, RESULT_REMOVED, runTask, type TaskRequest } from './tasks'
 import { forgetParams } from './client'
 import { STEP_PREAMBLE_WORDS, stepPreamble } from '../ask/history'
 
@@ -170,6 +170,38 @@ describe('the editor chat tool loop', () => {
     expect(done.text).toBe('Here is what I would change, if you ask.')
   })
 
+  it('the truth check: asked before the nudge, sent once (the last answer too), and settle has the last word', async () => {
+    const CHECK = '[truth] You said you changed it; nothing was proposed.'
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'a1', 'read_scene'), finish('tool_calls')],
+      [text("I've fixed the line for you."), finish('stop')],
+      [call(0, 'a2', 'read_scene'), finish('tool_calls')],
+      [text("I've fixed the line, really."), finish('stop')]
+    ])
+    const checked: string[] = []
+    const done = await runTask(
+      request(
+        fetchImpl,
+        {
+          recheck: (reply) => (checked.push(reply), /fixed/.test(reply) ? CHECK : null),
+          nudge: () => NUDGE,
+          settle: (reply) => reply.replace(/I've fixed/, "I'd fix")
+        },
+        { maxSteps: 2 }
+      )
+    )
+    // Request 2 was the last; its claim bought more requests with the tools (the check's note first). The note was the
+    // answer's one nudge, so the words that came next are kept (and settled).
+    expect(sent).toHaveLength(4)
+    expect(sent[1].tools).toBeUndefined()
+    expect(lastMessage(sent[2])).toEqual({ role: 'user', content: CHECK })
+    expect(sent[2].tools).toHaveLength(1)
+    expect(sent[3].tools).toHaveLength(1)
+    // Asked of the whole reply, once: never again after its note was sent.
+    expect(checked).toEqual(["I've fixed the line for you."])
+    expect(done.text).toBe("I'd fix the line, really.")
+  })
+
   it('takes the oldest tool results out when they no longer fit, and keeps the newest (E11)', async () => {
     const long = (tag: string): string => `${tag} `.repeat(1000) // 4,000 characters, about 1,150 tokens
     const { fetchImpl, sent } = scripted([
@@ -213,6 +245,56 @@ describe('the editor chat tool loop', () => {
     expect(lastMessage(sent[1])).toEqual({ role: 'user', content: LAST })
     expect(toolContents(sent[1])).toEqual([RESULT_REMOVED])
     expect(done.status).toBe('complete')
+  })
+
+  it('takes earlier results out past AGENT_ROOM however much the model reads, keeping the newest and the tools (token audit)', async () => {
+    const long = (tag: string): string => `${tag} `.repeat(15_000) // 60,000 characters, about 17,000 tokens
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r3', 'read_scene'), finish('tool_calls')],
+      [text('Done reading.'), finish('stop')]
+    ])
+    const results: Record<string, string> = { r1: long('one'), r2: long('two'), r3: long('six') }
+    const removed: string[][] = []
+    const done = await runTask(
+      request(
+        fetchImpl,
+        {
+          run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: results[c.id] })), steps: [] }),
+          onRemoved: (ids) => removed.push(ids)
+        },
+        { contextLength: 1_000_000 }
+      )
+    )
+    expect(done.status).toBe('complete')
+    expect(sent).toHaveLength(4)
+    // Two results (about 34,000 tokens) are within it; a third is not: the oldest goes, the step after still has tools.
+    expect(toolContents(sent[2])).toEqual([results.r1, results.r2])
+    expect(toolContents(sent[3])).toEqual([RESULT_REMOVED, results.r2, results.r3])
+    expect(sent[3].tools).toHaveLength(1)
+    expect(removed).toEqual([['r1']])
+    expect(messagesTokens(sent[3].messages.map((m) => ({ role: 'user', content: String(m.content ?? '') })))).toBeLessThanOrEqual(AGENT_ROOM)
+  })
+
+  it('keeps a big briefing’s room for its tools’ results on top of it (the editor chat)', async () => {
+    const result = 'word '.repeat(1600) // 8,000 characters, about 2,300 tokens
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r3', 'read_scene'), finish('tool_calls')],
+      [text('Done reading.'), finish('stop')]
+    ])
+    const req = request(
+      fetchImpl,
+      { run: async (calls) => ({ results: calls.map((c) => ({ role: 'tool' as const, toolCallId: c.id, content: result })), steps: [] }) },
+      { contextLength: 1_000_000 }
+    )
+    // A briefing of about 115,000 tokens, far past AGENT_ROOM.
+    req.messages = [{ role: 'system', content: 'brief '.repeat(80_000) }, ...req.messages.slice(1)]
+    await runTask(req)
+    expect(sent).toHaveLength(4)
+    expect(toolContents(sent[3])).toEqual([result, result, result])
   })
 
   it('stops at the monthly limit partway, keeping what was written, and says so (E16)', async () => {
@@ -445,6 +527,61 @@ describe('the chat overhaul’s hooks in the loop', () => {
     expect(done.status).toBe('complete')
     expect(sent.map((s) => 'tool_choice' in s)).toEqual([true, false])
     expect(gens.getGeneration(req.db, done.generationId).params.toolChoice).toEqual({ tool: 'propose_changes', step: 1, dropped: true })
+  })
+
+  it('the planner’s last request keeps the tools listed with tool_choice none, so it starts as the one before (2026-10-19)', async () => {
+    const { fetchImpl, sent } = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [text('{"beats": []}'), finish('stop')]
+    ])
+    const req = request(fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 })
+    const done = await runTask(req)
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('{"beats": []}')
+    expect(sent[1].tools).toEqual(sent[0].tools)
+    expect(choiceOf(sent[1])).toBe('none')
+    expect(choiceOf(sent[0])).toBeUndefined()
+    // What the AI saw: the last request offered no tool it could call.
+    const requests = gens.getGeneration(req.db, done.generationId).params.requests ?? []
+    expect(requests.map((r) => r.tools)).toEqual([true, false])
+    // Other callers' last requests go without tools, as ever.
+    const plain = scripted([[call(0, 'r1', 'read_scene'), finish('tool_calls')], [text('Done.'), finish('stop')]])
+    await runTask(request(plain.fetchImpl, {}, { maxSteps: 2 }))
+    expect(plain.sent[1].tools).toBeUndefined()
+  })
+
+  it('a provider that turns tool_choice none down, or a tool called all the same: asked once more without the tools', async () => {
+    const sent: Record<string, unknown>[] = []
+    const fetchImpl = (async (_url: unknown, init?: { body?: unknown }) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      sent.push(body)
+      if (body.tool_choice === 'none') {
+        return new Response(JSON.stringify({ error: { message: 'tool_choice "none" is not supported' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+      }
+      const chunks = sent.length === 1 ? [call(0, 'r1', 'read_scene'), finish('tool_calls')] : [text('The plan.'), finish('stop')]
+      return new Response(chunks.map((c) => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as unknown as typeof fetch
+    const done = await runTask(request(fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 }))
+    expect(done.status).toBe('complete')
+    expect(done.text).toBe('The plan.')
+    expect(sent.map((s) => [!!s.tools, s.tool_choice ?? null])).toEqual([
+      [true, null],
+      [true, 'none'],
+      [false, null]
+    ])
+    // Nothing is remembered against the model: a forced tool is still sent next time.
+    const again = scripted([[text('ok'), finish('stop')]])
+    await runTask(request(again.fetchImpl, { tools: [...TOOLS, PROPOSE], forceTool: () => 'propose_changes' }, { maxSteps: 2 }))
+    expect(choiceOf(again.sent[0])).toEqual({ type: 'function', function: { name: 'propose_changes' } })
+    // A tool called despite none: the same request again without the tools.
+    const stubborn = scripted([
+      [call(0, 'r1', 'read_scene'), finish('tool_calls')],
+      [call(0, 'r2', 'read_scene'), finish('tool_calls')],
+      [text('The plan.'), finish('stop')]
+    ])
+    const plan = await runTask(request(stubborn.fetchImpl, { lastKeepsTools: true }, { maxSteps: 2 }))
+    expect(plan.text).toBe('The plan.')
+    expect(stubborn.sent.map((s) => !!s.tools)).toEqual([true, true, false])
   })
 
   it('leaves short narration written before tool calls out of the reply (the contract), keeping longer words and the answer', async () => {

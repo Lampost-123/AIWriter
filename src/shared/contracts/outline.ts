@@ -15,6 +15,7 @@
 // as they arrive (features/outline/parse.ts); what Adam keeps comes back here as KeepItems.
 import type { Act, CarryField, Chapter, ChapterCard, ID, SceneCard } from '../types'
 import type { ChapterCardNames } from './chapterCards'
+import type { EventMove } from './worldViews'
 
 /**
  * Where a chapter goes: into an act, or among the chapters with no act (`actId` null). Just after
@@ -47,6 +48,38 @@ export interface OutlineRequest {
   size: OutlineSize
 }
 
+/**
+ * A level of the outline in stages (2026-10-19, "the whole book in one reply" was cut off and slow): the acts first (each
+ * with a summary and about how many chapters), then one act's chapters, then one chapter's scenes (as many as it needs);
+ * or one scene's card ("Plan this scene"). Each reply is small, so it comes quickly and is never cut off.
+ */
+export type OutlineLevel = 'acts' | 'chapters' | 'scenes' | 'scene'
+
+export interface OutlineStageRequest {
+  /** Made by the interface, so every task event can be matched to it. */
+  taskId: ID
+  storyId: ID
+  level: OutlineLevel
+  /** The premise as it is in the helper's box; left out, the story's own. */
+  premise?: string
+  /** acts: how many acts (0: chapters only, the first stage of a story with no new acts). */
+  acts?: number
+  /** acts: about how many chapters in all; chapters: how many (left out: as the act's "Chapters:" line says, else 3). */
+  chapters?: number
+  /**
+   * The outline being planned, in the outline form with Adam's changes (what was discarded left out): headings of parts
+   * already in the story end "(in the story)", and the one to plan inside ends "(plan this one)".
+   */
+  plan?: string
+  /** chapters and scenes: the act or chapter to plan inside, in the outline form, with what it holds so far. */
+  target?: string
+  /** chapters: the act, when it is in the story already (kept); scenes: the chapter, when it is. */
+  actId?: ID | null
+  chapterId?: ID | null
+  /** scene: the scene to plan. */
+  sceneId?: ID | null
+}
+
 export interface SceneIdeasRequest {
   taskId: ID
   sceneId: ID
@@ -71,7 +104,8 @@ export interface KeepItem {
   kind: 'act' | 'chapter' | 'scene'
   /**
    * A chapter's act (left out: among the chapters with no act, or in the story's last act when the
-   * story has acts) or a scene's chapter (needed). Acts go in the story.
+   * story has acts; a ref with neither id nor key: among the chapters with no act, even when the story has acts, as
+   * Adam can choose where a chapter goes, 2026-10-19) or a scene's chapter (needed). Acts go in the story.
    */
   parent?: KeepRef
   after?: KeepRef
@@ -132,6 +166,11 @@ export interface KeptItem {
   openingDated?: ID
   /** The names of the characters and places in `entryIds`, in the same order, for the keep's toast. */
   entryNames?: string[]
+  /**
+   * Events the story's builds had left at its start that this kept scene is where they happen (2026-10-19: its card
+   * names them, or it is on their day): they now first exist here. Its Undo puts them back while they are still here.
+   */
+  events?: EventMove[]
 }
 
 // ----- Interview me, on a scene or a chapter -----
@@ -229,6 +268,11 @@ export interface OutlineApi {
   outlineBlank(storyId: ID): Promise<boolean>
   /** Asks for an outline; it streams as task events with job 'outline'. Throws (plain words) only before it starts. */
   startOutline(input: OutlineRequest): Promise<{ generationId: ID }>
+  /**
+   * Asks for one level of the outline (see OutlineLevel): it streams as task events with job 'outline', in the outline
+   * helper's form (only that level's headings). Throws (plain words) only before it starts.
+   */
+  startOutlineStage(input: OutlineStageRequest): Promise<{ generationId: ID }>
   /** Adds what Adam kept to the story, with each scene's card filled; says what was made from each item. */
   keepOutline(storyId: ID, items: KeepItem[]): Promise<KeptItem[]>
   /**

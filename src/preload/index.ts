@@ -11,7 +11,7 @@ function initialTheme(): PaintedTheme {
 /** The accent colour main opened the window in (--aiwrite-accent=...), null for the theme's own. */
 const initialAccent = (): string | null => accentIdOf(process.argv.find((a) => a.startsWith('--aiwrite-accent='))?.split('=')[1])
 
-/** The look main opened the window in (--aiwrite-look=...): the New look or Classic. */
+/** The look main opened the window in (--aiwrite-look=...): the New look, the only one since Classic was retired. */
 const initialLook = (): 'new' | 'classic' => lookOf(process.argv.find((a) => a.startsWith('--aiwrite-look='))?.split('=')[1])
 
 /** The desk layout can be chosen in this build (main passes --aiwrite-desk-ready; see deskReady in main/settings.ts). */

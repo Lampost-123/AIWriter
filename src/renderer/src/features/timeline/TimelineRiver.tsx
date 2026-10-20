@@ -5,7 +5,7 @@
 import './timeline.css'
 import { useCallback, useMemo, useState } from 'react'
 import type { ID } from '@shared/types'
-import type { Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
+import type { EventHome, Timeline, TimelineEntry, TimelinePoint } from '@shared/contracts/worldViews'
 import { CalendarRange, Plus, Target } from '@/components/ui/icons'
 import { Button } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -20,11 +20,19 @@ import { RiverArt } from './RiverArt'
 import { RiverBody, type RiverActions } from './RiverBody'
 import { ClashList, FilterPicker, LanePicker } from './RiverControls'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewLoading } from './viewParts'
+import { EventPlaces } from './EventPlaces'
 
 /** Lanes shown before Adam picks his own: the busiest dozen (the river has room for them). */
 const RIVER_LANES = 12
 
-const loadTimeline = (storyId: ID): Promise<Timeline> => api.getTimeline(storyId)
+/**
+ * The timeline, with the events earlier builds left at the story's start that can go to their scenes (2026-10-19), asked
+ * for together so the offer is there with the river, never after it.
+ */
+const loadTimeline = async (storyId: ID): Promise<Timeline & { homes: EventHome[] }> => {
+  const [timeline, homes] = await Promise.all([api.getTimeline(storyId), api.getEventHomes(storyId).catch(() => [] as EventHome[])])
+  return { ...timeline, homes }
+}
 
 const worldKey = (mode: LaneMode): string => `${useApp.getState().world?.id ?? ''}:${mode}`
 
@@ -151,6 +159,7 @@ export function TimelineRiver(): React.JSX.Element {
           ) : null}
         </div>
       </header>
+      {data ? <EventPlaces key={data.storyId} storyId={data.storyId} homes={data.homes} /> : null}
       {data ? (
         dated ? (
           <RiverBody

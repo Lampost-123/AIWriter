@@ -264,6 +264,30 @@ describe('streamChat', () => {
     const local = await run('fake/writer', { fetchImpl: hang, headersTimeoutMs: 20, delays: [1, 1, 1, 1] })
     expect(local.outcome.error).toContain('If the model is still loading')
   })
+
+  it('asks a server that never answers again only as often as timeoutRetries says, and other failures as before', async () => {
+    let calls = 0
+    const hang: typeof fetch = (_url, init) => {
+      calls++
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    }
+    const once = await run('fake/writer', { target: target({ baseUrl: 'https://api.example.com/v1' }), fetchImpl: hang, headersTimeoutMs: 20, timeoutRetries: 1 })
+    expect(calls).toBe(2)
+    expect(once.retries).toHaveLength(1)
+    expect(once.outcome.status).toBe('error')
+    expect(once.outcome.failure).toEqual({ type: 'timeout' })
+    expect(once.outcome.error).toBe("Fake didn't answer in time. Try again in a moment.")
+    calls = 0
+    const never = await run('fake/writer', { target: target({ baseUrl: 'https://api.example.com/v1' }), fetchImpl: hang, headersTimeoutMs: 20, timeoutRetries: 0 })
+    expect(calls).toBe(1)
+    expect(never.retries).toEqual([])
+    // Only timeouts are counted: a busy server is still asked again as usual.
+    const busy = await run('fake/servererror-once', { timeoutRetries: 0 })
+    expect(busy.outcome.status).toBe('complete')
+    expect(busy.retries).toHaveLength(1)
+  })
 })
 
 describe('streamChat: thinking', () => {

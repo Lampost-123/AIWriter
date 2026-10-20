@@ -121,3 +121,38 @@
   pointer-events: none;
   user-select: none;
 }
+
+/* Change it… (2026-10-19): the passage shown once, with only what moved marked (suggestions.ts renderDiff). The old
+   words make way for it (hidden while it shows; they are the scene's text until Accept). */
+.scene-prose .aw-sugg-hidden {
+  display: none;
+}
+
+/* The words kept as they are read as the page does. */
+.scene-prose .aw-diff-same {
+  color: var(--fg);
+}
+
+/* The words cut, struck through as any change's are. */
+.scene-prose .aw-diff-del {
+  color: var(--muted);
+  text-decoration-line: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ai) 80%, transparent);
+  text-decoration-thickness: 1.5px;
+}
+
+/* The words added, marked as any change's new words are. */
+.scene-prose .aw-diff-ins {
+  background: var(--ai-soft);
+  color: var(--fg);
+  text-decoration: none;
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  box-shadow: 0 0 0 1.5px var(--ai-soft);
+}
+
+/* While it is written: the old words it hasn't reached yet, faint (not cut: they may yet be kept). */
+.scene-prose .aw-diff-pending {
+  color: var(--faint);
+}

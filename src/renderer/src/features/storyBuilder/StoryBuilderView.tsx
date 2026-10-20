@@ -63,8 +63,9 @@ export function StoryBuilderView({ storyId, step, recipeId }: { storyId: ID; ste
     return (
       <div className="flex h-full flex-col" data-story-builder="outline">
         <StepBar storyId={storyId} shown="outline" />
-        <div className="min-h-0 flex-1">
-          <OutlineHelper storyId={storyId} />
+        {/* relative: the desk's plan page fills the box it sits in, so it stays under the step bar instead of over it. */}
+        <div className="relative min-h-0 flex-1">
+          <OutlineHelper storyId={storyId} nav={<StepNav storyId={storyId} shown="outline" />} />
         </div>
       </div>
     )
@@ -86,7 +87,7 @@ export function RecipeStoryPlan({ storyId, recipeId }: { storyId: ID; recipeId: 
   return (
     <div className="flex h-full flex-col" data-story-builder="recipe">
       <StepBar storyId={storyId} shown="outline" />
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         <RecipePlan storyId={storyId} recipeId={recipeId} />
       </div>
     </div>
@@ -191,8 +192,6 @@ function Builder({ storyId, title, shown }: { storyId: ID; title: string; shown:
   useEffect(() => {
     document.querySelector('[data-story-builder] [data-scroll]')?.scrollTo({ top: 0 })
   }, [shown])
-  const index = STEPS.findIndex((s) => s.id === shown)
-  const go = (s: Step): void => openStoryBuilder(storyId, s)
   return (
     <div className="flex h-full flex-col" data-story-builder={shown}>
       <div className="h-full overflow-y-auto [scrollbar-gutter:stable]" data-scroll>
@@ -211,23 +210,32 @@ function Builder({ storyId, title, shown }: { storyId: ID; title: string; shown:
             {shown === 'codex' ? <CodexStep storyId={storyId} /> : null}
             {shown === 'done' ? <DoneStep storyId={storyId} /> : null}
           </div>
-          <div className="mt-8 flex items-center justify-between border-t border-line pt-4">
-            {index > 0 ? (
-              <Button variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => go(STEPS[index - 1].id)}>
-                {STEPS[index - 1].label}
-              </Button>
-            ) : (
-              <span />
-            )}
-            {index < STEPS.length - 1 ? (
-              <Button variant="primary" onClick={() => go(STEPS[index + 1].id)} data-next>
-                Next: {STEPS[index + 1].label}
-                <ArrowRight size={14} aria-hidden className="ml-1" />
-              </Button>
-            ) : null}
-          </div>
+          <StepNav storyId={storyId} shown={shown} className="mt-8 pt-4" />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Back to the step before and on to the next, at the foot of every step (the outline's too, under its two columns). */
+function StepNav({ storyId, shown, className }: { storyId: ID; shown: Step; className?: string }): React.JSX.Element {
+  const index = STEPS.findIndex((s) => s.id === shown)
+  const go = (s: Step): void => openStoryBuilder(storyId, s)
+  return (
+    <div className={cn('flex items-center justify-between border-t border-line', className)} data-step-nav>
+      {index > 0 ? (
+        <Button variant="ghost" icon={<ArrowLeft size={14} />} onClick={() => go(STEPS[index - 1].id)}>
+          {STEPS[index - 1].label}
+        </Button>
+      ) : (
+        <span />
+      )}
+      {index < STEPS.length - 1 ? (
+        <Button variant="primary" onClick={() => go(STEPS[index + 1].id)} data-next>
+          Next: {STEPS[index + 1].label}
+          <ArrowRight size={14} aria-hidden className="ml-1" />
+        </Button>
+      ) : null}
     </div>
   )
 }

@@ -27,6 +27,7 @@ const PARAGRAPHS: { value: EditorSettings['paragraphStyle']; label: string; hint
 ]
 
 export function AppearanceSettings(): React.JSX.Element | null {
+  // Always the New look now (Classic was retired on 2026-10-19); ClassicAppearance awaits removal.
   const isNew = useNewLook()
   return isNew ? <NewAppearance /> : <ClassicAppearance />
 }
@@ -115,7 +116,7 @@ function OpensField(): React.JSX.Element | null {
 }
 
 /**
- * The New look: the choices in groups (style and layout, colour, the page, opening), with a small window beside them
+ * The New look: the choices in groups (layout, colour, the page, opening), with a small window beside them
  * (AppearancePreview) that changes as they do. In a narrower page the preview comes first, over the choices.
  */
 function NewAppearance(): React.JSX.Element | null {
@@ -129,7 +130,7 @@ function NewAppearance(): React.JSX.Element | null {
           <AppearancePreview look={lookOf(settings.look)} arrangement={arrangementOf(settings.arrangement)} editor={settings.editor} />
         </aside>
         <div className="flex min-w-0 flex-col gap-6">
-          <SettingsSection title="Style and layout" description="How the whole window looks, and where everything sits.">
+          <SettingsSection title="Layout" description="Where everything sits in the window.">
             <div className="flex flex-col gap-4">
               <LookPicker />
             </div>

@@ -1,6 +1,7 @@
-// The two looks (Settings › Appearance › Style): the New look ("Lamplight") and Classic. The look is painted as
-// <html data-look> (styles.css sets the tokens for each), and is known here for what draws differently in code: the
-// icons (components/ui/icons.tsx) and the shell (the area rail in the New look, today's binder in Classic).
+// The look: the New look ("Lamplight"), the only one since Classic was retired (2026-10-19; lookOf in contracts/look.ts
+// always answers 'new', so the Classic branches that read it here await removal). It is painted as <html data-look>
+// (styles.css sets its tokens), and is known here for what draws differently in code: the icons
+// (components/ui/icons.tsx) and the shell (the area rail).
 // The New look's layout (Settings › Appearance › Layout) is kept here too: the desk or the panels, painted as
 // <html data-arrangement> (layout/desk/desk.css), and known here for the shell (App.tsx's Workspace).
 // Its own small store, so the icons never depend on the app's store.

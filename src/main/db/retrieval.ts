@@ -77,3 +77,29 @@ export function saidChanges(db: DB, changes: Change[] = listAllChanges(db)): Sai
   }
   return out
 }
+
+/** A scene's or chapter's summary as step 5 searches it (2026-10-19: summaries are searched like passages). */
+export interface SummaryText {
+  /** 'scene:<id>' or 'chapter:<id>'. */
+  key: string
+  level: 'scene' | 'chapter'
+  targetId: ID
+  text: string
+}
+
+/** Every live scene's and chapter's summary with words in it (a deleted scene's or chapter's is left out). */
+export function liveSummaryTexts(db: DB): SummaryText[] {
+  const rows = db
+    .prepare(
+      `SELECT su.level, su.target_id, su.text FROM summaries su
+       WHERE TRIM(su.text) <> '' AND (
+         (su.level = 'scene' AND su.target_id IN (SELECT id FROM scenes WHERE deleted_at IS NULL))
+         OR (su.level = 'chapter' AND su.target_id IN (SELECT id FROM chapters WHERE deleted_at IS NULL)))`
+    )
+    .all() as Row[]
+  return rows.map((r) => {
+    const level = r.level as 'scene' | 'chapter'
+    const targetId = r.target_id as string
+    return { key: `${level}:${targetId}`, level, targetId, text: r.text as string }
+  })
+}

@@ -11,7 +11,7 @@ import { assembleContext, MUST_BLOCK } from '../ai/context'
 import { countRaw } from '../ai/tokens'
 import { mustStayTrue, MUST_SLIPS } from '../ai/mustStay'
 import { checkSections, gatherSceneCheck } from './context'
-import { sceneSystem } from './prompts'
+import { CHECK_SYSTEM } from './prompts'
 import { lessonsBefore, lessonsFrom, RECENT_SCENES } from './lessons'
 
 const PREFS = { spelling: 'UK' as const, pov: '', tense: '', voiceNotes: '', avoidWords: [] }
@@ -209,7 +209,7 @@ describe('in a real world', () => {
     expect(meant.text).toBe('- In Book 1, Ch 1, Sc 2: Tobin speaks of the toll, but no one told him.')
     // Only for the check it belongs to.
     expect(checkSections(ctx, ['facts', 'voice']).some((s) => s.id === 'meant')).toBe(false)
-    expect(sceneSystem(['knowledge'])).toContain('"What the author has said is meant"')
+    expect(CHECK_SYSTEM).toContain('"What the author has said is meant"')
     // A scene where Tobin isn't named or on the card isn't told.
     repo.updateSceneCard(db, scenes[3], { ...repo.getScene(db, scenes[3]).card, presentIds: [] })
     repo.saveSceneText(db, scenes[3], null, 'Mara waited by the ferry alone.')

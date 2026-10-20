@@ -254,6 +254,7 @@ export class SceneController {
       releaseHold: (sceneId) => this.releaseHold(sceneId),
       beginStream: (sceneId, generationId, opts) => this.beginStream(sceneId, generationId, opts),
       appendStream: (generationId, text) => this.appendStream(generationId, text),
+      takeBackStream: (generationId) => this.takeBackStream(generationId),
       endStream: (generationId, opts) => this.endStream(generationId, opts),
       takeKeyboard: () => this.takeKeyboard(),
       undo: () => this.undoFromOutside(),
@@ -602,6 +603,27 @@ export class SceneController {
       this.editor.view.dispatch(tr)
     }
     this.follow.nudge()
+    this.updateDraftBelow()
+  }
+
+  /**
+   * Directed writing: the draft's last paragraph is taken back for a retake (on screen, or in a scene kept for the draft),
+   * and the words that come next go where it was.
+   */
+  private takeBackStream(generationId: ID): void {
+    if (this.destroyed) return
+    const fresh: SplitState = { started: true, pendingBreak: false, lineStart: true }
+    if (this.stream?.generationId !== generationId) {
+      const kept = this.keptFor(generationId)
+      if (!kept?.stream) return
+      const tr = streamDoc.takeBackStream(kept.state)
+      if (tr) this.setKept(kept, kept.state.apply(tr))
+      kept.stream.split = fresh
+      return
+    }
+    const tr = streamDoc.takeBackStream(this.editor.state)
+    if (tr) this.editor.view.dispatch(tr)
+    this.stream.split = fresh
     this.updateDraftBelow()
   }
 

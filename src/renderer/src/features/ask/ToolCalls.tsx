@@ -18,12 +18,14 @@ import {
   CircleHelp,
   CircleSlash,
   CircleX,
+  Compass,
   Copy,
   Eye,
   Feather,
   History,
   ListTree,
   MessageSquareWarning,
+  NotebookText,
   Palette,
   PenLine,
   ScrollText,
@@ -61,6 +63,9 @@ export const TOOL_ICONS: Record<ToolKind, IconType> = {
   propose: PenLine,
   draft: Feather,
   ask: CircleHelp,
+  // The story index's look-ups (LOOKUPS: where someone or something is, who knows what), and an instruction pack (PACKS).
+  lookup: Compass,
+  instructions: NotebookText,
   other: Wrench
 }
 

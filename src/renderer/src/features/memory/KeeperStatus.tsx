@@ -16,6 +16,7 @@ import { useApp } from '@/lib/store'
 import { PopoverPanel } from '@/features/generate/parts'
 import { changesNote, freshUpdate, keeperState, pointsToSettings, readingNote } from './logic'
 import { rereadProgress } from './reread'
+import { fillProgress } from './storyFill'
 import type { MemoryStatus } from '@shared/types'
 
 /** How long "Memory updated" stays (longer while the pointer or keyboard is on it). */
@@ -104,7 +105,9 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
     // The slot keeps its room while empty and grows to fit its words (up to a limit, the rest in the tooltip): the free
     // middle of the bar gives way, so nothing to its right moves. Quiet (the desk's top bar, where the status island says
     // the rest): no room kept while empty.
-    <div className={cn('flex max-w-[220px] shrink-0 justify-end', quiet ? 'min-w-0' : 'min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
+    // Quiet, it gives way first when the bar is short of room (its words cut short, the rest in its tooltip), so it never
+    // runs into the rooms in the middle.
+    <div className={cn('flex max-w-[220px] justify-end', quiet ? 'min-w-0 shrink' : 'shrink-0 min-w-[176px] look-new:min-w-[128px]')} role="status" aria-live="polite">
       {state === 'error' && status?.error ? (
         <P.Root open={open} onOpenChange={setOpen}>
           <P.Trigger
@@ -141,6 +144,8 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
         </P.Root>
       ) : status?.rereading ? (
         <RereadNote progress={status.rereading} onWhatChanged={openWhatChanged} />
+      ) : status?.filling ? (
+        <FillNote progress={status.filling} onMemory={openWhatChanged} />
       ) : reading && status ? (
         <button
           type="button"
@@ -149,7 +154,8 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
           onClick={openWhatChanged}
         >
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
-          <span className="truncate">Reading the scene…</span>
+          {/* The desk's bar in a smaller window: the dot alone (its words for screen readers and on hover). */}
+          <span className={cn('truncate', quiet && 'max-[1599px]:sr-only')}>Reading the scene…</span>
         </button>
       ) : status?.refused ? (
         <RefusedNote note={status.refused} onSettings={() => goTo({ kind: 'settings', tab: 'models' })} />
@@ -172,7 +178,6 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
   )
 }
 
-/** A re-read Adam asked for (World Memory Overhaul B8): how far it has got, with Stop. */
 /** Scenes a model turned down: what went without and what to do, until dismissed (or another model is picked). */
 function RefusedNote({ note, onSettings }: { note: NonNullable<MemoryStatus['refused']>; onSettings: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -218,6 +223,60 @@ function RefusedNote({ note, onSettings }: { note: NonNullable<MemoryStatus['ref
   )
 }
 
+/** "Fill in the whole story" (the story index): how far it has got, with Stop. */
+function FillNote({ progress, onMemory }: { progress: NonNullable<MemoryStatus['filling']>; onMemory: () => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [stopping, setStopping] = useState(false)
+  const stop = async (): Promise<void> => {
+    setStopping(true)
+    try {
+      await api.stopStoryFill()
+      setOpen(false)
+      toast('Stopped filling in the story. What was filled in stays.')
+    } catch (e) {
+      toast(plainReason(e))
+    } finally {
+      setStopping(false)
+    }
+  }
+  const title = progress.title.trim() || 'the story'
+  return (
+    <P.Root open={open} onOpenChange={setOpen}>
+      <P.Trigger
+        className={cn(slotButton, 'text-faint hover:text-muted data-[state=open]:bg-surface-2')}
+        title="The memory is filling in the story. Click to see how far it has got, or stop it."
+        data-fill-note
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
+        <span className="truncate">{fillProgress(progress)}</span>
+      </P.Trigger>
+      <PopoverPanel className="w-[300px]">
+        <h3 className="text-[13.5px] font-semibold text-fg">Filling in “{title}”</h3>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+          The memory is working out what people wear and carry, any injuries, and where everyone ends up, one scene after
+          another: {Math.max(0, progress.total - progress.done)} of {progress.total} still to go. Keep writing meanwhile.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" loading={stopping} onClick={() => void stop()}>
+            Stop
+          </Button>
+          <button
+            type="button"
+            className="ml-auto rounded text-[12px] font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
+            onClick={() => {
+              setOpen(false)
+              onMemory()
+            }}
+          >
+            What changed
+          </button>
+        </div>
+      </PopoverPanel>
+    </P.Root>
+  )
+}
+
+/** A re-read Adam asked for (World Memory Overhaul B8): how far it has got, with Stop. */
 function RereadNote({ progress, onWhatChanged }: { progress: NonNullable<MemoryStatus['rereading']>; onWhatChanged: () => void }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [stopping, setStopping] = useState(false)

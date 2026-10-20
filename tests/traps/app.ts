@@ -4,7 +4,7 @@
 // checkout being run (--root).
 
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, appendFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type Database from 'better-sqlite3'
@@ -36,6 +36,8 @@ export interface TrapsConfig {
   apiKey: string | null
   /** Another address for the provider (to check the harness against a local fake server); null: the provider's own. */
   baseUrl: string | null
+  /** The stand-in model's folder (tests/standin): requests saved there, answered by a Claude helper. Null: not used. */
+  standin: string | null
   /**
    * USD per million tokens in (cache misses), in from the provider's cache, and out, for an estimated cost when the
    * provider reports none. DeepSeek's chat prices by default, as an estimate; null: tokens only.
@@ -87,7 +89,7 @@ export interface TrapsConfig {
 /** Where the search model's files are looked for when no --search-model is given: beside the reports, not committed. */
 const DEFAULT_SEARCH_MODEL = join('traps-results', 'search-model')
 
-/** How much a fake run of the book's memory model reads: DeepSeek's own (long story memory fix 14 reads the book whole). */
+/** How much a fake run of the book's memory model reads: DeepSeek's own, so the plan before writing reads what it would there. */
 export const FAKE_BOOK_READER = 1_000_000
 
 const num = (v: string | undefined, fallback: number): number => {
@@ -107,6 +109,7 @@ export function configFromEnv(env = process.env): TrapsConfig {
     provider,
     apiKey: env[KEY_VARIABLE[provider]]?.trim() || null,
     baseUrl: env.TRAPS_BASE_URL?.trim() || null,
+    standin: env.TRAPS_STANDIN?.trim() ? resolve(env.TRAPS_STANDIN.trim()) : null,
     prices: { in: price(env.TRAPS_PRICE_IN, 0.28), cached: price(env.TRAPS_PRICE_CACHED, 0.028), out: price(env.TRAPS_PRICE_OUT, 0.42) },
     writer: env.TRAPS_WRITER_MODEL?.trim() || null,
     memory: env.TRAPS_MEMORY_MODEL?.trim() || null,
@@ -323,7 +326,12 @@ function withStandIns(next: typeof fetch): typeof fetch {
     const body = typeof init?.body === 'string' ? init.body : ''
     if (body.includes('[AIWRITE-REPAIR v')) return standInRepair(body)
     if (body.includes(JUDGE_MARKER)) return standInJudge(body)
-    if (body.includes('Make sure this happens') || standInDirections.some((d) => body.includes(JSON.stringify(d).slice(1, -1)))) return standInWriter(body)
+    // Only the writer's own requests (a draft, Continue's): never the planner's or the memory's, which quote a chain's
+    // direction too (the plan before writing was answered with prose, so no step was ever planned in a fake run).
+    const writer = !/\[AIWRITE-(?!EDIT)[A-Z-]+ v\d+\]/.test(body)
+    if (writer && (body.includes('Make sure this happens') || standInDirections.some((d) => body.includes(JSON.stringify(d).slice(1, -1))))) {
+      return standInWriter(body)
+    }
     return next(input, init)
   }) as typeof fetch
 }
@@ -570,7 +578,7 @@ export async function openApp(
   /** A saved world to open in place of a new one (a copy is opened; the file is never changed). */
   worldFile: string | null = null
 ): Promise<App> {
-  if (!cfg.fake && !cfg.apiKey) throw new Error(`No ${KEY_VARIABLE[cfg.provider]} in the environment: a real run needs it (or use --fake).`)
+  if (!cfg.fake && !cfg.standin && !cfg.apiKey) throw new Error(`No ${KEY_VARIABLE[cfg.provider]} in the environment: a real run needs it (or use --fake).`)
   if (!cfg.fake && process.env.CI) throw new Error('A real trap run never runs in CI.')
   const dataDir = mkdtempSync(join(tmpdir(), 'aiwrite-traps-'))
   process.env.AIWRITE_DATA_DIR = dataDir
@@ -578,6 +586,7 @@ export async function openApp(
   process.env.AIWRITE_KEEPER_QUIET_MS = String(6 * 60 * 60_000)
   const realFetch = globalThis.fetch
   let fake: { url: string; close(): Promise<void> } | null = null
+  let standin: { url: string; close(): Promise<void> } | null = null
   let world: typeof import('@app/main/world') | null = null
   let dbRef: Database.Database | null = null
   let sinceRow = 0
@@ -612,12 +621,46 @@ export async function openApp(
     }
     globalThis.fetch = realFetch
     await fake?.close()
+    await standin?.close()
     if (cfg.keep) cfg.log(`data folder kept at ${dataDir}`)
     else rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 
   try {
-    if (cfg.fake) {
+    if (cfg.standin && cfg.fake) {
+      // Mixed: the fake provider answers everything except the jobs in TRAPS_STANDIN_JOBS (a pattern matched against the
+      // start of a request's instructions, e.g. "novelist|PLAN"), which go to the stand-in model for a Claude helper to
+      // answer. Keeps a helper's part of a run to the writing itself.
+      const { startFakeProvider } = await import('../fake-provider/server.mjs')
+      const { startStandin, jobOf } = await import('../standin/server.mjs')
+      fake = await startFakeProvider({ delayMs: 0, words: 220 })
+      standin = await startStandin({ dir: cfg.standin })
+      const pick = new RegExp(process.env.TRAPS_STANDIN_JOBS?.trim() || 'novelist', 'i')
+      const inner = budget.wrap(withStandIns(realFetch))
+      // The stand-in's jobs skip the fake run's own stand-ins (withStandIns), which would answer a draft carrying a
+      // chain's directions themselves: the helper carries them out.
+      const toStandin = budget.wrap(realFetch)
+      const base = fake.url.replace(/\/+$/, '')
+      cfg.log(`mixed run: jobs matching /${pick.source}/ go to the stand-in model at ${standin.url}; the rest to the fake provider`)
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.startsWith(base) && url.includes('/chat/completions') && typeof init?.body === 'string') {
+          try {
+            const body = JSON.parse(init.body) as { messages?: { role: string; content: unknown }[] }
+            if (pick.test(jobOf(body.messages ?? []))) return toStandin(url.replace(base, standin!.url), init)
+          } catch {
+            // Not JSON: the fake provider's.
+          }
+        }
+        return inner(input, init)
+      }) as typeof fetch
+    } else if (cfg.standin) {
+      // The stand-in model: no key, no network beyond this computer, no cost. Its replies come from a Claude helper.
+      const { startStandin } = await import('../standin/server.mjs')
+      standin = await startStandin({ dir: cfg.standin })
+      cfg.log(`stand-in model at ${standin.url}; requests in ${join(cfg.standin, 'inbox')}`)
+      globalThis.fetch = budget.wrap(realFetch)
+    } else if (cfg.fake) {
       const { startFakeProvider } = await import('../fake-provider/server.mjs')
       fake = await startFakeProvider({ delayMs: 0, words: 220 })
       globalThis.fetch = budget.wrap(withStandIns(realFetch))
@@ -634,6 +677,32 @@ export async function openApp(
       globalThis.fetch = budget.wrap(guard)
     }
 
+    if (process.env.TRAPS_MEASURE) {
+      // Every chat request's size, by job, to a JSON-lines file: what the app really sends, whoever answers.
+      const { requestRecord } = await import('../standin/server.mjs')
+      const file = process.env.TRAPS_MEASURE
+      const inner = globalThis.fetch
+      let n = 0
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.includes('/chat/completions') && typeof init?.body === 'string') {
+          try {
+            const r = requestRecord(String(++n), JSON.parse(init.body))
+            appendFileSync(file, JSON.stringify({ n, job: r.job, messages: r.messages.length, tokens_in: r.estimated_tokens_in, tools: r.tools.length, max_tokens: r.max_tokens }) + '\n')
+            // TRAPS_MEASURE_FULL: also every request whole, one file each, to see what a job really reads.
+            if (process.env.TRAPS_MEASURE_FULL) {
+              mkdirSync(process.env.TRAPS_MEASURE_FULL, { recursive: true })
+              writeFileSync(join(process.env.TRAPS_MEASURE_FULL, `${String(n).padStart(5, '0')}.json`), JSON.stringify(r, null, 1))
+            }
+          } catch {
+            // Not JSON: not ours to measure.
+          }
+        }
+        return inner(input, init)
+      }) as typeof fetch
+      cfg.log(`measuring every request's size into ${file}`)
+    }
+
     const settings = await import('@app/main/settings')
     const providers = await import('@app/main/ai/providers')
     world = await import('@app/main/world')
@@ -646,6 +715,7 @@ export async function openApp(
     const gens = await import('@app/main/db/generations')
     const { streamChat } = await import('@app/main/ai/client')
     const { emptySceneCard } = await import('@shared/defaults')
+    const { publishedReadingLimit } = await import('@shared/readingLimits')
     // Step 3's check and repair, when this checkout has it (older ones run exactly as before), and the page's own code
     // for making its fixes.
     const repairMod = await optional<RepairModule>(cfg.root, 'main/ipc/repair')
@@ -673,7 +743,9 @@ export async function openApp(
 
     // The provider and the models, as Settings › Models would have them: DeepSeek through the app's DeepSeek preset
     // (a custom, OpenAI-compatible provider), or OpenRouter. The fake run is a custom provider too.
-    const provider = cfg.fake
+    const provider = cfg.standin && !cfg.fake
+      ? providers.saveProvider({ kind: 'custom', name: 'Stand-in', baseUrl: standin!.url, apiKey: 'standin' })
+      : cfg.fake
       ? providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake!.url, apiKey: 'traps-fake' })
       : cfg.provider === 'deepseek'
         ? providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: cfg.baseUrl ?? DEEPSEEK_BASE_URL, apiKey: cfg.apiKey! })
@@ -681,6 +753,7 @@ export async function openApp(
     // The model list costs nothing.
     const listed = await providers.listModels(provider.id)
     const flash = (): string => {
+      if (cfg.standin && !cfg.fake) return 'standin/model'
       if (cfg.fake) return 'fake/writer'
       const found = pickFlash(
         listed.map((m) => m.id),
@@ -696,7 +769,11 @@ export async function openApp(
       const m = listed.find((x) => x.id === id)
       // A custom provider takes a model id typed in, as Settings › Models does; OpenRouter only what it lists.
       if (!m && provider.kind === 'openrouter') throw new Error(`OpenRouter doesn't list a model called "${id}".`)
-      if (!m) return { providerId: provider.id, modelId: id, label: id, contextLength: null, promptPrice: null, completionPrice: null, maxOutput: null, sampling: null }
+      // A fake run that names a real model (to start from a live run's saved world, whose models must match: --writer
+      // deepseek-flash) reads as much as that model does on its maker's API, so its prompts are the size they were live
+      // (2026-10-20: the plan before writing measured against a live DeepSeek Flash run's world).
+      const reads = cfg.fake && !m ? (publishedReadingLimit(DEEPSEEK_BASE_URL, id)?.tokens ?? null) : null
+      if (!m) return { providerId: provider.id, modelId: id, label: id, contextLength: reads, promptPrice: null, completionPrice: null, maxOutput: null, sampling: null }
       return {
         providerId: provider.id,
         modelId: m.id,
@@ -711,14 +788,14 @@ export async function openApp(
     const writer = choose(cfg.writer ?? flash())
     const chosen = choose(cfg.memory ?? writer.modelId)
     // A fake run of the book: the memory model reads as much as DeepSeek's (1,000,000 tokens), so the plan before writing
-    // reads the book so far whole for its continuity brief (long story memory fix 14), as it would on DeepSeek.
+    // reads for its continuity brief (long story memory fix 14) what it would on DeepSeek.
     const memory = cfg.fake && cfg.story === 'book' ? { ...chosen, contextLength: FAKE_BOOK_READER } : chosen
     const judge = choose(cfg.judge ?? memory.modelId)
     settings.updateSettings({ models: { writer, memory } })
     if (repairMod) switchOnRepair(settings, cfg.log)
     if (retrieval) settings.updateSettings({ findByMeaning: true } as never)
     cfg.log(`writer ${writer.modelId}, memory ${memory.modelId}, judge ${judge.modelId}; budget ${cfg.maxIn.toLocaleString('en-GB')} tokens in, ${cfg.maxOut.toLocaleString('en-GB')} out`)
-    if (memory !== chosen) cfg.log(`fake run of the book: the memory model reads up to ${FAKE_BOOK_READER.toLocaleString('en-GB')} tokens, so the plan reads the book so far whole`)
+    if (memory !== chosen) cfg.log(`fake run of the book: the memory model reads up to ${FAKE_BOOK_READER.toLocaleString('en-GB')} tokens, as DeepSeek's does`)
 
     // The app as it starts: drafting, and the memory keeper (which registers the catch-up before a draft).
     initAi()

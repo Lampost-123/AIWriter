@@ -1,7 +1,8 @@
 // The desk's top bar (the New look's desk layout), 52px, lying on the lit frame. Left: the lamp mark (the story's
 // home, as is the story's name), the world (its menu: other worlds, the start screen, rename, new, export, the sample world, recipes) and the
 // story (switch stories, its settings), with the sample world's chip. Middle: the rooms. Right: an update waiting, the
-// memory when it is reading or in trouble, the command bar, the status island, focus mode and Settings.
+// memory when it is reading or in trouble, the command bar, Check (this scene, chapter or story), the status island, focus
+// mode and Settings.
 // Nothing in it is cut short at the sizes the desk is made for; in a small window the command bar narrows first.
 import { useRef } from 'react'
 import { House, Settings as SettingsIcon } from '@/components/ui/icons'
@@ -19,6 +20,7 @@ import { openStoryHome } from '@/features/desk/home/open'
 import { goToStartScreen } from '@/features/start/home'
 import { RenameWorld, useSettingsKey, WorldMenu } from '@/layout/TopBar'
 import { UpdateBanner } from '@/layout/UpdateBanner'
+import { CheckButton } from '@/features/check/CheckButton'
 import { CommandBar } from './CommandBar'
 import { DrawerToggle } from './DrawerToggle'
 import { RoomSwitch } from './RoomSwitch'
@@ -49,7 +51,9 @@ export function DeskTopBar(): React.JSX.Element {
       data-desk-topbar
       // The rooms sit in the middle of the window; a long world or story name moves them along rather than being cut
       // short (under 1440px the sample world's chip steps aside, and only in the smallest windows do the names give way).
-      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
+      // Under 1200px the buttons on the right keep all the room they need and the rooms move along a little, rather than
+      // running under them.
+      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 max-[1200px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
     >
       <div className="flex min-w-0 items-center">
         {/* Back to the start screen, where Adam picks what to work on. */}
@@ -96,6 +100,8 @@ export function DeskTopBar(): React.JSX.Element {
             'group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:w-9')}>
           <CommandBar />
         </div>
+        {/* The one Check: this scene, chapter or story (the calm overhaul). */}
+        <CheckButton />
         {/* The scene drawer, shown and hidden from here (on the writing page). */}
         <DrawerToggle />
         <StatusIsland />

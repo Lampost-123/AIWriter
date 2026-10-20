@@ -12,6 +12,10 @@ export interface RecalledPassage {
   kind: 'scene' | 'summary'
   /** Its place in the story, so passages can be sent oldest first. */
   order: number
+  /** The scene it comes from (a passage) or sums up (a scene's summary), to read more of it. */
+  sceneId?: ID
+  /** The chapter it sums up (a chapter's summary). */
+  chapterId?: ID
 }
 
 /** Something said earlier that matters later: a promise, a threat or a secret told, in the exact words. */

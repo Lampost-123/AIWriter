@@ -10,6 +10,9 @@
 //   keeper/apply.ts: a nickname or a title, never "her brother");
 // - plot threads still open past the chapter they were due by, or untouched for a long stretch (long story memory fix
 //   10, the promises ledger: memory/promises.ts, overdueThreads in memory/scene.ts), in each story with words.
+// - the memory's notes on pay-offs (overhaul, 2026-10-19; keeper/apply.ts settlePayoffs): "Did this scene pay it off?"
+//   where a card planned the pay-off and the words didn't show it, and a thread paid off while a later card still plans
+//   it (payoffChecks).
 // Keep is Adam confirming: a fact becomes his and no longer rests on the words (as an Undo of a removal does in part
 // A), a guess becomes his, a summary counts as fitting the scene as it is now (it still follows later edits), a note is
 // dismissed, a name is added to the character's other names (refused when someone else goes by it). Remove takes the
@@ -280,7 +283,104 @@ export function listMemoryChecks(db: DB): MemoryCheckItem[] {
 
   // Plot threads left waiting (long story memory fix 10): overdue, or untouched for a long stretch.
   if (shape) out.push(...promiseChecks(db, shape))
+  // The memory's notes on plot threads' pay-offs (overhaul, 2026-10-19): "Did this scene pay it off?", and a thread paid
+  // off while a later card still plans it.
+  if (shape) out.push(...payoffChecks(db, shape, entries, where))
   return out
+}
+
+/**
+ * The memory's open notes on pay-offs (keeper/apply.ts settlePayoffs), while they still stand, under "Plot threads left
+ * waiting":
+ * - "Did this scene pay it off?": the thread is still open, the scene's card still plans its pay-off there, Adam hasn't
+ *   dropped it or chosen a later chapter to pay it off by, and the story has moved on from that scene (it is marked done,
+ *   or a later scene of its story has words), so he isn't asked about a scene he is still writing. Pay off later, Keep
+ *   (leave it open: not asked again), Mark as dropped and Open, as for any thread left waiting.
+ * - paid off here while a later scene's card still plans its pay-off: while that resolve and that card's plan both stand.
+ *   Keep dismisses it; nothing to remove (the board's Undo takes the pay-off back).
+ */
+function payoffChecks(db: DB, shape: WorldShape, entries: Map<ID, Entry>, where: (sceneId: ID | null) => string): MemoryCheckItem[] {
+  const rows = kdb.openPayoffNotes(db)
+  if (!rows.length) return []
+  const written = writtenScenes(db)
+  const cards = repo.sceneCards(
+    db,
+    rows.flatMap((r) => [r.sceneId, String((r.undo as { later?: unknown } | null)?.later ?? '')]).filter((x): x is ID => !!x)
+  )
+  const plans = (s: ID | null | undefined, threadId: ID): boolean => !!s && !!cards.get(s)?.paysOffIds?.includes(threadId)
+  const out: MemoryCheckItem[] = []
+  for (const row of rows) {
+    const u = (row.undo ?? {}) as { key?: string; last?: string; later?: ID; changeId?: ID }
+    const ask = /^payoff:ask:([^:]+):(.+)$/.exec(u.key ?? '')
+    const threadId = row.entryId
+    const e = threadId ? entries.get(threadId) : undefined
+    if (!e || e.kind !== 'thread' || !row.sceneId) continue
+    if (ask) {
+      const sceneId = row.sceneId
+      const plan = threadPlan(db, e.id)
+      const at = placeOf(shape, sceneId)
+      if (!at || plan?.dropped || !plans(sceneId, e.id) || resolvedAnywhere(db, e.id)) continue
+      const payBy = plan?.payBy ? at.story.chapters.findIndex((c) => c.id === plan.payBy) : -1
+      if (payBy > at.chapter) continue
+      if (!sceneDone(db, sceneId) && !at.after.some((id) => written.has(id))) continue
+      out.push({
+        key: `payoff:${row.id}`,
+        group: 'promise',
+        fact: { kind: 'promise', threadId: e.id, why: 'payoff', logId: row.id },
+        entryId: e.id,
+        entryName: e.name,
+        entryKind: 'thread',
+        text: `Did ${where(sceneId) || 'its scene'} pay this off? Its scene card plans the pay-off there, but the memory didn’t find it in the words.`,
+        sceneId,
+        where: u.last ?? '',
+        quote: '',
+        paragraphId: null,
+        canRemove: true,
+        later: at.story.chapters.slice(at.chapter).map((c, i) => ({ id: c.id, label: chapterChoice(at.chapter + i + 1, c.title) }))
+      })
+      continue
+    }
+    const c = u.changeId ? liveChange(db, u.changeId) : null
+    if (!c || c.kind !== 'thread' || c.payload.status !== 'resolved' || !plans(u.later, e.id)) continue
+    out.push({
+      key: `payoff:${row.id}`,
+      group: 'promise',
+      fact: { kind: 'promise', threadId: e.id, why: 'paid-before', logId: row.id },
+      entryId: e.id,
+      entryName: e.name,
+      entryKind: 'thread',
+      text: `Paid off in ${where(row.sceneId) || 'an earlier scene'}, though the scene card of ${where(u.later ?? null) || 'a later scene'} still plans its pay-off. Take it off that card, or undo this pay-off on the board if it comes there instead.`,
+      sceneId: row.sceneId,
+      where: where(row.sceneId),
+      quote: row.quote,
+      paragraphId: null,
+      canRemove: false
+    })
+  }
+  return out
+}
+
+/** Where a scene is in its story: the story, its chapter's index, and the scenes after it. */
+function placeOf(shape: WorldShape, sceneId: ID): { story: WorldShape['stories'][number]; chapter: number; after: ID[] } | null {
+  for (const story of shape.stories) {
+    const order = story.chapters.flatMap((c, ci) => c.scenes.map((s) => ({ id: s.id, chapter: ci })))
+    const i = order.findIndex((s) => s.id === sceneId)
+    if (i >= 0) return { story, chapter: order[i].chapter, after: order.slice(i + 1).map((s) => s.id) }
+  }
+  return null
+}
+
+/** True when a thread has a resolve that stands anywhere (the question of whether one scene paid it off is then moot). */
+const resolvedAnywhere = (db: DB, threadId: ID): boolean =>
+  mem.changesForEntry(db, threadId).some((c) => c.entryId === threadId && c.kind === 'thread' && c.payload.status === 'resolved')
+
+/** True when Adam marked the scene done. */
+function sceneDone(db: DB, sceneId: ID): boolean {
+  try {
+    return !!repo.getSceneMeta(db, sceneId).acceptedAt
+  } catch {
+    return false
+  }
 }
 
 /** Per world, the plot threads worth a look, while nothing in it has changed (they take a walk of every story's line). */
@@ -412,6 +512,13 @@ function keepOne(db: DB, fact: MemoryCheckFact): Step[] {
       return steps
     }
     case 'promise': {
+      // The memory's own note on a pay-off (payoffChecks): dismissed, as a note is.
+      if (fact.logId) {
+        const row = kdb.getLog(db, fact.logId)
+        if (!row || row.undone) return []
+        kdb.markUndone(db, row.id)
+        return [{ op: 'note', logId: row.id }]
+      }
       // Kept as it is: an overdue thread isn't asked about again for this due chapter; a quiet one while nothing touches
       // it, until another long stretch has gone by (memory/promises.ts threadWarnings).
       const before = threadPlan(db, fact.threadId)
@@ -494,6 +601,8 @@ function removeFact(db: DB, fact: { kind: 'field'; entryId: ID; field: string } 
 export function removeMemoryCheck(db: DB, fact: MemoryCheckFact): MemoryCheckUndo {
   if (fact.kind === 'summary') throw new UserError("A scene's summary can't be removed here. Keep it, or edit it on the scene card.")
   if (fact.kind === 'alias') return { steps: ignoreAlias(db, fact.logId) }
+  // A thread paid off before a later card's plan has nothing to remove: the note goes, as Keep does.
+  if (fact.kind === 'promise' && fact.why === 'paid-before') return { steps: keepOne(db, fact) }
   if (fact.kind === 'promise') return planThread(db, fact.threadId, { dropped: true })
   if (fact.kind !== 'note') return { steps: removeFact(db, fact) }
   const row = kdb.getLog(db, fact.logId)

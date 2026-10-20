@@ -15,6 +15,7 @@ import type { PlacedFlag } from './liveDecorations'
 import { revealLiveFlag } from './liveFlags'
 import type { DraftCounts, DraftFirst } from './liveStore'
 import { ignoreLiveFlag, unignoreLiveFlag } from './liveWords'
+import { noteDraftPhrases } from '@/features/draftNote/draftNote'
 
 /** True while the flag's words are still in the page where it says. */
 const stillThere = (doc: PMNode, f: PlacedFlag): boolean => f.to <= doc.content.size && doc.textBetween(f.from, f.to, '\n', '\n') === f.word
@@ -143,6 +144,9 @@ let draftNote: { id: number; counts: DraftCounts } | null = null
  */
 export function noteDraft(counts: DraftCounts, first: DraftFirst): void {
   if (counts.phrase + counts.ai < 1 || useApp.getState().view.kind !== 'write') return
+  // A Generate draft's phrases go in its one note (features/draftNote, the calm overhaul).
+  const sceneId = useApp.getState().sceneId
+  if (sceneId && noteDraftPhrases(sceneId, counts, () => void revealLiveFlag(first.kind, first))) return
   const toasts = useToasts.getState()
   if (draftNote && toasts.items.some((t) => t.id === draftNote!.id)) {
     draftNote.counts = { phrase: draftNote.counts.phrase + counts.phrase, ai: draftNote.counts.ai + counts.ai }

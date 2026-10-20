@@ -15,12 +15,14 @@ import { layerOpen } from '@/lib/layers'
 import { useApp } from '@/lib/store'
 import { isWriting, setOf, useVariants } from '@/features/variants/store'
 import { useNewLook } from '@/features/look/look'
-import { BLANK_DRAFT_OPTIONS, draftLength, type SceneDraftOptions } from './draftOptions'
+import { BLANK_DRAFT_OPTIONS, draftDirection, draftLength, type SceneDraftOptions } from './draftOptions'
 import { busyElsewhere, listenForDrafts, startDraft, stopDraft, useDraft, type Phase } from './draftRun'
+import { takeShowPlan } from '@/features/planReview/store'
 import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
 import { estimateDraftCost, shortModelName } from './format'
+import { useDraftWait } from '@/features/waits/useDraftWait'
 import { useDelayed } from './parts'
 
 /** Where a draft goes in a scene that already has text: in place of it, or after it. */
@@ -98,8 +100,10 @@ export interface Generate {
   stop: () => void
   /** The New look: the words the draft has written so far, while it streams. */
   written: number | null
-  /** What the draft is doing, in a few words ("Writing…", "Updating memory…"), and why, for its tooltip. */
+  /** What the draft is doing, in a few words ("Writing…", "Planning the scene…"), and why, for its tooltip. */
   status: string
+  /** The same in fewer words while it gets ready ("Memory: 3 of 5"), for a small room; null: `status` fits. */
+  statusShort: string | null
   statusTitle: string | undefined
   /** The status is worth showing (a quick start shows none). */
   showStatus: boolean
@@ -134,6 +138,8 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   phaseRef.current = phase
   const popoverRef = useRef(popover)
   popoverRef.current = popover
+  const choiceFromOptionsRef = useRef(choiceFromOptions)
+  choiceFromOptionsRef.current = choiceFromOptions
   const steerRef = useRef(o.steer)
   steerRef.current = o.steer
   const creativity = opts.creativity ?? defaultCreativity
@@ -236,9 +242,12 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   const building = useBuildWatch((b) => castBuilding(b.running, storyId))
   /** The draft the note was shown for, and one waiting for the build to end. */
   const asked = useRef<{ mode?: DraftMode; byKey: boolean } | null>(null)
+  /** Whether the draft waiting for the cast's build was asked from the Draft options (draftDirection). */
+  const optionsAsked = useRef<boolean | null>(null)
   const [waiting, setWaiting] = useState<{ mode?: DraftMode } | null>(null)
   useEffect(() => {
     asked.current = null
+    optionsAsked.current = null
     setWaiting(null)
   }, [sceneId])
 
@@ -274,28 +283,44 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
         setPopover('choose')
         return
       }
+      // Asked from the Draft options (or the choice they opened), whose Direction is in front of Adam; after the note that
+      // the cast is being built, as it was asked before it.
+      const fromOptions =
+        now && optionsAsked.current !== null
+          ? optionsAsked.current
+          : popoverRef.current === 'options' || (popoverRef.current === 'choose' && choiceFromOptionsRef.current)
       // The story's cast is still being built: a quiet note first, so Adam can wait for the AI to know more.
       if (!now && castBuilding(useBuildWatch.getState().running, useApp.getState().storyId)) {
         asked.current = { mode, byKey }
+        optionsAsked.current = fromOptions
         setPopover('building')
         return
       }
+      optionsAsked.current = null
       setWaiting(null)
       // Emptied since the choice was made: there's nothing to replace.
       setPopover(null)
-      // The desk's steer box: its words steer this draft (in place of the options' Direction), once.
+      // The desk's steer box: its words steer this draft (in place of the options' Direction), once. Empty, Add below has
+      // no direction (draftDirection: never the last whole draft's, written again as "what happens now").
       const steer = steerRef.current
       const steered = steer?.get().trim() ?? ''
+      const addBelow = mode === 'add' && filled
       void startDraft(sceneId, bridge, {
         replace: (mode === 'replace' || mode === 'fresh') && filled,
         takeKeyboard: !!mode,
         // A fresh take doesn't build on what the earlier draft established; Add below carries on from the scene's words.
-        options: () => ({
-          ...(useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS),
-          ...(steered ? { direction: steered } : {}),
-          ...(mode === 'fresh' ? { fresh: true } : {}),
-          ...(mode === 'add' && filled ? { addBelow: true } : {})
-        })
+        options: () => {
+          const saved = useApp.getState().draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS
+          // Show me the plan first: the draft options' choice for this one draft, if Adam made one (features/planReview).
+          const showPlan = takeShowPlan(sceneId)
+          return {
+            ...saved,
+            direction: draftDirection({ saved: saved.direction, ...(steer ? { steer: steered } : {}), addBelow, fromOptions }),
+            ...(mode === 'fresh' ? { fresh: true } : {}),
+            ...(addBelow ? { addBelow: true } : {}),
+            ...(showPlan !== undefined ? { showPlan } : {})
+          }
+        }
       })
       if (steered) steer?.taken()
     },
@@ -395,11 +420,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   // Some models (OpenAI's reasoning models, for one) set their own creativity and take no setting for it.
   const fixedCreativity = writer?.sampling === false
   const modelName = writer ? shortModelName(writer.label || writer.modelId) : null
+  // The calm overhaul: each step before the first word is named, calmly (features/waits).
+  const wait = useDraftWait(sceneId, phase === 'starting')
   const status =
     phase === 'starting'
-      ? memoryReading
-        ? 'Updating memory…'
-        : 'Getting ready…'
+      ? (wait?.words ?? (memoryReading ? 'Catching up the memory…' : 'Getting ready…'))
       : phase === 'polishing'
         ? 'Polishing…'
         : retrying
@@ -407,11 +432,11 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
           : phase === 'stopping'
             ? 'Stopping…'
             : 'Writing…'
+  // The same step in fewer words, for the scene header's small room (the full words are its tooltip).
+  const statusShort = phase === 'starting' && wait ? wait.short : null
   const statusTitle =
     phase === 'starting'
-      ? memoryReading
-        ? 'Bringing the memory up to date with earlier scenes first, so the draft knows what happened in them.'
-        : 'Getting the draft ready.'
+      ? (wait ? `${wait.words} ${wait.title}` : 'Getting the draft ready.')
       : phase === 'polishing'
         ? 'The draft is written. A second pass is polishing it; you can accept or reject the result.'
         : (retrying ?? undefined)
@@ -450,6 +475,7 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
     stop,
     written,
     status,
+    statusShort,
     statusTitle,
     showStatus
   }

@@ -54,10 +54,10 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // A fresh data folder would show the first-run setup (milestone 6); app tests start at the start screen's
   // "Create a world" unless they ask for the setup with { env: { AIWRITE_SETUP: 'on' } }. A world reopened at
   // launch opens straight away, not under the start screen, unless they ask for it with { env: { AIWRITE_START: 'on' } }.
-  // The New look: app tests start in Classic (today's layout), with no one-time note, unless they ask for the New
-  // look with { env: { AIWRITE_LOOK: 'new' } } (or '' for what Adam gets: the New look, and the note after updating).
+  // The look: the New look, the only one since Classic was retired (2026-10-19). App tests start with no one-time note
+  // about it (AIWRITE_LOOK=new) unless they ask for what Adam gets with { env: { AIWRITE_LOOK: '' } }.
   // The New look's layout: the panels (the rail and the side list) unless a test asks for the desk with
-  // { env: { AIWRITE_LOOK: 'new', AIWRITE_ARRANGEMENT: 'desk' } }.
+  // { env: { AIWRITE_ARRANGEMENT: 'desk' } }.
   // Run on Adam's PC, the window is see-through and never takes focus (main/index.ts), so he can use his PC
   // meanwhile; AIWRITE_BACKGROUND=off shows it. CI has no one to disturb.
   // The theme: Dark is the default now (src/shared/defaults.ts); app tests start in "Match the system", as they always
@@ -70,6 +70,9 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
   // aren't about it leave it out, and ask for it with { env: { AIWRITE_CONTRACT: 'on' } }.
   // The continuity brief (long story memory fix 14) makes the plan read and write more: app tests that aren't about it
   // leave it out, and ask for it with { env: { AIWRITE_BRIEF: 'on' } }.
+  // The story index works out where things stand for the last two chapters by itself a few seconds after a world opens
+  // (one AI call a scene not yet read): app tests that aren't about it leave it out, and ask for it with
+  // { env: { AIWRITE_INDEX_FILL: 'on' } }.
   const background = process.env.AIWRITE_BACKGROUND ?? (process.env.CI ? 'off' : 'on')
   Object.assign(
     env,
@@ -77,14 +80,16 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_DATA_DIR: dataDir,
       AIWRITE_SETUP: 'off',
       AIWRITE_START: 'off',
-      AIWRITE_LOOK: 'classic',
-      AIWRITE_ARRANGEMENT: 'panels',
+      // The New look only (Classic retired, 2026-10-19). AIWRITE_E2E_ARRANGEMENT=desk runs specs that don't choose one on the desk.
+      AIWRITE_LOOK: 'new',
+      AIWRITE_ARRANGEMENT: process.env.AIWRITE_E2E_ARRANGEMENT ?? 'panels',
       AIWRITE_THEME: 'system',
       AIWRITE_BACKGROUND: background,
       AIWRITE_PLAN: 'off',
       AIWRITE_TOUR: 'off',
       AIWRITE_CONTRACT: 'off',
-      AIWRITE_BRIEF: 'off'
+      AIWRITE_BRIEF: 'off',
+      AIWRITE_INDEX_FILL: 'off'
     },
     opts.env
   )
@@ -133,6 +138,68 @@ export async function createWorldFromWelcome(win: Page, name: string): Promise<v
 }
 
 export const binder = (win: Page) => win.getByRole('complementary', { name: 'Binder' })
+
+/**
+ * Where each page Classic's binder listed sits in the New look's panels (Classic is retired): its area on the rail, and
+ * its row in the area's list (the side pane, still the "Binder" landmark). Rows may carry a count after their name.
+ */
+const PAGES = {
+  Codex: ['World', 'Everything'],
+  Characters: ['World', 'Characters'],
+  Places: ['World', 'Places'],
+  Groups: ['World', 'Groups'],
+  Items: ['World', 'Items'],
+  Lore: ['World', 'Lore'],
+  Events: ['World', 'Events'],
+  Glossary: ['World', 'Glossary'],
+  'Build from a summary': ['World', 'Build from a summary'],
+  Timeline: ['World', 'Timeline'],
+  'Relationship map': ['World', 'Relationship map'],
+  'Plot threads board': ['Plan', 'Plot threads board'],
+  'Outline helper': ['Plan', 'Outline helper'],
+  'Story builder': ['Plan', 'Story builder'],
+  Consistency: ['Check', 'Consistency'],
+  'What changed': ['Check', 'What changed'],
+  'Style guide': ['Write', 'Style guide'],
+  'Story settings': ['Write', 'Story settings']
+} as const satisfies Record<string, readonly [string, string]>
+export type PageName = keyof typeof PAGES
+
+/** The rail's button for one of the New look's areas (Write, Plan, World, Check; Ask and Settings at its foot). */
+export const areaButton = (win: Page, name: string) => win.getByRole('navigation', { name: 'Areas' }).getByRole('button', { name, exact: true })
+
+/** A row of the side list of the area showing (its name, then perhaps a count). */
+export const areaRow = (win: Page, name: string) => {
+  const plain = name.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')
+  return win.locator('[data-area-list]').getByRole('button', { name: new RegExp(`^${plain}(?: \\d+)?$`) })
+}
+
+/** Opens one of the pages Classic's binder listed, the way Adam does in the panels: its area on the rail, then its row. */
+export async function openPage(win: Page, name: PageName): Promise<void> {
+  const [area, row] = PAGES[name]
+  await areaButton(win, area).click()
+  await areaRow(win, row).click()
+}
+
+/**
+ * The open scene's title at the head of its page (a click renames the scene). Classic, now retired, had it in the
+ * scene's header bar (`main header`); the New look puts it on the page.
+ */
+export const sceneTitle = (win: Page, name: string | RegExp) => win.locator('main h1').getByRole('button', { name, exact: typeof name === 'string' })
+
+/**
+ * Makes sure the story's chapters and scenes show in the side list (the Write area's list): if another area (or
+ * Settings, whose own list covers the side pane) is showing, goes back to the writing page first.
+ */
+export async function showTree(win: Page): Promise<void> {
+  if ((await areaButton(win, 'Write').getAttribute('aria-current')) !== 'page') await openWrite(win)
+}
+
+/** Back to the Write area, where the side list is the story's chapters and scenes. */
+export async function openWrite(win: Page): Promise<void> {
+  await areaButton(win, 'Write').click()
+  await expect(win.locator('[data-area-list="write"]')).toBeVisible()
+}
 
 /** Opens a Settings page from the top bar. */
 export async function openSettings(win: Page, tab: string): Promise<void> {

@@ -24,6 +24,14 @@ test('About shows the version and update status; a downloaded update is offered,
     (await win.getByRole('complementary', { name: 'Binder' }).boundingBox())?.y,
     (await win.getByRole('heading', { level: 1, name: 'About and updates' }).boundingBox())?.y
   ]
+  // The page's head arrives with a short slide: measured once it has settled.
+  await expect
+    .poll(async () => {
+      const a = await tops()
+      await win.waitForTimeout(100)
+      return JSON.stringify(a) === JSON.stringify(await tops())
+    })
+    .toBe(true)
   const before = await tops()
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0].webContents.send('event:update:status', { state: 'ready', version: '9.9.9', notes: 'Faster saving\n• Calmer backups' })

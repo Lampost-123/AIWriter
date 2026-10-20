@@ -1,6 +1,10 @@
-// What the consistency check model is told (milestone 5, AI checks). Every system prompt starts with
-// "[AIWRITE-CHECK v1] <checks>", so the fake provider in tests/fake-provider/m5 recognises it. The
-// instructions are stable for each set of checks, so providers that cache repeated prompts can reuse them.
+// What the consistency check model is told (milestone 5, AI checks). Every request about one scene opens the same way
+// (2026-10-19, the checks' cost): the same instructions (CHECK_SYSTEM: what every check looks for, the rules and the
+// reply's shape), then the same material and the scene's words (checks/context.ts checkOpening), and only then the
+// request's own task ("## Your task": the checks it makes, or notes to rule on, checks/run.ts), so a provider that keeps
+// the start of a prompt it has seen (DeepSeek, OpenAI) reads all of it but the task from its cache. The fake provider in
+// tests/fake-provider/m5 reads the checks asked from the task's "[AIWRITE-CHECK-TASK v1] <checks>" line. Comparing two
+// stories keeps its own instructions ("[AIWRITE-CHECK v1] story").
 
 import type { CheckKind } from '@shared/contracts/checks'
 import { ALL_CHECKS } from '@shared/contracts/checks'
@@ -8,6 +12,12 @@ import { fieldKeys } from '../keeper/prompts'
 import { CHECK_CONTRACT_RULES } from '../repair/contract'
 
 export const CHECK_MARKER = '[AIWRITE-CHECK v1]'
+/** The first line of the instructions every request about one scene shares. */
+export const SCENE_CHECK_MARKER = '[AIWRITE-CHECK v2] scene'
+/** Starts the task of a request that makes checks, before the checks it makes: "[AIWRITE-CHECK-TASK v1] facts, timeline". */
+export const CHECK_TASK_MARKER = '[AIWRITE-CHECK-TASK v1]'
+/** The heading of each request's own task, after the scene. */
+export const TASK_HEADING = '## Your task'
 
 /** What each check looks for, in the model's instructions. */
 const WHAT: Record<CheckKind, string> = {
@@ -25,26 +35,23 @@ const WHAT: Record<CheckKind, string> = {
     "style: the scene against the style guide's point of view and tense (a slip into another point of view, or another tense, outside dialogue), the tone against the scene card's mood when it is far from it, and, when a genre or content levels are given, passages that clearly break the genre's feel or go further than a content level allows."
 }
 
+/** What each check looks for (the instruction packs, ai/packs/, give the chat and the planner the same words). */
+export const CHECK_WHAT: Readonly<Record<CheckKind, string>> = WHAT
+
 /** The check names a reply may use, for the instructions. */
 const NAMES = ALL_CHECKS.join(', ')
 
 /**
- * The instructions for checking a scene with these checks; with `contract`, through the scene's contract too (long
- * story memory fix 13: the chapter writer's checks of the scenes it drafted).
+ * The instructions every request about one scene starts with, whatever its task (2026-10-19): what each check looks for,
+ * the rules and the reply's shape. The same words every time, for every scene, so a provider's cache keeps them.
  */
-export function sceneSystem(checks: CheckKind[], contract = false): string {
-  return contract ? `${checksSystem(checks)}\n\n${CHECK_CONTRACT_RULES}` : checksSystem(checks)
-}
+export const CHECK_SYSTEM = `${SCENE_CHECK_MARKER}
+You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the author's plan for the scene, the style guide and the scene's text. After the scene comes your task, under "Your task": the checks to make, or another editor's notes to rule on. Do that task alone, and reply with one JSON object in the format it asks for, and nothing else.
 
-function checksSystem(checks: CheckKind[]): string {
-  const list = ALL_CHECKS.filter((c) => checks.includes(c))
-  return `${CHECK_MARKER} ${list.join(', ')}
-You check a scene of a novel for consistency, for its author. You are given the memory of the story's world as it stands at the START of the scene (before anything in the scene happens), the story so far, where things stood as the previous scene ended, the scenes just before it, the author's plan for the scene, the style guide and the scene's text. Reply with one JSON object and nothing else.
+What each check looks for
+${ALL_CHECKS.map((c) => `- ${WHAT[c]}`).join('\n')}
 
-What to check
-${list.map((c) => `- ${WHAT[c]}`).join('\n')}
-
-Rules
+Rules for the checks
 - The memory is what is true at the start of this scene. Something that changes during the scene (an injury, a new coat, a journey, someone learning a secret) is fine when the scene shows it happening. Flag only what the scene treats as already so that contradicts the memory, with nothing in the scene to explain it.
 - Report only real problems a careful reader would notice. No comments on quality, no suggestions for improvement, nothing the memory doesn't say.
 - Never list something you looked at and found fine as an issue (no "this fits", "no problem", "consistent"): that goes in "checked". Every issue's message says what is wrong.
@@ -64,14 +71,29 @@ Rules
 - "advice": when rewriting the quote alone can't fix it (or there are two good ways), one plain sentence for the author saying how to put it right, such as "Have Dov hear of Anselm's death earlier in the scene, or cut the line." Nothing is changed without the author.
 - "check": one of ${NAMES}.
 
-- "checked": one item for each check above, saying in one or two plain sentences what you compared and what agreed (or didn't), with names, such as "Mara's injured wrist and grey cloak match how the scene before ended." "ok": false when that check found an issue.
+- "checked": one item for each check the task asks for, saying in one or two plain sentences what you compared and what agreed (or didn't), with names, such as "Mara's injured wrist and grey cloak match how the scene before ended." "ok": false when that check found an issue.
 
-Reply with:
+A check's reply:
 {"issues": [{"check": "facts", "severity": "warning", "quote": "...", "message": "...", "conflicts": {"entry": "E1", "field": "eyes"}, "memory": "blue", "text": "green", "fix": "...", "advice": "..."}], "checked": [{"check": "facts", "ok": false, "note": "..."}]}
 
 Field keys. Characters: ${fieldKeys('character').join(', ')}, sampleLines. Places: ${fieldKeys('place').join(', ')}. Any kind: summary, description.
 
-If there is nothing to report, reply with an empty "issues" list, and still say what you checked in "checked".`
+If a check finds nothing to report, reply with an empty "issues" list, and still say what you checked in "checked".`
+
+/** "facts, timeline and continuity". */
+const andList = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
+
+/**
+ * The task of a request that makes these checks, after the scene. With `contract` (the scene's contract as its section
+ * says it: "## The scene’s contract (C ids)" and its C lines), through the contract too (long story memory fix 13: the
+ * chapter writer's checks, and Check this scene and Mark done through the scene's latest contract). The checks are named
+ * in the order given: a request's own first, then those asked in both requests (checks/context.ts checkRequests).
+ */
+export function checkTask(checks: CheckKind[], contract: string | null = null): string {
+  const list = [...new Set(checks)].filter((c) => ALL_CHECKS.includes(c))
+  const one = list.length === 1
+  const own = `Check the scene for ${andList(list)} only, as "What each check looks for" says: ${one ? 'its' : 'their'} issues, and "checked" for ${one ? 'it' : 'each of them'}.`
+  return `${TASK_HEADING}\n${CHECK_TASK_MARKER} ${list.join(', ')}\n${own}${contract ? `\n\n${CHECK_CONTRACT_RULES}\n\n${contract}` : ''}`
 }
 
 /** The instructions for comparing a story with the story it runs alongside, or a prequel's ending with the book it leads into. */
@@ -101,6 +123,9 @@ Reply with:
 If there is nothing to report, reply {"issues": []}.`
 }
 
-/** Said when a reply couldn't be read, before asking once more. */
+/**
+ * Said when a reply couldn't be read, at the end of the same request asked once more (2026-10-19, as the memory keeper
+ * does): the failed reply isn't sent back, so a provider's cache serves all of the request but this line.
+ */
 export const retryMessage = (why: string): string =>
-  `Your reply couldn't be used: ${why}. Reply again with only the JSON object, in exactly the format given, with every quote copied exactly from the scene.`
+  `Your last reply to this couldn't be used: ${why}. Reply with only the JSON object, in exactly the format given, with every quote copied exactly from the scene.`

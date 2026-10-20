@@ -31,7 +31,15 @@ export interface EditInput {
    * mid-sentence, or has more words after the cursor); 'paragraph' writes the next paragraphs after it.
    */
   continueAs?: 'inline' | 'paragraph'
+  /**
+   * Change it… ('revise') only: the sentences of `selection` Adam marked Keep, each exactly as it is there. They come
+   * back word for word (the window checks, and puts back any the AI changed). Left out or empty: none.
+   */
+  keep?: string[]
 }
+
+/** The most sentences a revise keeps word for word, and the longest one taken (a sentence is far shorter). */
+export const KEEP_MOST = { sentences: 60, chars: 1500 }
 
 /**
  * How starting an edit went. `ok: false` means it wasn't sent, for a reason in plain words about these

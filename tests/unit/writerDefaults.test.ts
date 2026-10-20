@@ -315,7 +315,9 @@ describe("the plan's notes keep a holding change that tells no secret", () => {
   const change = { who: 'Nell', what: 'holding', from: 'the tithe ledger, under her arm', to: 'the tithe ledger, under her arm; the key in her pocket', how: 'She puts the key in her pocket.' }
 
   it('the key into her pocket is kept; telling the secret outright is still dropped', () => {
-    expect(checkPlan({ relies: [], changes: [change], needs: [] }, w).changes).toEqual(['She puts the key in her pocket.'])
+    expect(checkPlan({ relies: [], changes: [change], needs: [] }, w).changes).toEqual([
+      'Nell, holding: the tithe ledger, under her arm → the tithe ledger, under her arm; the key in her pocket. She puts the key in her pocket.'
+    ])
     expect(checkPlan({ relies: [], changes: [{ ...change, how: 'She tells Tam what is in the tithe ledger.' }], needs: [] }, w).changes).toEqual([])
     expect(newWordsOf('the tithe ledger; the key in her pocket', 'the tithe ledger')).toBe('key in her pocket')
   })
@@ -371,7 +373,7 @@ describe('"not known by" never the person the fact is about', () => {
 describe('no stock phrase named in the writer prompt', () => {
   it('the craft rule says what to do, the AI-phrase rules name none', () => {
     const text = instructionsText(defaultStyleGuide())
-    expect(text).toContain('show feeling through what someone does or says')
+    expect(text).toContain('Show feeling through what someone does or says')
     expect(text).not.toContain("a breath someone didn't know they were holding")
     expect(text).not.toContain('Never use stock phrases like these')
     // Adam's own words to avoid stay.

@@ -6,6 +6,10 @@
 // The scene's own text is never in a draft's briefing (the previous scene and the story so far stop
 // before it), so the scene so far goes in as a block of its own, once, right above the closing
 // instruction, and never shortened by the briefing's fitting: a small model gets only its later part.
+//
+// A beat written again (2026-10-19, "Keep this, change that") also gets the version on the page now ("This beat as it
+// is now"): with Adam's note the AI changes that version as the note says and keeps the rest close; with no note it
+// writes a fresh take rather than the same words again; Change it…'s kept sentences come back word for word.
 
 import type { SoFarEnd } from '@shared/contracts/beats'
 import type { FinalOptions } from '../ai/prompts'
@@ -98,6 +102,29 @@ export function afterBlock(text: string): { id: string; title: string; text: str
   return t ? { id: AFTER_BLOCK, title: 'What comes after this beat', text: t } : null
 }
 
+export const OLD_BLOCK = 'beat-as-it-is'
+
+/** How much of the version on the page a beat written again is given, in words (a beat is far shorter). */
+export const OLD_WORDS = 1500
+
+/**
+ * A beat written again (Write it again, Redo this beat, Change it…, 2026-10-19): the beat's words on the page now, as a
+ * block of the briefing ("This beat as it is now"), so the AI sees the version it replaces: with a note it changes that
+ * version; without one it writes a fresh take rather than the same words again. Null when there are none.
+ */
+export function oldBlock(text: string): { id: string; title: string; text: string } | null {
+  const t = sceneHead(text, OLD_WORDS)
+  return t ? { id: OLD_BLOCK, title: 'This beat as it is now', text: t } : null
+}
+
+export const KEEP_BLOCK = 'beat-keep'
+
+/** Change it… on a beat: the sentences Adam marked Keep, each to come back word for word. Null with none. */
+export function keepBlock(keeps: readonly string[]): { id: string; title: string; text: string } | null {
+  const list = keeps.map((k) => k.trim()).filter(Boolean)
+  return list.length ? { id: KEEP_BLOCK, title: 'Sentences to keep', text: list.map((k) => `- ${k}`).join('\n') } : null
+}
+
 /** What the closing instruction for one beat needs besides the usual closing's options. */
 export interface BeatAsk {
   /** Which beat, from 1. */
@@ -115,6 +142,28 @@ export interface BeatAsk {
    * (afterBlock), which the new version leads into.
    */
   hasAfter?: boolean
+  /** The beat is written again and the briefing quotes the version on the page now (oldBlock). */
+  hasOld?: boolean
+  /** Change it… on a beat: how many sentences Adam marked Keep (keepBlock). */
+  keeps?: number
+}
+
+/**
+ * What the closing instruction says of the version on the page, for a beat written again: change it as the note asks
+ * (keeping the rest close), or with no note write a fresh take; and the kept sentences word for word.
+ */
+export function oldNote(ask: Pick<BeatAsk, 'steer' | 'keeps'>): string {
+  const lines = [
+    ask.steer
+      ? 'The beat as it is on the page now is under "This beat as it is now". Change it as the author\'s note for this beat asks, and keep the rest of it as close to how it is as the change allows.'
+      : 'The beat as it is on the page now is under "This beat as it is now". Write a fresh version of it: the same beat, told differently, not the same sentences again.'
+  ]
+  if (ask.keeps) {
+    lines.push(
+      `The author marked ${ask.keeps === 1 ? 'one of its sentences' : `${ask.keeps} of its sentences`} Keep (under "Sentences to keep"): ${ask.keeps === 1 ? 'it' : 'each'} must be in the new version exactly as written, word for word, in the same order.`
+    )
+  }
+  return lines.join(' ')
 }
 
 /** What the closing instruction says of the beat before this one. */
@@ -146,11 +195,14 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
 
   // Written again in the middle of the scene: what comes after it is on the page already.
   const after = !!ask.hasAfter
+  const again = `Write beat ${i} of the ${n} on the scene card again now, in place of the version on the page.`
   const head = only
     ? 'Write the scene now. The scene card has one beat:'
     : after
-      ? `Write beat ${i} of the ${n} on the scene card again now, in place of the version on the page. The scene already carries on after it: the words under "What comes after this beat".`
-      : last
+      ? `${again} The scene already carries on after it: the words under "What comes after this beat".`
+      : ask.hasOld
+        ? `${again}${last ? ' It is the last beat of the scene.' : ' The beats after it will be written later, one at a time.'}`
+        : last
         ? `Write only the last beat of the scene now: beat ${i} of the ${n} on the scene card.`
         : `Write only the ${i === 1 ? 'first beat' : 'next beat'} of the scene now: beat ${i} of the ${n} on the scene card. The beats after it will be written later, one at a time.`
 
@@ -164,6 +216,7 @@ export function beatInstruction(o: FinalOptions, ask: BeatAsk): string {
 
   const parts = only ? [`${head}\n${where[0]}`] : [head, where.join('\n')]
   if (ask.steer) parts.push(`The author's note for this beat: ${indentMore(ask.steer)}`)
+  if (ask.hasOld) parts.push(oldNote(ask))
 
   const lines: string[] = []
   if (ask.hasSoFar) {

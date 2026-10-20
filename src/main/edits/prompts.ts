@@ -5,6 +5,7 @@
 // and how to reply, then gives the style guide with Adam's preferences.
 
 import type { EditTool, StyleGuide } from '@shared/types'
+import type { OwnSample } from '../style/ownWords'
 import { instructionsText } from '../ai/prompts'
 import { SPEAKER_TAG_LINE } from '../ai/speakerTags'
 
@@ -36,9 +37,27 @@ export interface PromptOptions {
   lineBreaks: boolean
   /** Tag who says each line and how (ai/speakerTags.ts). */
   speakerTags?: boolean
+  /** Change it…: how many sentences Adam marked Keep (listed in the briefing). */
+  keeps?: number
+  /**
+   * Change it…: passages of Adam's own writing as the voice sample (style/ownWriting.ts), in place of the style guide's
+   * sample passage, as a draft gets them. Left out: the style guide's.
+   */
+  ownSample?: OwnSample | null
 }
 
 const ROLE = `You are a skilled fiction editor working on a novel with its author. The author has selected some words in a scene and asked for one change to them.`
+
+/** Change it… (2026-10-19): a passage Adam mostly likes, and a note on what to change in it. */
+const REVISE_ROLE = `You are a skilled fiction editor working on a novel with its author. The author has a passage of a scene they mostly like, and has asked for some changes to it.`
+
+/** What Change it… says of the sentences Adam marked Keep. */
+export const KEEP_RULE =
+  'The author marked some sentences Keep (listed in the briefing). Each must be in your version exactly as written, word for word and with the same punctuation, in the same order as now. Write around them; never reword, split or merge them.'
+
+/** What Change it… says of the passage: a revision of it, not a fresh start. */
+export const REVISION_RULE =
+  "This is a revision, not a rewrite from scratch. Start from the passage as it is, make the change the note asks for, and keep the rest as close to it as the change allows: what happens and in what order, who says what, and the author's own wording wherever the note doesn't touch it."
 
 const REPLY = `How to reply
 - Reply with only the new words that take the place of the selected ones: no title, no notes, no quotation marks around them, nothing before or after.
@@ -68,6 +87,8 @@ function task(tool: EditTool, o: PromptOptions): string {
       return `The change: write three different versions of the selected words for the author to choose from. Each version must work in their place on its own and keep what happens. Make the three really differ in wording, rhythm and emphasis: for example, one close to the original but sharper, one bolder, one plainer.`
     case 'continue':
       return continueTask(o)
+    case 'revise':
+      return [`The change: revise the passage as the author's note asks:\n"""\n${o.direction}\n"""`, REVISION_RULE, ...(o.keeps ? [KEEP_RULE] : [])].join('\n')
   }
 }
 
@@ -107,8 +128,8 @@ const LINE_BREAKS = `- The text has line breaks inside paragraphs (as in a lette
 export function systemPrompt(tool: EditTool, style: StyleGuide, o: PromptOptions): string {
   const rules = tool === 'continue' ? CONTINUE_REPLY : tool === 'alternatives' ? ALTERNATIVES_REPLY : REPLY
   const reply = o.lineBreaks ? `${rules}\n${LINE_BREAKS}` : rules
-  const role = tool === 'continue' ? 'You are a skilled novelist writing a novel with its author.' : ROLE
-  const guide = instructionsText(style, { intro: '', trimSample: true })
+  const role = tool === 'continue' ? 'You are a skilled novelist writing a novel with its author.' : tool === 'revise' ? REVISE_ROLE : ROLE
+  const guide = instructionsText(style, { intro: '', trimSample: true, ...(o.ownSample?.passages.length ? { ownSample: o.ownSample } : {}) })
   return [`${EDIT_MARKER} ${tool}`, role, task(tool, o), reply, guide].filter(Boolean).join('\n\n')
 }
 
@@ -144,6 +165,11 @@ function jobAsk(tool: EditTool, o: PromptOptions): string {
       return o.continueAs === 'inline'
         ? `Carry on from exactly where the text stops, for about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words. Reply with only the new words.`
         : `Write the next paragraph or two of the scene, about ${CONTINUE_WORDS.min} to ${CONTINUE_WORDS.max} words. Reply with only the new words.`
+    case 'revise': {
+      const n = o.keeps ?? 0
+      const keep = n ? ` Keep the ${n === 1 ? 'marked sentence' : `${n} marked sentences`} word for word.` : ''
+      return `Revise the passage as the author asked (“${oneLine(o.direction)}”), keeping everything else as it is.${keep} Reply with only the revised passage.`
+    }
   }
 }
 

@@ -43,9 +43,11 @@ describe('Add below gets its own instructions', () => {
     expect(text.trimEnd().endsWith('What happens now, as the author directs (write this, and nothing beyond it):\nWren wonders which way the coast road runs')).toBe(true)
     expect(block(inp, 'scene-card')!.text).not.toContain('Wren wonders')
     expect(text.split('Wren wonders which way the coast road runs')).toHaveLength(2)
-    // Generate keeps the direction on the scene card.
+    // Generate says it last of all too (2026-10-19), and not on the scene card.
     const gen = { ...inp, options: { ...inp.options, addBelow: false }, soFar: undefined, continuityAtSoFar: false }
-    expect(block(gen, 'scene-card')!.text).toContain("The author's direction for this draft:\nWren wonders")
+    expect(block(gen, 'scene-card')!.text).not.toContain('Wren wonders')
+    expect(whole(gen).trimEnd().endsWith("The author's direction for this draft (make every part of it happen on the page):\nWren wonders which way the coast road runs")).toBe(true)
+    expect(whole(gen).split('Wren wonders which way the coast road runs')).toHaveLength(2)
   })
 
   it('marks the beats already on the page done, and with no direction asks for the next beat only', () => {
@@ -83,24 +85,27 @@ describe('blocks go in an order a provider can reuse from one step to the next',
       .map((b) => b.id)
     expect(ids.slice(0, 4)).toEqual(['instructions', 'themes', 'setting', 'story-so-far'].filter((id) => ids.includes(id)).slice(0, 4))
     expect(ids.indexOf('story-so-far')).toBeLessThan(ids.indexOf('pov'))
-    expect(ids.indexOf('previous-scene')).toBeLessThan(ids.indexOf(RECALL_ENTRIES.id))
+    // Since the overhaul (2026-10-19) the end of the previous scene goes right above the scene card.
+    expect(ids.indexOf('previous-scene')).toBe(ids.indexOf('scene-card') - 1)
+    expect(ids.indexOf('previous-scene')).toBeGreaterThan(ids.indexOf(RECALL_ENTRIES.id))
     expect(ids.slice(-4)).toEqual(['scene-card', 'scene-so-far', 'continuity', MUST_BLOCK])
     expect(SEND_ORDER.indexOf('story-so-far')).toBeLessThan(SEND_ORDER.indexOf('mentioned'))
   })
 
-  it('two Add below steps in a row send the same opening, word for word, through the story so far and the previous scene', () => {
+  it('two Add below steps in a row send the same opening, word for word, through the story so far', () => {
     const a = briefing(addBelowStep(0))
     const b = briefing(addBelowStep(1))
     expect(b.messages[0].content).toBe(a.messages[0].content)
     const upTo = (m: string): string => m.slice(0, m.indexOf('## Point-of-view character'))
     expect(upTo(b.messages[1].content).length).toBeGreaterThan(1000)
     expect(upTo(b.messages[1].content)).toBe(upTo(a.messages[1].content))
-    // Most of the second step was sent by the first already.
+    // Most of the second step was sent by the first already: 69% before the overhaul (2026-10-19) moved the end of the
+    // previous scene right above the scene card, 56% since (about 670 tokens of this invented scene's prompt a step).
     const x = whole(addBelowStep(0))
     const y = whole(addBelowStep(1))
     let i = 0
     while (i < x.length && x[i] === y[i]) i++
-    expect(countRaw(y.slice(0, i)) / countRaw(y)).toBeGreaterThan(0.6)
+    expect(countRaw(y.slice(0, i)) / countRaw(y)).toBeGreaterThan(0.5)
   })
 
   it('recalled entries come in a steady order under a fixed title, whatever order the search found them in', () => {

@@ -204,9 +204,17 @@ export function revealEntryPart(entryId: ID, kind: EntryKind, part: EntryPart, w
     return { el: section.button, box: null }
   }
 
+  // Whether the entry's page has come: a page change from the pointer lands a frame or two after it is asked for (the
+  // old page is pictured first for its crossfade, lib/store.ts navigate), so it is waited for, as long as the page.
+  let arrived = false
   const look = (): void => {
     const a = useApp.getState()
-    if (a.view.kind !== 'entries' || a.view.entryId !== entryId) return
+    if (a.view.kind !== 'entries' || a.view.entryId !== entryId) {
+      // Not there yet: keep waiting. Gone from it since (Adam went elsewhere): nothing to show.
+      if (!arrived && performance.now() <= until) requestAnimationFrame(look)
+      return
+    }
+    arrived = true
     if (performance.now() > until) {
       fallback?.scrollIntoView({ block: 'start' })
       return

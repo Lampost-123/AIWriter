@@ -9,6 +9,8 @@
 // chapter for a story or series), which the model is told to follow where a summary says otherwise. Each summary is tied to what it was made from (`sourceHash`: the
 // scenes, chapters or books by id with the revision of their summaries, and the record's part), so a change to one
 // scene makes only what rests on it out of date; markOutOfDate marks those, so the screen can say so.
+// Since 2026-10-19 (overhaul phase 1, one reading of a scene) a scene's summary can come with the memory's reading of the
+// scene, in the same call (keepSceneSummary keeps it by the same rules); it is written on its own as before otherwise.
 // A summary the memory model turns down (some won't read explicit scenes; keeper/model.ts tells a refusal apart) is never
 // saved: a refusal kept as a summary would be told to every later scene. The scene's words it turned down are
 // remembered (refusals.ts), so they aren't sent to the same model again and again.
@@ -23,7 +25,8 @@ import { storedSnapshots } from '../db/snapshots'
 import { entryNames } from '../memory/chapterRecord'
 import { changedLines, endLines, endPart, localPart, type ChapterSnapshot } from '../memory/snapshot'
 import { callModel, DEFAULT_MEMORY_CONTEXT, type CallResult, type MemoryModel } from './model'
-import { SUMMARY_SYSTEM, cleanSummary, summaryPrompt, type SummaryAsk } from './prompts'
+import { SCENE_SUMMARY_REPLY, SUMMARY_SYSTEM, cleanSummary, summaryPrompt, type SummaryAsk } from './prompts'
+import type { SummaryRead } from './oneReading'
 import { estimateTokens, firstWords, hashText, splitLong, textParas } from './text'
 import type { Undo } from './apply'
 import { MIN_SUMMARY_WORDS, sameSource, sceneSourceHash, summaryDue } from './sceneChange'
@@ -45,7 +48,7 @@ export interface SummaryOptions {
 
 /** Too short to be worth a summary. */
 const MIN_WORDS = MIN_SUMMARY_WORDS
-const SCENE_REPLY = 700
+const SCENE_REPLY = SCENE_SUMMARY_REPLY
 const ROLLUP_REPLY = 900
 /** The most of a roll-up's room the story record may take (the rest is the summaries it is made from). */
 const RECORD_SHARE = 0.4
@@ -136,6 +139,8 @@ async function ask(o: SummaryOptions, targetId: ID, a: SummaryAsk, reply: number
     signal: o.signal,
     closed: o.closed,
     onRecord: o.onRecord,
+    // Written in the background: a provider that has stopped answering is given up on sooner (ai/patience.ts).
+    background: true,
     fetchImpl: o.fetchImpl,
     retryDelays: o.retryDelays
   })
@@ -296,6 +301,29 @@ export async function writeSceneSummary(
     sceneId,
     place: { storyId: ch?.storyId ?? scene.storyId, chapterId: ch?.chapterId ?? scene.chapterId },
     force
+  })
+}
+
+/**
+ * Keeps the scene summary the memory's reading of the scene wrote in the same call (one reading of a scene, overhaul phase
+ * 1: keeper/oneReading.ts), as one written on its own would be kept: from the scene's words alone, never from an older
+ * summary, and only while they are still the words it was written from (`sourceHash`), never over Adam's own (save), and
+ * listed in What changed with Undo. Its call is the reading's, already counted with that run. False when it can't be kept
+ * (the caller then writes it as before).
+ */
+export function keepSceneSummary(o: SummaryOptions, sceneId: ID, s: SummaryRead, logRunId: ID | null): boolean {
+  const scene = kdb.keeperScene(o.db, sceneId)
+  if (!scene || !s.text.trim() || sceneSourceHash(scene.text, scene.doc) !== s.sourceHash) return false
+  return save(o, {
+    level: 'scene',
+    targetId: sceneId,
+    text: s.text,
+    sourceHash: s.sourceHash,
+    generationId: s.generationId,
+    calls: [],
+    logRunId,
+    sceneId,
+    place: { storyId: scene.storyId, chapterId: scene.chapterId }
   })
 }
 
@@ -515,7 +543,9 @@ export function nextRollUp(
   storyIds: Iterable<ID>,
   label: (place: { storyId: ID; chapterId?: ID | null }) => string,
   model: MemoryModel,
-  skip: (key: string) => boolean = () => false
+  skip: (key: string) => boolean = () => false,
+  /** False for a story still being worked on: only its chapters are summed up for now, not it or its series (engine.ts ROLLUP_QUIET_MS). */
+  settled: (storyId: ID) => boolean = () => true
 ): RollUp | null {
   const room = textRoom(model, ROLLUP_REPLY)
   const stories = repo.listStories(db)
@@ -530,7 +560,8 @@ export function nextRollUp(
   for (const storyId of storyIds) {
     const story = stories.find((s) => s.id === storyId)
     if (!story) continue
-    if (story.seriesId && !apart(story.id)) seriesToCheck.add(story.seriesId)
+    const whole = settled(storyId)
+    if (whole && story.seriesId && !apart(story.id)) seriesToCheck.add(story.seriesId)
     const src = storySources(db, storyId)
     for (const ch of src.chapters) {
       if (!changedSince(db, ch, skip)) continue
@@ -545,7 +576,7 @@ export function nextRollUp(
       }
     }
     const st = src.story
-    if (st?.lastSceneId && changedSince(db, st, skip)) {
+    if (whole && st?.lastSceneId && changedSince(db, st, skip)) {
       const a = inputs(st)
       return {
         level: 'story',

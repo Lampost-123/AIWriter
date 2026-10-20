@@ -83,8 +83,39 @@ const MOST_FULL = 24
 export const MOST_OWNED = 12
 /** The most lines saying what someone here believes that isn't true (long story memory fix 9). */
 export const MOST_BELIEFS = 12
-/** The most findings from earlier scenes the author said are meant. */
+/** The most findings from earlier scenes the author said are meant (for each of CHECK_GROUPS' requests). */
 export const MOST_MEANT = 8
+/**
+ * The checks asked together in one request: what is so, then who knows what and how it reads. A live run found one
+ * request for all six spread the model thin and missed plain contradictions, so they stay two requests, which share
+ * their opening (2026-10-19: the same instructions, material and scene, each request's own checks last).
+ */
+export const CHECK_GROUPS: CheckKind[][] = [
+  ['facts', 'timeline', 'continuity'],
+  ['knowledge', 'voice', 'style']
+]
+/**
+ * The checks asked in both requests when a scene's checks take two (checkfix, 2026-10-20). The released app's two requests
+ * each answered all six checks (its instructions said "one item for each check above" right under the line naming all
+ * six), so every slip was looked at twice; since the requests share one opening (2026-10-19) each asked only its own
+ * three, and a live run of the book caught 6 of 13 planted slips against 10 of 12. What is known (facts, who knows what)
+ * is asked in both again: the opening is the same and cached, so it costs the extra replies only, and a slip both requests
+ * find is kept without the second opinion (checks/run.ts corroborated).
+ */
+export const ASKED_IN_BOTH: CheckKind[] = ['facts', 'knowledge']
+
+/**
+ * The requests a scene's checks are made in, each with its checks in the order its task names them: CHECK_GROUPS' own
+ * checks first, then those of ASKED_IN_BOTH it lacks, when there are two requests. One request (`together`: Write the whole
+ * chapter's state check; or only one group's checks asked) asks each check once.
+ */
+export function checkRequests(checks: CheckKind[], together = false): CheckKind[][] {
+  if (together) return checks.length ? [checks] : []
+  const own = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
+  if (own.length < 2) return own
+  const both = ASKED_IN_BOTH.filter((c) => checks.includes(c))
+  return own.map((g) => [...g, ...both.filter((c) => !g.includes(c))])
+}
 /** Which check each kind of finding the author said is meant belongs to (voice and style since 2026-10-16). */
 const MEANT_CHECK: Partial<Record<Lesson['kind'], CheckKind>> = { fact: 'facts', knowledge: 'knowledge', timeline: 'timeline', voice: 'voice', style: 'style' }
 
@@ -595,7 +626,7 @@ function firstMention(text: string, names: string[]): number {
 // ---------- The request ----------
 
 /** One section of a request, as "What the AI saw" lists it. */
-interface Section {
+export interface Section {
   id: string
   title: string
   text: string
@@ -604,7 +635,16 @@ interface Section {
 
 const kindWord = (e: EntryState): string => KIND_LABELS[e.kind]?.one.toLowerCase() ?? 'entry'
 
-/** An entry as the check sees it: its profile and what has happened to it so far ("short": a line and its looks). */
+/** An entry's fields that say what is meant to come, not what is so: never told to a check as the memory. */
+const PLAN_FIELDS: readonly string[] = ['arcStart', 'arcEnd']
+
+/**
+ * An entry as the check sees it: its profile and what has happened to it so far ("short": a line and its looks). Told in
+ * full, its backstory too (checkfix, 2026-10-20): key past events, origin and secrets, and a place's geography and history,
+ * which the briefing's short form leaves out. That is where the memory keeps how someone's parents died or how far a town
+ * lies ("her father drowned eleven winters ago below Corran Weir", "four days north of Callowmere"), what the facts check
+ * compares a scene's words about the past with. Never the arc's planned start and end.
+ */
 export function entryText(c: CheckEntry, short = false): string {
   const e = c.entry
   const notes = [kindWord(e), c.why, c.label].filter(Boolean).join('; ')
@@ -613,8 +653,12 @@ export function entryText(c: CheckEntry, short = false): string {
     const looks = formatProfile(e, null, ['looks']).split('\n').filter((l) => l.startsWith('- '))
     return [heading, clean(e.summary), ...looks, happenedText(e, 3)].filter(Boolean).join('\n')
   }
-  return [formatProfile(e, heading, undefined, true), happenedText(e, 8)].filter(Boolean).join('\n\n')
+  const fields = Object.fromEntries(Object.entries(e.fields ?? {}).filter(([k]) => !PLAN_FIELDS.includes(k)))
+  return [formatProfile({ ...e, fields }, heading), happenedText(e, 8)].filter(Boolean).join('\n\n')
 }
+
+/** The heading of the facts of who knows what the scene's words touch, the facts check's own list. */
+export const TOUCHED_TITLE = 'What people here know that this scene touches'
 
 /** The sections a request about these checks needs (everything but the scene's text). */
 export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short = false): Section[] {
@@ -659,8 +703,10 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
       ...(s.content ?? [])
     ].filter(Boolean)
     if (lines.length) out.push({ id: 'style', title: 'The style guide', text: lines.join('\n'), entryIds: [] })
-  } else if (ctx.style.strong) {
-    // The other checks are told the story means its strong content too, so they read such a scene as they would any other.
+  }
+  if (ctx.style.strong && checks.some((c) => c !== 'style')) {
+    // The other checks are told the story means its strong content too, so they read such a scene as they would any other
+    // (in the material every request about the scene shares, whichever of them it makes: 2026-10-19).
     out.push({ id: 'content', title: 'About this story', text: ctx.style.strong, entryIds: [] })
   }
 
@@ -702,47 +748,37 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
   const rank = ctx.factRank ?? factRelevance(factPool(ctx.memory.facts, characterStates(ctx.entries)), ctx.text, personNames(ctx.entries))
   // What the card and the words name (not the entries only tied to the scene): a fact naming one of them matters here.
   const cardOrWords = ctx.entries.filter((c) => !RELATED_WHYS.includes(c.why)).map((c) => c.entry)
+  const people = characters.map((c) => c.entry)
+  const nameOf = namesAt(ctx.memory)
+  // The facts check's own list (2026-10-16): what people here know that the scene's words touch, so what the scene says
+  // about the past (who heard what, how someone died, how far a place is) can be checked against it. Its own section again
+  // (checkfix, 2026-10-20): since the requests shared their material (2026-10-19) these were only added to the end of who
+  // knows what, or left where they stood among its 40 lines ("Pim cannot read words" 33rd of 42), and the facts check
+  // passed the slips the released app caught from this short list.
+  const touched = has('facts') ? factsTheWordsTouch(ctx.memory.facts, people, cardOrWords, rank, FACTS_FOR_FACTS, headsAt(ctx.memory)) : []
+  if (touched.length) {
+    out.push({ id: 'touched', title: TOUCHED_TITLE, text: touched.map((f) => `- ${knowsLine(f, people, nameOf)}`).join('\n'), entryIds: [] })
+  }
   if (has('knowledge')) {
-    const people = characters
-    // The facts that matter most to this scene, when there are more than the list holds (factsThatMatter).
-    const facts = factsThatMatter(
-      ctx.memory.facts,
-      people.map((c) => c.entry),
-      cardOrWords,
-      MOST_FACTS,
-      headsAt(ctx.memory),
-      rank
-    )
+    // The facts that matter most to this scene, when there are more than the list holds (factsThatMatter), without those
+    // listed above: the same facts as before, each told once.
+    const above = new Set(touched.map((f) => f.factId))
+    const facts = factsThatMatter(ctx.memory.facts, people, cardOrWords, MOST_FACTS, headsAt(ctx.memory), rank).filter((f) => !above.has(f.factId))
     // Each knower with since when and how, as the who-knows-what ledger has it (fix 9).
-    const nameOf = namesAt(ctx.memory)
-    const lines = facts.map((f) => `- ${knowsLine(f, people.map((c) => c.entry), nameOf)}`)
+    const lines = facts.map((f) => `- ${knowsLine(f, people, nameOf)}`)
     // What those here believe that isn't true: acting on the truth of it before the story shows them learning it is a slip.
-    const wrong = beliefLines(ctx.memory.beliefs, people.map((c) => c.entry), nameOf)
+    const wrong = beliefLines(ctx.memory.beliefs, people, nameOf)
+    const known = lines.length
+      ? `${touched.length ? `Besides what is listed under "${TOUCHED_TITLE}":\n` : ''}${lines.join('\n')}`
+      : touched.length
+        ? `Nothing besides what is listed under "${TOUCHED_TITLE}".`
+        : 'The memory lists nothing that these characters know.'
     out.push({
       id: 'knowledge',
       title: 'Who knows what at the start of this scene',
-      text: [
-        lines.length ? lines.join('\n') : 'The memory lists nothing that these characters know.',
-        wrong.length ? `What some of them believe that isn't true:\n${wrong.map((l) => `- ${l}`).join('\n')}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n\n'),
+      text: [known, wrong.length ? `What some of them believe that isn't true:\n${wrong.map((l) => `- ${l}`).join('\n')}` : ''].filter(Boolean).join('\n\n'),
       entryIds: []
     })
-  } else if (has('facts')) {
-    // The facts check, in its own request (2026-10-16): what people here know that the scene's words touch, so what the
-    // scene says about the past (who heard what, how someone died) can be checked against it.
-    const people = characters.map((c) => c.entry)
-    const nameOf = namesAt(ctx.memory)
-    const touched = factsTheWordsTouch(ctx.memory.facts, people, cardOrWords, rank, FACTS_FOR_FACTS, headsAt(ctx.memory))
-    if (touched.length) {
-      out.push({
-        id: 'knowledge',
-        title: 'What people here know that this scene touches',
-        text: touched.map((f) => `- ${knowsLine(f, people, nameOf)}`).join('\n'),
-        entryIds: []
-      })
-    }
   }
 
   // Plot threads still open, with when each is due (the promises ledger, long story memory fix 10): a scene that pays one
@@ -779,18 +815,19 @@ export function checkSections(ctx: SceneCheckContext, checks: CheckKind[], short
 
   // What the author said is meant when a check raised it in an earlier scene (fix 7 of the long story memory research):
   // the same thing here is no issue either. Only for the checks being run.
+  // At most MOST_MEANT for each of CHECK_GROUPS' requests, as each was told when it had its own material.
+  const told = CHECK_GROUPS.map(() => 0)
   const meant = (ctx.meant ?? []).filter((l) => {
     const check = MEANT_CHECK[l.kind]
-    return !!check && has(check)
+    if (!check || !has(check)) return false
+    const g = Math.max(0, CHECK_GROUPS.findIndex((x) => x.includes(check)))
+    return told[g]++ < MOST_MEANT
   })
   if (meant.length) {
     out.push({
       id: 'meant',
       title: 'What the author has said is meant',
-      text: meant
-        .slice(0, MOST_MEANT)
-        .map((l) => `- ${lessonLine(l)}`)
-        .join('\n'),
+      text: meant.map((l) => `- ${lessonLine(l)}`).join('\n'),
       entryIds: []
     })
   }
@@ -840,13 +877,23 @@ export interface CheckRequest {
   user: string
   blocks: ContextBlock[]
   entryIds: ID[]
+  /**
+   * How much of `user` is its opening (the material and the scene's words), which every request about this part of the
+   * scene starts with: what a provider's cache serves, and what a model that caches only where asked is told to keep.
+   */
+  opening: number
 }
 
-/** The request for a part of the scene ("part" is 1-based; parts is how many there are). */
-export function checkRequest(sections: Section[], part: string, n: { part: number; parts: number }): CheckRequest {
+/** A section as a request says it: "## Title" and its text. */
+export const sectionText = (s: Pick<Section, 'title' | 'text'>): string => `## ${s.title}\n${s.text}`
+
+/**
+ * The opening of every request about a part of the scene ("part" is 1-based; parts is how many there are): the material
+ * (`sections`), then the scene's words, the same bytes in the same order whatever the request then asks (2026-10-19).
+ */
+export function checkOpening(sections: Section[], part: string, n: { part: number; parts: number }): Omit<CheckRequest, 'opening'> {
   const title = n.parts > 1 ? `The scene (part ${n.part} of ${n.parts})` : 'The scene'
   const all = [...sections, { id: 'scene-text', title, text: part, entryIds: [] }]
-  const user = all.map((s) => `## ${s.title}\n${s.text}`).join('\n\n')
   const blocks: ContextBlock[] = all.map((s, i) => ({
     id: s.id,
     priority: Math.min(10, i + 1),
@@ -856,7 +903,15 @@ export function checkRequest(sections: Section[], part: string, n: { part: numbe
     entryIds: s.entryIds,
     dropped: false
   }))
-  return { user, blocks, entryIds: [...new Set(sections.flatMap((s) => s.entryIds))] }
+  return { user: all.map(sectionText).join('\n\n'), blocks, entryIds: [...new Set(sections.flatMap((s) => s.entryIds))] }
+}
+
+/** The request for a part of the scene: its opening, then its own task (checks/prompts.ts checkTask) last. */
+export function checkRequest(sections: Section[], part: string, n: { part: number; parts: number }, task = ''): CheckRequest {
+  const open = checkOpening(sections, part, n)
+  if (!task) return { ...open, opening: open.user.length }
+  const block: ContextBlock = { id: 'task', priority: 10, title: 'The task', text: task, tokens: estimateTokens(task), entryIds: [], dropped: false }
+  return { ...open, user: `${open.user}\n\n${task}`, blocks: [...open.blocks, block], opening: open.user.length }
 }
 
 /**

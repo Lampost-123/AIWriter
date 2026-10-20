@@ -3,8 +3,11 @@
 // and telling the memory when Adam leaves a scene, so it reads that scene's latest words then.
 import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
+import { toast } from '@/components/ui'
+import { fillDoneWords } from './storyFill'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
+import { createChangeBatcher } from './changeBatch'
 import { createLeaveTracker } from './leaving'
 
 /** Installed once, beside the window's flush-on-close. Returns the uninstaller. */
@@ -17,17 +20,25 @@ export function installMemoryEvents(): () => void {
     if (before && ((before.reading && before.reading.sceneId !== status.reading?.sceneId) || before.failed !== status.failed))
       app.bumpOutline()
   })
-  const offChanged = onEvent('memory:changed', (change) => {
+  // Changes that come close together are taken together (changeBatch.ts): each kind of view reads again once, and only
+  // the kinds that changed, rather than every list and page once for every save.
+  const batch = createChangeBatcher((r) => {
     const app = useApp.getState()
-    // Every time, so open entry pages and lists show what the memory now holds.
-    app.bumpEntries()
-    app.bumpMemory()
+    // Open entry pages and lists show what the memory now holds.
+    if (r.entries) app.bumpEntries()
+    if (r.memory) app.bumpMemory()
     // A scene's "Memory not updated" mark may have come or gone.
-    app.bumpOutline()
+    if (r.outline) app.bumpOutline()
     // Not about one scene (a story's placement changed, say): the stories themselves may have changed too. A World
     // build's saves while it runs come as '' (2026-10-17): entries only, so the stories aren't read again each time;
     // its last one, at the end, is null.
-    if (change.sceneId === null) void app.refreshStories().catch(() => undefined)
+    if (r.stories) void app.refreshStories().catch(() => undefined)
+  })
+  const offChanged = onEvent('memory:changed', (change) => batch.push(change))
+  // "Fill in the whole story" is over: a quiet note says how it went (nothing after Adam's own Stop, which says so).
+  const offFilled = onEvent('storyFill:done', (done) => {
+    const words = fillDoneWords(done)
+    if (words) toast(words)
   })
 
   // Each world has its own memory: ask what it is doing whenever a world opens.
@@ -64,6 +75,8 @@ export function installMemoryEvents(): () => void {
   return () => {
     offStatus()
     offChanged()
+    offFilled()
+    batch.cancel()
     offState()
   }
 }

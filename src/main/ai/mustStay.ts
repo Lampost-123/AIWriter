@@ -16,9 +16,11 @@
 // (MUST_SLIPS, checks/lessons.ts), so the writer doesn't make them again. Since fix 9 (the who-knows-what ledger) what is
 // kept from someone is worked out among everyone in the scene (the card, the stage, the scene so far: `knowers`), as the
 // "Who knows what" block has it (whoKnows.ts), and what someone here believes that isn't true is a key kind of its own,
-// with its own few lines (MUST_BELIEFS). Pure.
+// with its own few lines (MUST_BELIEFS). Since 2026-10-19 (the overhaul; live, the dead crowded the list) only the dead
+// this scene could bring in get a line of their own (on the card, on the stage, named in the scene's words, or tied to
+// someone here: deadNearby); the rest are named together on one "Also dead: …" line, so none is ever brought back. Pure.
 
-import type { BeliefState, EntryState, FactState, ID } from '@shared/types'
+import type { BeliefState, EntryState, FactState, ID, RelationshipState } from '@shared/types'
 import {
   clothesOf,
   heldNotPlaced,
@@ -41,6 +43,7 @@ import { deathOf } from './deaths'
 import { cleanKnows, happenedOf, pastDeathNote, type KnowsContext } from './knows'
 import { clearStalePlacing } from './briefingFixes'
 import { animalNotPerson } from '../keeper/kinds'
+import { namedIn } from '../keeper/presence'
 
 /** The most lines the list holds; its short form, for a model with little room, holds fewer. */
 export const MUST_MOST = 12
@@ -68,6 +71,8 @@ export const MUST_CLOTHES = 3
 export const MUST_THINGS = 3
 /** The most slips put right in earlier scenes among them (checks/lessons.ts): the newest, about people here first. */
 export const MUST_SLIPS = 2
+/** The most names the "Also dead" line gives before "and 4 more" (the dead this scene is unlikely to bring in). */
+export const MUST_DEAD_NAMES = 8
 /** The longest a line's words are kept, in characters (since when it holds comes after, whole), and a secret's. */
 const LONGEST_LINE = 320
 const LONGEST_FACT = 200
@@ -145,6 +150,11 @@ export interface MustInput {
   knowers?: EntryState[]
   /** What characters believe that isn't true at this point (fix 9). Left out: none. */
   beliefs?: BeliefState[]
+  /**
+   * The relationships at this point (SceneMemory.relationships): someone dead tied to someone in the scene gets a line of
+   * their own (overhaul, 2026-10-19; deadNearby). Left out: only what their entries say ties them.
+   */
+  ties?: Pick<RelationshipState, 'aId' | 'bId'>[]
   /**
    * Lines the scene's contract already says, word for word, right above the list (long story memory fix 13,
    * contract.ts): left out of every form, so nothing is said twice. Left out: none.
@@ -370,6 +380,15 @@ export function lastingCondition(v: string): string {
 }
 
 /** The names a stage person goes by: as the stage has them, their codex entry's names, and their first name when no one else here shares it. */
+/**
+ * True when some line of `words` names someone as there (keeper/presence.ts namedIn): not only thought of, remembered,
+ * talked or written of, or told as far away (2026-10-19: a stand-in test found people only mentioned listed as in the
+ * scene, in the plan's "everyone in the scene" and Continue's state).
+ */
+export function namedThere(words: string, name: string): boolean {
+  return words.split(/\n+/).some((line) => namedIn(line, { id: '', name, kind: 'character' }) === 'there')
+}
+
 function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): string[] {
   const e = scope.cast.find((x) => stageFor(x, { ...stand, characters: [c] }))
   const names = [c.name, ...(e ? [e.name, ...(e.aliases ?? [])] : [])].map(clean).filter((n) => n.length >= 2)
@@ -383,9 +402,10 @@ function namesFor(c: CharacterState, scope: StageScope, stand: SceneState): stri
 }
 
 /**
- * Where things stand as told for one scene: only the people in it (on its card, or named in its card's words, Adam's
- * direction or the scene so far), and the scene's time, light and weather only from its own words or when they carry
- * over (scope.timeCarries). Each value keeps its words. Null when nothing is known.
+ * Where things stand as told for one scene: only the people in it (on its card, or named as there in its card's words,
+ * Adam's direction or the scene so far: never someone only thought of, talked of or far away, keeper/presence.ts namedIn;
+ * 2026-10-19), and the scene's time, light and weather only from its own words or when they carry over
+ * (scope.timeCarries). Each value keeps its words. Null when nothing is known.
  */
 export function stageInScene(stand: SceneState | null | undefined, scope: StageScope): SceneState | null {
   if (!stand) return null
@@ -399,7 +419,7 @@ export function stageInScene(stand: SceneState | null | undefined, scope: StageS
       .map(([, v]) => v)
   }
   const onCard = (c: CharacterState): boolean => scope.onCard.some((e) => stageFor(e, { ...stand, characters: [c] }))
-  const named = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => nameIn(scope.words, n))
+  const named = (c: CharacterState): boolean => namesFor(c, scope, stand).some((n) => nameIn(scope.words, n) && namedThere(scope.words, n))
   /** Only named in the scene's words: in it only with words from this scene (or the one before, its time carrying on). */
   const seenHere = (c: CharacterState): boolean => {
     const from = sourcesOf(c)
@@ -663,13 +683,26 @@ export function mustLines(o: MustInput): MustLine[] {
       }
   }
 
-  // Anyone in the briefing who is dead by now.
+  // Anyone in the briefing who is dead by now. A line of their own, with how and since when, only for those this scene
+  // could bring in (overhaul, 2026-10-19: live, the dead crowded the list): on the card, on the stage, named in the card's
+  // words, the direction or the scene so far, or tied to someone here (deadNearby). Everyone else dead is named on one
+  // line, "Also dead: …", so none of them is ever brought back; one alone keeps its own line (it is one line either way).
   const all = [...people, ...o.named.filter((e) => !people.some((p) => p.id === e.id))]
-  all.forEach((e, i) => {
+  const dead = all.flatMap((e, i) => {
     const died = deathOf(e)
     const note = clean(died?.note).replace(/[.]$/, '')
-    if (note) add('dead', i, `${e.name} is dead: ${pastDeathNote(note)}`, shortPlace(died?.where ?? '', o.storyTitle), false, [e.id], { words: note, who: [] })
+    return note ? [{ e, i, note, where: died?.where ?? '' }] : []
   })
+  const nearby = deadNearby(o, people)
+  const far = dead.filter((d) => !nearby(d.e, d.i))
+  const own = far.length > 1 ? dead.filter((d) => !far.includes(d)) : dead
+  for (const d of own)
+    add('dead', d.i, `${d.e.name} is dead: ${pastDeathNote(d.note)}`, shortPlace(d.where, o.storyTitle), false, [d.e.id], { words: d.note, who: [] })
+  if (far.length > 1) {
+    const names = far.map((d) => d.e.name)
+    const shown = names.length > MUST_DEAD_NAMES + 1 ? [...names.slice(0, MUST_DEAD_NAMES), `${names.length - MUST_DEAD_NAMES} more`] : names
+    add('dead', all.length, `Also dead: ${joinAnd(shown)}`, '', true, far.map((d) => d.e.id), { words: `${joinAnd(names)} dead`, who: [] })
+  }
 
   // What some of those in the scene know and others don't, the most lately learned first: kept from the others, who
   // must not learn, guess or think it here (when the point-of-view character is one of them, not even in thought).
@@ -749,6 +782,25 @@ export function mustLines(o: MustInput): MustLine[] {
     .filter((l) => !o.short || !l.piece || (!dressed.has(l.who) && !!dressed.add(l.who)))
   const chosen = ranked.slice(0, Math.max(0, (o.short ? MUST_SHORT : MUST_MOST) - key.length))
   return [...key, ...chosen.sort((a, b) => a.who - b.who || a.rank - b.rank)].map(asLine)
+}
+
+/**
+ * Whether someone dead could come into this scene, so they get a line of their own in what must stay true (overhaul,
+ * 2026-10-19): on the card (`people`), on the stage, named in what the scene is about (the card's words, the direction, the
+ * scene so far), or tied to someone in the scene: a relationship with them (`ties`), or either one's entry naming the other
+ * ("her father, Aldric"; "Mara's father").
+ */
+function deadNearby(o: MustInput, people: EntryState[]): (e: EntryState, i: number) => boolean {
+  const about = o.about ?? ''
+  const here = [...people, ...(o.knowers ?? [])].filter((p, i, list) => isPerson(p) && !clean(deathOf(p)?.note) && list.findIndex((x) => x.id === p.id) === i)
+  const hereIds = new Set(here.map((p) => p.id))
+  const words = (x: EntryState): string => [x.summary, x.description, ...Object.values(x.fields ?? {})].map(clean).filter(Boolean).join('\n')
+  return (e, i) => {
+    if (i < people.length || stageFor(e, o.stand) || namesPerson(about, e)) return true
+    if ((o.ties ?? []).some((r) => (r.aId === e.id && hereIds.has(r.bId)) || (r.bId === e.id && hereIds.has(r.aId)))) return true
+    const own = words(e)
+    return here.some((p) => p.id !== e.id && ((own && namesPerson(own, p)) || namesPerson(words(p), e)))
+  }
 }
 
 /**

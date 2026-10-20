@@ -7,12 +7,23 @@
 // What is waiting is kept in the world (2026-10-17: storyBuildsWaiting), so closing the app loses nothing: it starts
 // when the world next opens. A story planned from a recipe brings the recipe's cast roles and devices.
 
+import { create } from 'zustand'
 import type { ID } from '@shared/types'
 import type { StoryBuildWaiting, WorldBuildDone } from '@shared/contracts/worldBuilder'
 import { toast, useToasts } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { openWorldBuilder } from './open'
+
+/**
+ * What the pages that plan a story show of its build (2026-10-19: it ran unseen until Generate asked "Write now / Wait"):
+ * the stories waiting for theirs, and the one being built now with what it is doing (StoryBuildLine.tsx).
+ */
+export const useStoryBuild = create<{ waiting: ID[]; running: { storyId: ID; buildId: ID; step: string } | null }>(() => ({
+  waiting: [],
+  running: null
+}))
+const showWaiting = (): void => useStoryBuild.setState({ waiting: [...waiting.keys()] })
 
 /** How long a keep waits for the next one before the build starts. */
 export const STORY_BUILD_WAIT_MS = 4000
@@ -52,6 +63,7 @@ const openWorld = (): ID | null => useApp.getState().world?.id ?? null
 
 /** Keeps what is waiting in its world, so it is there when the world next opens. */
 function keep(): void {
+  showWaiting()
   if (!worldId || worldId !== openWorld()) return
   const list: StoryBuildWaiting[] = [...waiting].map(([storyId, recipeId]) => ({ storyId, recipeId }))
   void api.setStoryBuildsWaiting({ worldId, waiting: list }).catch(() => undefined)
@@ -90,6 +102,7 @@ async function start(): Promise<void> {
         progress: null
       })
     }
+    useStoryBuild.setState({ running: { storyId, buildId, step: '' } })
     return
   }
 }
@@ -105,6 +118,11 @@ async function stop(buildId: ID): Promise<void> {
     if (ours?.buildId === buildId) ours.stopping = false
     toast(`Couldn’t stop building. ${(e as Error).message}`, { tone: 'danger' })
   }
+}
+
+/** Stop, from a page showing the build (StoryBuildLine): as the toast's Stop. */
+export function stopStoryBuild(): void {
+  if (ours) void stop(ours.buildId)
 }
 
 /**
@@ -129,6 +147,7 @@ function follow(id: ID | null): void {
   if (id === worldId) return
   worldId = id
   waiting.clear()
+  showWaiting()
   recipes.clear()
   if (timer) clearTimeout(timer)
   timer = null
@@ -141,6 +160,7 @@ function follow(id: ID | null): void {
         if (!waiting.has(w.storyId)) waiting.set(w.storyId, w.recipeId)
         if (w.recipeId) recipes.set(w.storyId, w.recipeId)
       }
+      showWaiting()
       if (waiting.size && !timer) startSoon(STORY_BUILD_WAIT_MS)
     })
     // Not known: the next keep in this world builds its story as usual.
@@ -151,11 +171,14 @@ follow(openWorld())
 useApp.subscribe((s) => follow(s.world?.id ?? null))
 
 onEvent('worldBuilder:progress', (p) => {
+  const shown = useStoryBuild.getState().running
+  if (shown?.buildId === p.buildId) useStoryBuild.setState({ running: { ...shown, step: ours?.stopping ? 'Stopping…' : p.step } })
   if (ours?.buildId !== p.buildId || ours.stopping) return
   useToasts.getState().update(ours.toastId, { message: `Building your story’s world: ${p.step}` })
 })
 
 onEvent('worldBuilder:done', (d) => {
+  if (useStoryBuild.getState().running?.buildId === d.buildId) useStoryBuild.setState({ running: null })
   if (ours?.buildId === d.buildId) {
     const { toastId, stopping } = ours
     ours = null

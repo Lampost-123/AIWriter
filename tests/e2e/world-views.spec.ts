@@ -1,15 +1,15 @@
 // The timeline, the relationship map and the plot threads board, end to end. Each opens from its
-// binder link and teaches what it needs while the world is empty; then, on a small world made through
-// the API (Book 1 with twelve chapters, Mara, Tobin and Kell, two places and three plot threads), the
-// timeline shows a clash and opens scenes, the map changes with its slider, and the board highlights a
+// link in its area's list and teaches what it needs while the world is empty; then, on a small world made
+// through the API (Book 1 with twelve chapters, Mara, Tobin and Kell, two places and three plot threads),
+// the timeline shows a clash and opens scenes, the map changes with its strip, and the board highlights a
 // thread left open and links to the scenes that set up and pay off each one.
 import type { ElectronApplication, Page } from '@playwright/test'
 import type { ID, SceneCard } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
-import { binder, createWorldFromWelcome, expect, invoke, test } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, test, type PageName } from './helpers'
 
 const main = (win: Page) => win.locator('main')
-const open = (win: Page, link: string) => binder(win).getByRole('button', { name: link, exact: true }).click()
+const open = (win: Page, link: PageName) => openPage(win, link)
 const sceneRow = (win: Page, title: string) => binder(win).getByRole('treeitem', { name: title })
 
 /** Sets the window's size, as Adam would by dragging its edge. */
@@ -34,23 +34,23 @@ async function apart(one: ReturnType<Page['locator']>, other: ReturnType<Page['l
 
 /**
  * What the map shows on screen: how many characters there are and how many sit wholly in the window
- * above the help line, how many names show and the smallest one's height, and how many lines show
- * their words.
+ * between the strip above and the legend below, how many names show and the smallest one's height, and
+ * how many ties show their words and the smallest one's height.
  */
 function readMap(win: Page) {
   return main(win)
-    .getByRole('group', { name: 'Relationship map' })
+    .locator('[data-desk-map]')
     .evaluate((el) => {
-      // The tests are typed without the browser's own names, so its window is reached through the map.
-      const style = (e: typeof el) => el.ownerDocument.defaultView!.getComputedStyle(e)
-      const box = el.getBoundingClientRect()
-      const help = el.ownerDocument.getElementById('map-help')!.getBoundingClientRect()
-      const people = [...el.querySelectorAll('button[title^="Open "]')]
-      const names = people.map((b) => b.lastElementChild).filter((n) => style(n).visibility === 'visible')
-      const words = [...el.querySelectorAll('button:not([title])')].filter((b) => style(b).opacity === '1')
+      const strip = el.querySelector('[data-map-timeline]')!.getBoundingClientRect()
+      const legend = el.querySelector('[data-map-legend]')!.getBoundingClientRect()
+      const canvas = el.querySelector('[role="group"]')!.getBoundingClientRect()
+      const people = [...el.querySelectorAll('[data-map-node]')]
+      const named = people.filter((b) => !b.querySelector('.dm-label')!.classList.contains('is-hidden'))
+      const names = named.map((b) => b.querySelector('.dm-name')!)
+      const words = [...el.querySelectorAll('[data-map-tie]')].filter((b) => !b.classList.contains('is-hidden'))
       const within = people.filter((b) => {
         const r = b.getBoundingClientRect()
-        return r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= help.top
+        return r.left >= canvas.left && r.right <= canvas.right && r.top >= strip.bottom && r.bottom <= legend.top
       })
       return {
         characters: people.length,
@@ -78,6 +78,30 @@ async function settledMap(win: Page): ReturnType<typeof readMap> {
     )
     .toBe(true)
   return JSON.parse(last)
+}
+
+/** Where an element is once it has stopped moving: the same twice in a row. */
+async function settledBox(el: ReturnType<Page['locator']>): ReturnType<ReturnType<Page['locator']>['boundingBox']> {
+  let last = ''
+  await expect
+    .poll(
+      async () => {
+        const now = JSON.stringify(await el.boundingBox())
+        const same = now === last
+        last = now
+        return same
+      },
+      { intervals: [150] }
+    )
+    .toBe(true)
+  return JSON.parse(last)
+}
+
+/** A tie's name on the map: the two of them (named in the map's own order), what they are, and perhaps how each feels. */
+function tieName(a: string, b: string, words: string, feels?: [string, string]): RegExp {
+  const one = (x: string, y: string, fx?: string, fy?: string): string =>
+    `${x} and ${y}: ${words}\\.` + (fx ? ` ${x} feels ${fx}\\. ${y} feels ${fy}\\.$` : '')
+  return new RegExp(`^(?:${one(a, b, feels?.[0], feels?.[1])}|${one(b, a, feels?.[1], feels?.[0])})`)
 }
 
 /**
@@ -180,10 +204,13 @@ test('the timeline: lanes, a clash in plain words, and a double-click opens the 
   // Lanes follow characters (the cast of the chapter in view until Adam picks), or plot threads.
   await expect(main(win).getByRole('button', { name: /^Lanes/ })).toContainText(/\d of 2/)
   await main(win).getByRole('radio', { name: 'Plot threads' }).click()
-  // A thread's lane shows its whole name.
+  // A thread's lane shows its whole name (the serif's italic may reach a pixel past its lines; nothing is cut).
   const laneName = main(win).locator('.tl-lh-name', { hasText: 'Who burned the mill?' })
   await expect(laneName).toBeVisible()
-  expect(await laneName.evaluate((e) => e.scrollHeight <= e.clientHeight && e.scrollWidth <= e.clientWidth)).toBe(true)
+  // (On CI's Windows runner the italic's overhang measured a few pixels: allow 3, and say how much if it's more.)
+  const over = await laneName.evaluate((e) => ({ down: e.scrollHeight - e.clientHeight, across: e.scrollWidth - e.clientWidth }))
+  expect(over.down, `the name runs ${over.down}px below its box`).toBeLessThanOrEqual(3)
+  expect(over.across, `the name runs ${over.across}px past its box`).toBeLessThanOrEqual(3)
 
   // A long When shows in full on hover.
   await expect(timeline.getByTitle('Day 12, at dusk', { exact: true })).toBeVisible()
@@ -240,49 +267,58 @@ test('the relationship map: portraits joined by labelled lines that change with 
 
   // It opens at the scene Adam is in: Mara and Tobin are friends, and Kell isn't tied to anyone yet.
   const slider = main(win).getByRole('slider', { name: 'As of' })
+  const person = (name: string) => map.getByRole('button', { name, exact: true })
   await expect(slider).toHaveAttribute('aria-valuetext', 'Book 1, Ch 1, Sc 1')
-  await expect(map.getByRole('button', { name: 'Mara', exact: true })).toBeVisible()
-  await expect(map.getByRole('button', { name: /^Mara and Tobin: friend\. Mara feels fond\. Tobin feels wary\.$/ })).toBeVisible()
-  await expect(map.getByRole('button', { name: 'Kell', exact: true })).toHaveCount(0)
+  await expect(person('Mara')).toBeVisible()
+  await expect(map.getByRole('button', { name: tieName('Mara', 'Tobin', 'friend', ['fond', 'wary']) })).toBeVisible()
+  await expect(person('Kell')).toHaveCount(0)
 
-  // How each feels shows beside the line on focus, covering neither of them.
-  await map.getByRole('button', { name: /^Mara and Tobin/ }).focus()
-  await expect(main(win).getByText('Mara feels fond')).toBeVisible()
-  const card = main(win).getByText('Mara feels fond').locator('xpath=ancestor::div[@aria-hidden="true"][1]')
-  await expect(card).toContainText('Mara and Tobin')
-  for (const who of ['Mara', 'Tobin']) expect(await apart(card, map.getByRole('button', { name: who, exact: true }))).toBe(true)
+  // How each feels shows on the line's words on focus, covering neither of them.
+  const friends = map.getByRole('button', { name: tieName('Mara', 'Tobin', 'friend') })
+  await friends.focus()
+  await expect(friends).toHaveClass(/is-open/)
+  await expect(friends).toContainText('Mara → fond')
+  await expect(friends).toContainText('Tobin → wary')
+  await settledBox(friends)
+  for (const who of ['Mara', 'Tobin']) expect(await apart(friends, person(who))).toBe(true)
 
   // At the end of the book they are rivals, and Kell owes Tobin money. Kell, who wasn't there at the
-  // start, turns up inside the window: the map was fitted to everyone the slider can show.
+  // start, turns up inside the window: the map was fitted to everyone the strip can show.
   await slider.focus()
   await win.keyboard.press('End')
-  await expect(map.getByRole('button', { name: /^Mara and Tobin: rival\./ })).toBeVisible()
-  await expect(map.getByRole('button', { name: /^Kell and Tobin: owes money\./ })).toBeVisible()
-  await expect(map.getByRole('button', { name: 'Kell', exact: true })).toBeVisible()
-  await expect(main(win).getByText('3 characters, 2 relationships')).toBeVisible()
-  expect(await inside(win, map.getByRole('button', { name: 'Kell', exact: true }), map)).toBe(true)
+  await expect(map.getByRole('button', { name: tieName('Mara', 'Tobin', 'rival') })).toBeVisible()
+  await expect(map.getByRole('button', { name: tieName('Kell', 'Tobin', 'owes money') })).toBeVisible()
+  await expect(person('Kell')).toBeVisible()
+  await expect(main(win).locator('[data-map-count]')).toHaveText('3 characters · 2 ties')
+  expect(await inside(win, person('Kell'), map)).toBe(true)
   await expect.poll(async () => (await readMap(win)).inWindow).toBe(3)
 
-  // Characters stay where they were as the slider moves.
-  const box = async () => map.getByRole('button', { name: 'Mara', exact: true }).boundingBox()
-  const before = await box()
+  // Characters stay where they were as the strip moves.
+  const box = async () => person('Mara').boundingBox()
+  const before = await settledBox(person('Mara'))
   await win.keyboard.press('Home')
-  await expect(map.getByRole('button', { name: /^Mara and Tobin: friend\./ })).toBeVisible()
-  await expect(map.getByRole('button', { name: 'Kell', exact: true })).toHaveCount(0)
-  expect(await box()).toEqual(before)
+  await expect(map.getByRole('button', { name: tieName('Mara', 'Tobin', 'friend') })).toBeVisible()
+  await expect(person('Kell')).toHaveCount(0)
+  await expect.poll(box).toEqual(before)
 
-  // The keyboard and the buttons move and zoom the map.
+  // The keyboard and the buttons move and zoom the map (Shift and an arrow move it; the arrows alone go between characters).
+  const apartBy = async (): Promise<number> => {
+    const [a, b] = [await person('Mara').boundingBox(), await person('Tobin').boundingBox()]
+    return Math.hypot(a!.x + a!.width / 2 - (b!.x + b!.width / 2), a!.y + a!.height / 2 - (b!.y + b!.height / 2))
+  }
+  const far = await apartBy()
   await map.focus()
-  await win.keyboard.press('ArrowLeft')
+  await win.keyboard.press('Shift+ArrowLeft')
   await expect.poll(async () => (await box())?.x).toBeGreaterThan(before!.x)
   await main(win).getByRole('button', { name: 'Zoom out' }).click()
-  await expect.poll(async () => (await box())?.width).toBeLessThan(before!.width)
-  await main(win).getByRole('button', { name: 'Fit the map to the window' }).click()
+  await expect.poll(apartBy).toBeLessThan(far - 10)
+  await main(win).getByRole('button', { name: 'Fit everyone on screen' }).click()
 
-  // Clicking a character opens its page.
+  // Clicking a character opens its card, and Open page its page.
   await slider.focus()
   await win.keyboard.press('End')
-  await map.getByRole('button', { name: 'Kell', exact: true }).click()
+  await person('Kell').click()
+  await main(win).locator('[data-map-card="character"]').getByRole('button', { name: 'Open page' }).click()
   await expect(binder(win).getByRole('button', { name: /^Characters/ })).toHaveAttribute('aria-current', 'page')
 })
 
@@ -359,43 +395,63 @@ test('the relationship map stays readable with a big cast, at any window size', 
   // With two books, the map can be seen through either.
   await expect(main(win).getByRole('combobox', { name: 'Story' })).toBeVisible()
 
-  // Everyone is in the window, clear of the help line; most names show at full size, and so do the
-  // words on many lines.
+  // Everyone is in the window, between the strip and the legend, and many names show, at full size. (The New look's
+  // map gives the names room first, and a tie's words show as one of the two is pointed at.)
   await expect.poll(async () => (await readMap(win)).inWindow).toBe(25)
   const big = await settledMap(win)
   expect(big.characters).toBe(25)
-  expect(big.names).toBeGreaterThanOrEqual(18)
+  expect(big.names).toBeGreaterThanOrEqual(6)
   expect(big.smallestName).toBeGreaterThanOrEqual(17)
-  expect(big.words).toBeGreaterThanOrEqual(10)
-  expect(big.smallestWords).toBeGreaterThanOrEqual(17)
+  if (big.words) expect(big.smallestWords).toBeGreaterThanOrEqual(17)
+
+  // Pointing at a character whose name had no room shows it, and its ties' words with how each feels, at full size.
+  // (A name with no room under its medallion goes over or beside it where there is room (2026-10-19), so at this size
+  // every name may have found room: then one step out, some have none.)
+  const unnamed = (): Promise<string[]> =>
+    map.evaluate((el) =>
+      [...el.querySelectorAll('[data-map-node]')]
+        .filter((b) => {
+          // (One that can be pointed at: nothing on top of its middle.)
+          const r = b.getBoundingClientRect()
+          const top = el.ownerDocument.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          return b.querySelector('.dm-label')!.classList.contains('is-hidden') && !!top && b.contains(top)
+        })
+        .map((b) => b.getAttribute('aria-label') as string)
+    )
+  let hidden = await unnamed()
+  if (!hidden.length) {
+    await main(win).getByRole('button', { name: 'Zoom out' }).click()
+    await settledMap(win)
+    hidden = await unnamed()
+  }
+  expect(hidden.length).toBeGreaterThan(0)
+  const who = map.getByRole('button', { name: hidden[0], exact: true })
+  await who.hover()
+  await expect(who.locator('.dm-label')).not.toHaveClass(/is-hidden/)
+  await expect(who.locator('.dm-label')).toHaveCSS('opacity', '1')
+  const lit = map.locator('[data-map-tie].is-open')
+  await expect(lit.filter({ hasText: `${hidden[0].split(' ')[0]} →` }).first()).toBeVisible()
+  const heights = await lit.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+  for (const height of heights) expect(height).toBeGreaterThanOrEqual(17)
+  await win.mouse.move(2, 2)
 
   // In the smallest window, fitted again, everyone still fits and the names that show are just as big.
   await windowSize(app, win, 960, 600)
-  await main(win).getByRole('button', { name: 'Fit the map to the window' }).click()
+  await main(win).getByRole('button', { name: 'Fit everyone on screen' }).click()
   await expect.poll(async () => (await readMap(win)).inWindow).toBe(25)
   const small = await settledMap(win)
   expect(small.inWindow).toBe(25)
   expect(small.names).toBeGreaterThanOrEqual(6)
   expect(small.smallestName).toBeGreaterThanOrEqual(17)
 
-  // Pointing at a character whose name had no room shows it.
-  const hidden = await map.evaluate((el) =>
-    [...el.querySelectorAll('button[title^="Open "]')]
-      .filter((b) => el.ownerDocument.defaultView!.getComputedStyle(b.lastElementChild).visibility !== 'visible')
-      .map((b) => b.getAttribute('aria-label') as string)
-  )
-  expect(hidden.length).toBeGreaterThan(0)
-  const who = map.getByRole('button', { name: hidden[0], exact: true })
-  await who.hover()
-  await expect(who.locator('span').last()).toBeVisible()
-
-  // One step in, more names and words show, all at full size.
+  // One step in, more names and words show, all at full size. (As at full size above, the New look's map gives the
+  // names the room first and shows a tie's words as one of the two is pointed at, so in this smallest window one step
+  // in need not leave a tie's words room of their own.)
   await main(win).getByRole('button', { name: 'Zoom in' }).click()
   const closer = await settledMap(win)
   expect(closer.names + closer.words).toBeGreaterThan(small.names + small.words)
-  expect(closer.words).toBeGreaterThanOrEqual(1)
   expect(closer.smallestName).toBeGreaterThanOrEqual(17)
-  expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
+  if (closer.words) expect(closer.smallestWords).toBeGreaterThanOrEqual(17)
 })
 
 test('in the smallest window a small cast opens with everyone on the map, and "As seen in" beside the title', async ({ launch }) => {
@@ -427,8 +483,8 @@ test('in the smallest window a small cast opens with everyone on the map, and "A
 
   await open(win, 'Relationship map')
   const map = main(win).getByRole('group', { name: 'Relationship map' })
-  await expect(main(win).getByText('9 characters, 8 relationships')).toBeVisible()
-  // Everyone counted is in the window, clear of the help line.
+  await expect(main(win).locator('[data-map-count]')).toHaveText('9 characters · 8 ties')
+  // Everyone counted is in the window, between the strip and the legend.
   await expect.poll(async () => (await readMap(win)).inWindow).toBe(9)
   // "As seen in" sits beside the title, so the map below keeps its height.
   const [title, seenIn] = [

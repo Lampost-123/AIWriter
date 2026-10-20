@@ -21,9 +21,9 @@
 //
 // Priorities, with each block's short form in brackets:
 //  1 instructions, style guide, sample passage, phrases to avoid (sample passage trimmed); never dropped
-//  2 scene card and Adam's direction, and on a redraft what the scene should bring about; with the story date, the time
-//    since the scene before and the ages of those on the card (the story calendar, long story memory fix 11,
-//    storyDate.ts); never dropped
+//  2 scene card (Adam's direction is the closing instruction's last words, but for Beat by beat), and on a redraft what
+//    the scene should bring about; with the story date, the time since the scene before and the ages of those on the
+//    card (the story calendar, long story memory fix 11, storyDate.ts); never dropped
 //  3 the end of the previous scene on the story's line, 400 to 800 words (the last 200 words)
 //  4 point-of-view character as of this scene: profile, what has happened, what they know, voice (without backstory;
 //    smaller: the core of the profile, then less)
@@ -96,12 +96,16 @@ import { FIELD_GROUPS, KIND_LABELS, type FieldGroup } from '@shared/fields'
 import { AUTO_LENGTH } from '@shared/defaults'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import { sameWhen, stateText, type SceneState } from '@shared/continuity'
-import { finalInstruction, indentMore, instructionsText, type FinalOptions } from './prompts'
+import { finalInstruction, indentMore, instructionsText, soundLikeText, trimPassage, type FinalOptions } from './prompts'
+import { SOUND_BLOCK } from '@shared/ownSample'
+import { echoOf, sampleFrom, wordsOf as wordsIn, type OwnSample } from '../style/ownWords'
+import type { VoiceMark } from '../style/voiceMarks'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
 import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
-import { CONTRACT_BLOCK, contractSays, contractText, sceneContract, type ContractInput, type SceneContract } from './contract'
+import { withoutMentioned } from '../storyIndex/there'
+import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
 import { LEDGER_BLOCK, ledgerPeople, ledgerText } from './whoKnows'
 import { holdingsOf, itemHeads, namesOf } from '../memory/items'
@@ -119,6 +123,7 @@ import { calledFor, foldApostrophes, namedInProse, type CalledName } from '@shar
 import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
 import { eventVsDate } from '../worldViews/eventPlace'
 import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
+import { withoutRepeats, wordRuns } from './repeats'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -163,10 +168,28 @@ export interface ContextInput {
   /** Where each scene the stage's words come from is, in plain words ("Book 1, Ch 3, Sc 2"), by id (ai/gather.ts). */
   stageWhere?: Record<ID, string>
   /**
+   * What was left in the scene's place on an earlier visit and not taken or moved since (place memory, the story index's
+   * storyIndex/placed.ts), a line each: "Left here before: the letter under the loose hearthstone (since Ch 2, Sc 3)". Where
+   * things stand drops the things of a place when the story goes elsewhere; these bring them back for the writer. Left out
+   * or empty: none.
+   */
+  leftHere?: string[]
+  /**
+   * What the reader has been shown that someone in the scene doesn't know (the reader ledger, ai/readerKnows.ts), a line
+   * each: "The reader knows X (Ch 3, Sc 2); Mara doesn't: …". Keeps the writer from explaining it again or letting a
+   * character guess it without cause. Left out or empty: none.
+   */
+  readerKnows?: string[]
+  /**
    * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
    */
-  plan?: { needs: ID[]; text: string } | null
+  plan?: {
+    needs: ID[]
+    text: string
+    /** What the planner looked up (plan.ts lookedUpText), a block of its own beside the plan; '' or left out: nothing. */
+    lookedUp?: string
+  } | null
   /**
    * Story memory step 5 (src/main/retrieval/): entries from the last two scenes, entries and earlier passages found by
    * searching, and what was said word for word. Null or left out: none of it (switched off, or a test).
@@ -213,10 +236,41 @@ export interface ContextInput {
    * Null or left out: no brief (switched off, no plan, or it said nothing), exactly as before.
    */
   brief?: ContinuityBrief | null
+  /**
+   * Adam's own writing as the voice sample (style/ownWriting.ts, 2026-10-19), in place of the style guide's sample
+   * passage, with about OWN_SAMPLE.echo words of it said again right above the closing instruction ("Sound like this").
+   * Null or left out: the style guide's sample passage, if any, as before.
+   */
+  ownSample?: OwnSample | null
+  /**
+   * How each character's lines so far read (style/voiceMarks.ts), Adam's own lines first, by entry id: one compact line
+   * each for those in the scene, in "How they sound". Left out or empty: none.
+   */
+  voiceMarks?: Record<ID, VoiceMark>
 }
 
 /** The block that holds the plan, sent after the closing instruction as the opening of the writer's own notes. */
 export const PLAN_BLOCK = { id: 'plan', title: 'The plan, made before writing' } as const
+/**
+ * What the plan before writing looked up (overhaul, 2026-10-19), sent late (SEND_ORDER: after the continuity brief),
+ * written for each draft. Priority 3; short: the facts without the passages.
+ */
+export const LOOKED_UP_BLOCK = { id: 'looked-up', priority: 3, title: 'Looked up before writing' } as const
+/** The looked-up block's short form: its lead and the facts, without the passages ("### …" parts). */
+const lookedUpShort = (text: string): string | null => {
+  const at = text.indexOf('\n\n### ')
+  return at > 0 ? text.slice(0, at) : null
+}
+/**
+ * What was left in the scene's place on an earlier visit (ContextInput.leftHere), right before where things stand. Priority
+ * 3, as where things stand; no short form (a few lines).
+ */
+export const LEFT_HERE_BLOCK = { id: 'left-here', priority: 3, title: 'Left here before' } as const
+/** What the reader knows that someone here doesn't (ContextInput.readerKnows), beside who knows what. */
+export const READER_BLOCK = { id: 'reader', priority: 6, title: 'What the reader knows' } as const
+const READER_LEAD = 'The reader has already been shown these, and someone in this scene has not:'
+/** What the writer is told before the things left here. */
+export const LEFT_HERE_LEAD = 'From the story so far: what was left in this place on an earlier visit, and has not been taken or moved since. It is still there unless this scene moves it.'
 /** The "must stay true" list's block (mustStay.ts), sent last before the closing instruction. */
 export const MUST_BLOCK = 'must-stay-true'
 /** Its priority: as the scene card's, never left out (2026-10-15), though it has a short form for when room is short. */
@@ -263,6 +317,8 @@ export interface BlockDraft {
    */
   smaller: string[]
   entryIds: ID[]
+  /** The block holds Adam's own writing as the voice sample (ContextBlock.ownWriting), and how much of it its short form keeps. */
+  ownWriting?: { words: number; from: string[]; short?: { words: number; from: string[] } }
 }
 
 /** Every form of a block, longest first: full, short, then any smaller ones. */
@@ -741,6 +797,40 @@ function previousStory(input: ContextInput): { title: string; ended: boolean; ti
   return { title: p.storyTitle.trim() || 'the story before', ended: p.otherStory.ended, timeGap: p.otherStory.timeGap.trim() }
 }
 
+/**
+ * How the people in the scene sound, one line each (overhaul, 2026-10-19: their voices sat mid-briefing, far from the
+ * writing). Sent late (SEND_ORDER: right before the end of the previous scene and the scene card), only for those whose
+ * profile says how they speak, their verbal tics or what they never say, never their sample lines (a line copied word
+ * for word is a known fault). No short form: it is small. Its entries stay with the point of view and those present.
+ */
+export const VOICES_BLOCK = { id: 'voices', priority: 3, title: 'How they sound' } as const
+/** The most words of each person's line (whole sentences). */
+export const VOICE_WORDS = 35
+const VOICES_LEAD = 'Keep each voice distinct in every line they speak:'
+
+/**
+ * The lead of the lines read from what each person has said so far (style/voiceMarks.ts, 2026-10-19), under their
+ * profiles' lines: Adam's own lines where he has written enough of someone's.
+ */
+export const MARKS_LEAD = "How their lines so far read (the author's own lines where there are enough):"
+
+function voicesText(people: EntryState[], marks: Record<ID, VoiceMark> = {}): string {
+  const lines = people.flatMap((e) => {
+    const field = (key: string): string => clean(e.fields?.[key]).replace(/\s+/g, ' ').replace(/[.;,\s]+$/, '')
+    const parts = [field('speech'), field('tics') && `verbal tics: ${field('tics')}`, field('neverSays') && `never says: ${field('neverSays')}`]
+    const said = parts.filter(Boolean).join('; ')
+    return said ? [`- ${e.name}: ${openingSentences(`${said}.`, VOICE_WORDS)}`] : []
+  })
+  const read = people.flatMap((e) => {
+    const m = clean(marks[e.id]?.text)
+    return m ? [`- ${e.name}: ${m}.`] : []
+  })
+  const parts: string[] = []
+  if (lines.length) parts.push(`${VOICES_LEAD}\n${lines.join('\n')}`)
+  if (read.length) parts.push(`${lines.length ? MARKS_LEAD : `${VOICES_LEAD.replace(/:$/, '.')} ${MARKS_LEAD}`}\n${read.join('\n')}`)
+  return parts.join('\n')
+}
+
 // ---------- Selection ----------
 
 /** Why an entry is in the briefing, in plain words, as the Context tab shows it. */
@@ -1153,7 +1243,7 @@ export function bringAboutLine(c: Change, name: (id: ID) => string): string | nu
   }
 }
 
-function sceneCardText(input: ContextInput, sel: Selection): string {
+function sceneCardText(input: ContextInput, sel: Selection, directionOnCard = false): string {
   const { card, title } = input.scene
   const name = (id: ID): string | null => {
     const e = sel.known.get(id)
@@ -1209,8 +1299,10 @@ function sceneCardText(input: ContextInput, sel: Selection): string {
     parts.push(`${lead}:\n${aims.map((a) => `- ${indentMore(a)}`).join('\n')}`)
   }
   if (clean(card.notes)) parts.push(`Notes from the author:\n${clean(card.notes)}`)
-  // Add below says Adam's direction last of all, right before the writer starts (finalInstruction), not here.
-  if (clean(input.options.direction) && !input.options.addBelow) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
+  // Generate and Add below say Adam's direction last of all, right before the writer starts (finalInstruction), not here
+  // (2026-10-19: in the middle of the card it was followed loosely); only a draft with a closing of its own (Beat by beat)
+  // still reads it here.
+  if (clean(input.options.direction) && directionOnCard) parts.push(`The author's direction for this draft:\n${clean(input.options.direction)}`)
   return parts.join('\n\n')
 }
 
@@ -1311,7 +1403,8 @@ export function toldStage(
   const scope = stageScope(input.scene.card, input.memory, [input.options.direction, input.soFar], input.calendar)
   // What the scene before left holds only as far as it carries here (Adam, 2026-10-16): at a new scene's start the stage is
   // all from before; carrying on, a value without words is from before when it is as it was as the scene began.
-  return stageInScene(input.continuity, { ...scope, began: input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity })
+  // Never someone off the card the scene's words only mention (2026-10-19, storyIndex/there.ts).
+  return withoutMentioned(stageInScene(input.continuity, { ...scope, began: input.continuityAtSoFar ? (input.continuityAtStart ?? null) : input.continuity }), scope)
 }
 
 /** The draft carries on from words already in the scene (Add below, a later beat), rather than writing it whole. */
@@ -1632,8 +1725,17 @@ export function buildBlocks(input: ContextInput, chosen: Selection = selectEntri
   return buildBriefing(input, chosen).blocks
 }
 
-/** The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one. */
-function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockDraft[]; contract: SceneContract | null } {
+/**
+ * The blocks, and the scene's contract they tell (long story memory fix 13), when the input asks for one.
+ * `directionOnCard`: the draft has a closing instruction of its own (Beat by beat), so Adam's direction is said on the
+ * scene card, as before; otherwise the closing says it last of all (finalInstruction).
+ */
+function buildBriefing(
+  input: ContextInput,
+  chosen: Selection,
+  o: { directionOnCard?: boolean } = {}
+): { blocks: BlockDraft[]; contract: SceneContract | null } {
+  const directionOnCard = !!o.directionOnCard && !input.options.addBelow
   // The people in the scene with their usual looks put right for this moment, and the relative times in their profiles
   // made past (briefingFixes.ts). The entries as kept are unchanged.
   const stage = toldStage(input)
@@ -1662,17 +1764,32 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   // 1 Instructions and style guide (short: the sample passage trimmed, one genre, the rules without the phrase
   // list). `add` keeps the short form only when it is actually shorter.
   const addBelow = !!input.options.addBelow
+  // Adam's own writing takes the place of the sample passage when gather picked some (style/ownWriting.ts).
+  const own = input.ownSample?.passages.length ? input.ownSample : null
   add(
     'instructions',
     1,
     'Instructions and style guide',
-    instructionsText(input.style, { addBelow }),
-    instructionsText(input.style, { trimSample: true, addBelow }),
+    instructionsText(input.style, { addBelow, ownSample: own }),
+    instructionsText(input.style, { trimSample: true, addBelow, ownSample: own }),
     []
   )
+  if (own) {
+    const b = blocks.find((x) => x.id === 'instructions')
+    const first = own.passages[0]
+    const shortWords = first ? wordsIn(trimPassage(first.text)).length : 0
+    if (b) b.ownWriting = { words: own.words, from: sampleFrom(own), short: { words: shortWords, from: [first?.where ?? ''].filter(Boolean) } }
+    // About OWN_SAMPLE.echo words of it again, right above the closing instruction (prepareContext puts it last).
+    const echo = echoOf(own)
+    if (echo) {
+      add(SOUND_BLOCK.id, 2, SOUND_BLOCK.title, soundLikeText(echo), null, [])
+      const s = blocks.find((x) => x.id === SOUND_BLOCK.id)
+      if (s) s.ownWriting = { words: echo.words, from: [echo.where].filter(Boolean) }
+    }
+  }
 
-  // 2 Scene card and direction (no short form).
-  add('scene-card', 2, 'Scene card', sceneCardText(input, sel), null, [])
+  // 2 Scene card (no short form); the direction only for a closing of its own (Beat by beat).
+  add('scene-card', 2, 'Scene card', sceneCardText(input, sel, directionOnCard), null, [])
 
   // 3 The end of the previous scene (short: the last 200 words). From another story (this story's
   // first scene): titled and introduced as how that story ended, with this story's time gap.
@@ -1688,8 +1805,9 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     add('previous-scene', 3, title, `${lead}\n\n${sceneTail(prev)}`, `${lead}\n\n${sceneTail(prev, SHORT_TAIL)}`, [])
   } else if (prev) add('previous-scene', 3, 'End of the previous scene', sceneTail(prev), sceneTail(prev, SHORT_TAIL), [])
 
-  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare.
-  const earlier = earlierForms(input)
+  // 8 The scenes before, word for word (EARLIER_BLOCK): only where there is room to spare, and never beside a plan
+  //   (2026-10-19: they took about half a draft's request; the plan, what it looked up and the scenes' gists carry them).
+  const earlier = clean(input.plan?.text) ? [] : earlierForms(input)
   if (earlier.length) add(EARLIER_BLOCK.id, EARLIER_BLOCK.priority, EARLIER_BLOCK.title, earlier[0], earlier[1] ?? null, [], earlier.slice(2))
 
   // 3b Where things stand as the previous scene ended (continuity/tracker.ts): where each character is, what they
@@ -1714,6 +1832,12 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
       []
     )
   }
+
+  // What was left in this place on an earlier visit (place memory, 2026-10-19): where things stand drops a place's things
+  // when the story goes elsewhere, so a letter hidden under a hearthstone chapters ago is told again on coming back. Sent
+  // late, right before where things stand (prepareContext).
+  const left = (input.leftHere ?? []).map(clean).filter(Boolean)
+  if (left.length) add(LEFT_HERE_BLOCK.id, LEFT_HERE_BLOCK.priority, LEFT_HERE_BLOCK.title, [LEFT_HERE_LEAD, ...left.map((l) => `- ${l}`)].join('\n'), null, [])
 
   // What must stay true (mustStay.ts): a short list the app writes from where things stand and the codex entries of
   // those in the scene, current values only, each with since when, what the scene is most likely to break first (who
@@ -1772,12 +1896,23 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
         noStart: input.contract.noStart
       })
     : null
-  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract), contractText(contract, { short: true }), [])
+  // Adam's direction (and a beat) is said once (2026-10-19): the contract points to where the writer reads it in full, last
+  // of all (Generate, Add below), the scene card for a closing of its own (Beat by beat), or last of all for a beat. The
+  // check still reads every item, the direction ask by ask.
+  const said = [
+    { text: clean(input.options.direction), as: directionOnCard ? SAID.card : SAID.below },
+    ...(input.contract?.asks === 'beat' && input.contract.focus ? [{ text: input.contract.focus, as: SAID.beat }] : [])
+  ]
+  if (contract) add(CONTRACT_BLOCK.id, MUST_PRIORITY, CONTRACT_BLOCK.title, contractText(contract, { said }), contractText(contract, { short: true, said }), [])
   // The continuity brief (long story memory fix 14, brief.ts): what the plan's reader of the whole record found matters
   // here. Never left out (it goes in only where there is room for it: draftFlow.ts withPlan); short: what matters and
   // what must not be contradicted.
   const brief = briefText(input.brief)
   if (brief) add(BRIEF_BLOCK.id, MUST_PRIORITY, BRIEF_BLOCK.title, brief, briefText(input.brief, true), [])
+  // What the plan before writing looked up (overhaul, 2026-10-19): the facts as they stand and a few passages, beside the
+  // plan. Short: the facts alone.
+  const looked = clean(input.plan?.lookedUp) ? input.plan!.lookedUp!.trim() : ''
+  if (looked) add(LOOKED_UP_BLOCK.id, LOOKED_UP_BLOCK.priority, LOOKED_UP_BLOCK.title, looked, lookedUpShort(looked), [])
   const mustFor = contract ? { ...mustFrom, leaveOut: contractSays(contract) } : mustFrom
   const must = mustStayTrue(mustFor)
   if (must.length) {
@@ -1829,6 +1964,14 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
     )
   }
 
+  // How the people in the scene sound, one line each, sent late (VOICES_BLOCK); only when someone here has a voice profile
+  // or lines enough to read how they talk (voiceMarks).
+  const voices = voicesText(
+    [sel.pov, ...present].filter((e): e is EntryState => !!e && e.kind === 'character'),
+    input.voiceMarks
+  )
+  if (voices) add(VOICES_BLOCK.id, VOICES_BLOCK.priority, VOICES_BLOCK.title, voices, null, [])
+
   // 6 Relationships among those present (the spec gives it no short form: "these are short").
   const rel = relationshipsText(input, sel)
   add('relationships', 6, 'Relationships', rel.text, null, rel.entryIds)
@@ -1849,6 +1992,9 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
   }
   const ledger = ledgerText(ledgerFrom)
   if (ledger) add(LEDGER_BLOCK.id, LEDGER_BLOCK.priority, LEDGER_BLOCK.title, ledger, ledgerText(ledgerFrom, true), knowers.map((e) => e.id))
+  // What the reader knows that someone here doesn't (the AI overhaul, 2026-10-19): no explaining it again, no lucky guesses.
+  const readerLines = (input.readerKnows ?? []).map(clean).filter(Boolean)
+  if (readerLines.length) add(READER_BLOCK.id, READER_BLOCK.priority, READER_BLOCK.title, [READER_LEAD, ...readerLines.map((l) => `- ${l}`)].join('\n'), null, [])
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -2052,8 +2198,11 @@ function buildBriefing(input: ContextInput, chosen: Selection): { blocks: BlockD
  * where the model attends most, the scene card, the scene so far, where things stand and what must stay true. An audit
  * of 122 real calls found only 40% of Add below's prompt reused, since the 8.8k-token story so far came after blocks
  * that changed at every step. Blocks a part adds (the scene so far) go after the scene card, and where things stand
- * and what must stay true after them (prepareContext). Adam's direction for Add below is the closing instruction's last
- * words; the plan, when there is one, comes after the closing instruction (finishContext).
+ * and what must stay true after them (prepareContext). Adam's direction (Generate, Add below) is the closing
+ * instruction's last words; the plan, when there is one, comes after the closing instruction (finishContext).
+ * Since the overhaul (2026-10-19) the previous scene's end goes right above the scene card, so the writer reads where
+ * the story stopped just before what happens next (about 1k tokens a step no longer come from the cache), with how
+ * the people in the scene sound (VOICES_BLOCK) just before it.
  */
 export const SEND_ORDER = [
   // The same for every step of a scene, and mostly for every scene of a story.
@@ -2063,7 +2212,6 @@ export const SEND_ORDER = [
   'setting',
   'story-so-far',
   EARLIER_BLOCK.id,
-  'previous-scene',
   'threads',
   OPEN_THREADS_BLOCK,
   // The same within a scene unless the memory learns something new.
@@ -2078,13 +2226,22 @@ export const SEND_ORDER = [
   'recalled',
   // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
   LEDGER_BLOCK.id,
-  // The continuity brief (fix 14): written for each draft, so late; right before the scene card.
+  READER_BLOCK.id,
+  // The continuity brief (fix 14): written for each draft, so late.
   BRIEF_BLOCK.id,
+  // What the plan looked up (2026-10-19): written for each draft too.
+  LOOKED_UP_BLOCK.id,
+  // How the people in the scene sound, one line each, then the end of the previous scene right above the scene card.
+  VOICES_BLOCK.id,
+  'previous-scene',
   'scene-card',
+  LEFT_HERE_BLOCK.id,
   'continuity',
   // The scene's contract (fix 13): what this draft must keep to and bring about, right above what must stay true.
   CONTRACT_BLOCK.id,
-  MUST_BLOCK
+  MUST_BLOCK,
+  // Some of Adam's own words again (2026-10-19), right above the closing instruction.
+  SOUND_BLOCK.id
 ]
 const sendRank = (b: Pick<BlockDraft, 'id'>): number => {
   const i = SEND_ORDER.indexOf(b.id)
@@ -2154,15 +2311,20 @@ export interface ContextExtras {
   speakerTags?: boolean
 }
 
+/** The most words of the card's goal, conflict and outcome each that the closing instruction says again (whole sentences). */
+const POINT_WORDS = 40
+
 export function prepareContext(input: ContextInput, extras: ContextExtras = {}): PreparedContext {
   const sel = selectEntries(input)
-  const { blocks, contract } = buildBriefing(input, sel)
+  // Generate's and Add below's closings say Adam's direction last of all; a closing of its own reads it on the scene card.
+  const { blocks, contract } = buildBriefing(input, sel, { directionOnCard: !!extras.final })
   for (const b of extras.extraBlocks ?? []) {
     if (b.text.trim()) blocks.push({ id: b.id, priority: 2, title: b.title, text: b.text, short: null, smaller: [], entryIds: [] })
   }
-  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, right
-  // above the closing instruction; the plan, if any, after that (finishContext sends it after the closing instruction).
-  for (const id of ['continuity', CONTRACT_BLOCK.id, MUST_BLOCK]) {
+  // Where things stand goes last, after the scene so far too, then the scene's contract and what must stay true, then
+  // Adam's own words again ("Sound like this"), right above the closing instruction; the plan, if any, after that
+  // (finishContext sends it after the closing instruction).
+  for (const id of [LEFT_HERE_BLOCK.id, 'continuity', CONTRACT_BLOCK.id, MUST_BLOCK, SOUND_BLOCK.id]) {
     const at = blocks.findIndex((b) => b.id === id)
     if (at >= 0) blocks.push(...blocks.splice(at, 1))
   }
@@ -2191,10 +2353,17 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     hasStand: !!input.continuityAtSoFar && blocks.some((b) => b.id === 'continuity'),
     previousStory: previousStory(input),
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? '',
-    // Add below: Adam's direction last of all, and the beats already on the page (repetition.ts beatsOnPage).
+    // Adam's direction last of all (Generate, Add below), and Add below's beats already on the page (repetition.ts beatsOnPage).
     direction: clean(input.options.direction),
     beats: card.beats.map((b) => b.trim()).filter(Boolean),
-    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0
+    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,
+    // Generate's closing opens with the scene's point (overhaul, 2026-10-19): who wants what, against what, and the turn.
+    point: {
+      pov: sel.pov?.name ?? '',
+      goal: openingSentences(card.goal, POINT_WORDS),
+      conflict: openingSentences(card.conflict, POINT_WORDS),
+      outcome: openingSentences(card.outcome, POINT_WORDS)
+    }
   }
   const closing = extras.final ?? finalInstruction
   const tagLines = extras.speakerTags ? [SPEAKER_TAG_LINE] : []
@@ -2427,6 +2596,30 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
     if (ceiling !== prepared.autoMax && prepared.autoFinals) finals = prepared.autoFinals(ceiling)
   }
 
+  // Each passage once (2026-10-19: the end of the previous scene went three times in one request): the earlier passages a
+  // search found, then the passages of what the plan looked up, leave out any the words already sent carry (the scene so
+  // far, the end of the previous scene, the scenes before) or a part before them did. A block left with no passage goes.
+  // What the plan looked up gives way, not the search: a briefing with a plan never has less of a part the briefing
+  // without one had (plan.ts keepsRoom).
+  const seen = new Set<string>()
+  for (const id of PAGE_BLOCKS) {
+    const s = state.find((x) => x.b.id === id && !x.dropped)
+    if (s) for (const r of wordRuns(s.forms[s.level])) seen.add(r)
+  }
+  for (const id of PASSAGE_BLOCKS) {
+    const s = state.find((x) => x.b.id === id && !x.dropped)
+    if (!s) continue
+    const text = s.forms[s.level]
+    const r = withoutRepeats(text, seen)
+    if (!r.removed) continue
+    if (!r.left && (id !== LOOKED_UP_BLOCK.id || !/^- \S/m.test(r.text))) {
+      s.dropped = true
+      continue
+    }
+    s.forms = s.forms.map((f, i) => (i === s.level ? r.text : f))
+    s.tokensAt = s.tokensAt.map((t, i) => (i === s.level ? Math.ceil((t * r.text.length) / Math.max(1, text.length)) : t))
+  }
+
   const blocks: ContextBlock[] = state.map((s) => {
     const memory = sentTags(prepared.tags?.get(s.b.id), s.forms[s.level])
     return {
@@ -2442,7 +2635,8 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
       mode: s.mode,
       // Short because the continuity brief says what of it matters, not for room (any shorter is for room).
       ...(s.forBrief && !s.dropped && s.level === s.min ? { shortFor: 'brief' as const } : {}),
-      ...(memory ? { memory } : {})
+      ...(memory ? { memory } : {}),
+      ...(s.b.ownWriting ? { ownWriting: ownWritingSent(s.b.ownWriting, s.level > 0) } : {})
     }
   })
   const sent = blocks.filter((b) => !b.dropped)
@@ -2461,6 +2655,17 @@ export function finishContext(prepared: PreparedContext, rawCounts: number[]): C
   ]
   return { blocks, budget: { ...budget, used: measure() }, messages, knows: prepared.knows, entries: prepared.entries }
 }
+
+/** How much of Adam's own writing a block sent holds: its short form keeps less. */
+function ownWritingSent(own: NonNullable<BlockDraft['ownWriting']>, short: boolean): { words: number; from: string[] } {
+  const sent = short && own.short ? own.short : own
+  return { words: sent.words, from: sent.from }
+}
+
+/** The blocks that carry the story's own words, whole: the scene so far (and what comes after an earlier beat), the end of the previous scene, the scenes before. */
+const PAGE_BLOCKS: readonly string[] = ['scene-so-far', 'scene-after', 'previous-scene', EARLIER_BLOCK.id]
+/** The blocks of passages that may say some of them again, in the order they keep theirs: what a search found, what the plan looked up. */
+const PASSAGE_BLOCKS: readonly string[] = ['recalled', LOOKED_UP_BLOCK.id]
 
 /** The whole assembly with a synchronous token counter (used by tests and as a fallback). */
 export function assembleContext(input: ContextInput, countRaw: (text: string) => number): ContextPreview {

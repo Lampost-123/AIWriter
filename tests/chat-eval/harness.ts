@@ -21,6 +21,7 @@ import type { Node as PMNode, Schema } from '@tiptap/pm/model'
 import type { AgentStep } from '@shared/types'
 import type { Proposal } from '@shared/contracts/ask'
 import { CHAT_SWITCHES, chatSwitchOn, chatSwitchVar } from '@shared/askIntent'
+import { claimsUnmade } from '@shared/askTruth'
 import { appEvents } from '../traps/fakeElectron'
 import { pickFlash } from '../traps/models'
 import { CHAPTERS, ENTRIES, SCENES, STORIES, plainText } from './world'
@@ -342,7 +343,8 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
         const fake = await startFakeProvider({ delayMs: 0, words: 120 })
         stopServer = () => fake.close()
         const p = providers.saveProvider({ kind: 'custom', name: 'Fake', baseUrl: fake.url, apiKey: 'chat-eval-fake' })
-        model = 'fake/chat'
+        // --model picks one of the fake's own models (a sloppy one: m4/ask.mjs SLOPPY); else its chat model.
+        model = cfg.model?.startsWith('fake/') ? cfg.model : 'fake/chat'
         providerName = 'fake provider (plumbing only)'
         settings.updateSettings({ models: { writer: { providerId: p.id, modelId: model, label: model, ...big } } } as never)
       } else if (cfg.backend === 'bridge') {
@@ -621,12 +623,23 @@ export interface TurnResult {
   /** Characters of the system message (the briefing) and of every message, in the turn's first request. */
   systemChars?: number
   promptChars?: number
+  /**
+   * Characters of every request's whole body as sent (messages, tools and the rest) over the turn, and of the first
+   * request's alone: what a provider reads, tools included (the fake provider's usage counts the messages only).
+   */
+  bodyChars?: number
+  firstBodyChars?: number
   /** Every tool the model called this turn, in order, with its arguments (read from the replies as they streamed). */
   toolCalls?: { name: string; arguments: string }[]
   /** The tool_choice each request forced (anything but none / "auto"), e.g. "required" or "propose_changes". */
   forced?: string[]
   /** The intent the app recorded on the turn (params.intent), when it records one. */
   intent?: string | null
+  /**
+   * The answer as kept claims a change none of its proposals is (shared/askTruth.ts, the truth check): it said it
+   * edited, changed or proposed something it didn't. Older reports lack it (the score reads it again from the answer).
+   */
+  claimsUnmade?: boolean
 }
 
 /** The tool_choice a request forced, or null ("auto", "none" or none sent). */
@@ -769,11 +782,14 @@ export async function runScenario(app: EvalApp, s: Scenario, limitMs = 90 * 60_0
       history: i === 0 ? (s.history?.length ?? 0) : (s.history?.length ?? 0) + i,
       systemChars: typeof sys === 'string' ? sys.length : 0,
       promptChars: (sent[0]?.body.messages ?? []).reduce((a, m) => a + (typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content ?? '').length), 0),
+      bodyChars: sent.reduce((a, r) => a + JSON.stringify(r.body).length, 0),
+      firstBodyChars: sent[0] ? JSON.stringify(sent[0].body).length : 0,
       toolCalls: replies.some((r) => r)
         ? replies.flatMap((r) => r?.toolCalls ?? [])
         : (params.steps ?? []).map((st) => ({ name: st.tool, arguments: st.arguments })),
       forced: sent.map((r) => forcedChoice(r.body.tool_choice)).filter((c): c is string => !!c),
-      intent: typeof params.intent === 'string' ? params.intent : null
+      intent: typeof params.intent === 'string' ? params.intent : null,
+      claimsUnmade: claimsUnmade(row?.response ?? '', proposals)
     })
     if (app.stopped()) break
   }

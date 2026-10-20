@@ -16,7 +16,9 @@ import { draftBriefing, providerNotes, withPlan, type DraftBriefing } from '../a
 import type { ContextExtras } from '../ai/context'
 import { noteContract, noteStage, stageTold } from '../repair'
 import { isDrafting, startDraftJob, type Emit } from '../ai/drafts'
-import { afterBlock, beatDirection, beatFocus, beatInstruction, beatWords, cardBeats, soFarBlock, tidySteer } from './instructions'
+import { afterBlock, beatDirection, beatFocus, beatInstruction, beatWords, cardBeats, keepBlock, oldBlock, soFarBlock, tidySteer } from './instructions'
+import { KEEP_MOST } from '@shared/contracts/edits'
+import { keepsIn } from '@shared/revise'
 import { noteWriterSpeakers } from '../readAloud'
 
 const BUSY = 'A draft is already being written for this scene. Stop it first, or wait for it to finish.'
@@ -62,6 +64,14 @@ export async function startBeat(
   const soFarEnds = input.soFarEnds === 'mid-beat' || input.soFarEnds === 'after-beat' ? input.soFarEnds : 'with-beat'
   // An earlier beat written again in the middle of the scene: the start of what follows it, which it leads into.
   const next = afterBlock(typeof input.after === 'string' ? input.after : '')
+  // A beat written again (2026-10-19): the version on the page now, which it changes (with a note) or writes afresh, and
+  // the sentences of it Adam marked Keep (Change it…), those it has, in its order.
+  const oldText = typeof input.old === 'string' ? input.old : ''
+  const old = oldBlock(oldText)
+  const keepList = old && Array.isArray(input.keep) ? input.keep.filter((k): k is string => typeof k === 'string' && k.length <= KEEP_MOST.chars) : []
+  const kept = keepsIn(oldText, keepList).slice(0, KEEP_MOST.sentences)
+  const keep = keepBlock(kept)
+  const keeps = keep ? kept.length : 0
   // Where things stand is worked out from the whole page when the beats so far end it (below a scene break, the words
   // above it count too), else from the scene so far as given (a beat written again, say).
   const given = typeof input.soFar === 'string' ? input.soFar.trim() : ''
@@ -78,10 +88,10 @@ export async function startBeat(
       sceneLengthFor(db, sceneId, getWritingPrefs(), { useCard: input.options?.targetWords !== null })
     )
     const extras = (): ContextExtras => ({
-      final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds, hasAfter: !!next }),
-      extraBlocks: [block, next].filter((x): x is NonNullable<typeof x> => !!x)
+      final: (f) => beatInstruction(f, { index, beats, steer, hasSoFar: !!block, soFarEnds, hasAfter: !!next, hasOld: !!old, keeps }),
+      extraBlocks: [block, next, old, keep].filter((x): x is NonNullable<typeof x> => !!x)
     })
-    // Planned below, once the beats are settled (so never twice), and only this beat.
+    // Planned below, once the beats are settled (so never twice): one plan for the scene, kept for its later beats.
     const briefing = (catchUp: boolean): Promise<DraftBriefing> => {
       const options: Partial<DraftOptions> = {
         ...input.options,
@@ -105,9 +115,9 @@ export async function startBeat(
       beats = now
       b = await briefing(false)
     }
-    // Plan before writing (step 4): this beat alone, never the beats after it.
-    const focus = `Beat ${index} of ${beats.length}: ${beats[index - 1]}${steer ? `\nThe author's note for it: ${steer}` : ''}`
-    b = await withPlan(sceneId, b, { extras: extras(), signal: stop.signal, focus })
+    // Plan before writing: one plan for the whole scene, its beats its structure (Adam's spec, 2026-10-19), made with the
+    // first beat written and given to the later ones with no call (plan/index.ts); the notes say which beat is now.
+    b = await withPlan(sceneId, b, { extras: extras(), signal: stop.signal, beat: { index, of: beats.length } })
     const { generationId } = startDraftJob({
       db,
       sceneId,

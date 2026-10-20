@@ -66,10 +66,21 @@ export interface WritingPrefs {
   avoidWords: string[]
   /** Steer the AI clear of common AI phrases (src/shared/slop.ts), and underline them in drafts. On unless Adam turns it off. */
   avoidAiPhrases?: boolean
+  /**
+   * "Use my own writing as the sample" (shared/ownSample.ts): the writer is shown passages Adam wrote himself in place of
+   * the style guide's sample passage. Left out: on while the sample passage is empty; true: also over a sample passage;
+   * false: never.
+   */
+  ownSample?: boolean
   /** The length a scene aims for when neither it nor its chapter says (shared/lengths.ts); null or left out: Auto. */
   sceneLength?: number | null
   /** The target for a whole chapter when its chapter card has none (shared/lengths.ts); null or left out: none. */
   chapterLength?: number | null
+  /**
+   * The directions Adam starred in the direction composer (contracts/direction.ts), most recently starred first. Kept
+   * by setDirectionFavourite alone: saving the other preferences leaves them as they are.
+   */
+  favouriteDirections?: string[]
 }
 
 // ---------- Story structure ----------
@@ -386,8 +397,10 @@ export interface ModelChoice {
  * (Story recipes: reads a whole story and sums it up as a recipe; the memory model until Adam picks one).
  * 'chapter' is the Chapter writer model (Write the whole chapter's agent, which must use tools; the chat and
  * brainstorm model until Adam picks one; the scenes themselves are drafted by the writer model).
+ * 'director' is the Director model (Directed writing, src/main/director: watches the writer between stretches and gives
+ * it notes; never writes prose; the memory model until Adam picks one).
  */
-export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter'
+export type Job = 'writer' | 'memory' | 'chat' | 'builder' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter' | 'director'
 
 /**
  * The jobs with a Thinking level of their own: every job, and those with no model choice of their own: 'sounds', the AI
@@ -459,11 +472,31 @@ export interface Settings {
   sceneContracts?: boolean
   /**
    * Write a continuity brief before each scene (Settings › Models; on by default; long story memory fix 14): the plan
-   * before writing also reads the whole story record (and the book so far when the memory model reads enough) and gives
-   * the writer a short brief of what matters for the scene (src/main/ai/brief.ts, src/main/plan/brief.ts). Needs Plan
-   * before writing. Off: the plan's call and the briefing as before. Left out (settings saved before it): on.
+   * before writing also reads the chapters so far in short, the scene before and the scene so far word for word and what
+   * the story record says of the scene (2026-10-20: no longer the whole book so far), and gives the writer a short brief
+   * of what matters for the scene (src/main/ai/brief.ts, src/main/plan/brief.ts). Needs Plan before writing. Off: the
+   * plan's call and the briefing as before. Left out (settings saved before it): on.
    */
   continuityBrief?: boolean
+  /**
+   * Directed writing for every draft (Settings › Models; off by default; src/main/director): Generate, Add below and Write
+   * the chapter's drafts are written a stretch at a time, and a director reads each stretch and steers the writer with a
+   * short note before the next. The draft options can turn it on or off for one draft (DraftOptions.directed). Left out
+   * (settings saved before it): off.
+   */
+  directedWriting?: boolean
+  /**
+   * Show me the plan before writing (Settings › Models, under Planning; off by default): Generate and Add below stop once
+   * the scene is planned and show the plan, to change, write or cancel (src/main/plan/review.ts). The draft options can turn
+   * it on or off for one draft (DraftOptions.showPlan). Needs Plan before writing. Left out (settings saved before it): off.
+   */
+  showPlanFirst?: boolean
+  /**
+   * Write in what a draft missed (Settings › Models; off by default): when the direction receipt shows an ask that didn't
+   * land (never one of length), the app writes it in once by itself with the steered Continue that "Write it in" uses,
+   * before Adam looks (features/receipt). Left out (settings saved before it): off.
+   */
+  autoWriteIn?: boolean
   theme: ThemeName
   editor: EditorSettings
   /** Writing by hand: the optional daily word target and the words written each day, on this computer only (never in a world). */
@@ -509,13 +542,18 @@ export interface Settings {
   tourSeen?: boolean
   /** When Adam last had each world open (by world id, ISO), written as it closes: the start screen's "last opened". */
   worldsSeenAt: Record<ID, string>
-  /** The New look: Settings › Appearance › Style, the New look ('new', the default) or Classic (see contracts/look.ts). */
-  look: 'new' | 'classic'
-  /** The New look: the one-time note offering Classic is still to show (true only after updating from before it). */
-  lookNote?: boolean
   /**
-   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Classic
-   * ignores it. Missing in settings from before the desk.
+   * The look: always the New look ('new') since Classic was retired (2026-10-19); settings that still keep 'classic'
+   * are moved to it when read (src/main/settings.ts, contracts/look.ts).
+   */
+  look: 'new' | 'classic'
+  /** The one-time note about the New look is still to show (true only after updating from before it). */
+  lookNote?: boolean
+  /** The one-time note saying Classic has been retired is still to show (true only for someone moved from Classic). */
+  classicNote?: boolean
+  /**
+   * The New look's layout (Settings › Appearance › Layout): the desk or the panels (see contracts/look.ts). Missing in
+   * settings from before the desk.
    */
   arrangement?: 'desk' | 'panels'
   /** The one-time note about the desk (offering the panels) is still to show (true only after updating to it). */
@@ -697,6 +735,11 @@ export interface ContextBlock {
    * leave it out.
    */
   memory?: MemoryTag[]
+  /**
+   * The part holds passages of Adam's own writing (style/ownWords.ts) as the voice sample: how many words, and where in
+   * the story they come from ("Ch 3, Sc 2"). Left out otherwise.
+   */
+  ownWriting?: { words: number; from: string[] }
 }
 
 /**
@@ -862,6 +905,22 @@ export interface DraftOptions {
    * afresh. The writer is given the scene so far and where things stand at its end. Left out: off.
    */
   addBelow?: boolean
+  /**
+   * Directed writing for this draft (src/main/director): written a stretch at a time with a director's note between.
+   * Left out: as Settings › Models says (Settings.directedWriting).
+   */
+  directed?: boolean
+  /**
+   * The calm overhaul: this one draft is written by another model Adam has set up (one of his models in Settings › Models,
+   * the writer's, the memory's, chat's…) in place of the writer model, as "Try again with …" after a refusal asks. Left
+   * out, or not one of his models: the writer model.
+   */
+  model?: { providerId: ID; modelId: string }
+  /**
+   * Show me the plan first, for this draft (src/main/plan/review.ts): the draft stops once the scene is planned and the
+   * plan waits for Adam (change it, write, or cancel). Left out: as Settings › Models says (Settings.showPlanFirst).
+   */
+  showPlan?: boolean
 }
 
 export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
@@ -883,6 +942,7 @@ export type GenerationStatus = 'streaming' | 'complete' | 'stopped' | 'error'
  * me"; sceneId '') and 'polish' (the polish pass that revises a finished Generate draft; `params.polishOf`).
  * The critic adds 'critique': craft feedback on a scene (its sceneId) or a chapter (sceneId '').
  * Write the whole chapter adds 'chapter': one session of its agent (the scene it works on, or '' for the chapter).
+ * Directed writing adds 'director': one short call of the director between stretches of a draft (src/main/director).
  */
 export type GenerationJob =
   | 'draft'
@@ -903,9 +963,13 @@ export type GenerationJob =
   | 'polish'
   | 'critique'
   | 'chapter'
+  | 'director'
 
-/** The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). */
-export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue'
+/**
+ * The AI tools for selected words (milestone 4, Editing with AI), and Continue (from the cursor). 'revise' is "Keep this,
+ * change that" (Change it…, 2026-10-19): a passage revised as Adam's note says, the sentences he marked Keep word for word.
+ */
+export type EditTool = 'rewrite' | 'expand' | 'condense' | 'vivid' | 'tone' | 'voice' | 'alternatives' | 'continue' | 'revise'
 
 export interface GenerationSummary {
   id: ID
@@ -957,7 +1021,13 @@ export interface GenerationRecord extends GenerationSummary {
     thinking?: Exclude<ThinkingLevel, 'auto'>
     // ----- Milestone 4: what the call was part of (no migration: params_json holds them) -----
     /** One of 2 or 3 drafts written side by side (Variants): which set, which one (from 1), of how many. */
-    variant?: { setId: ID; index: number; of: number }
+    variant?: {
+      setId: ID
+      index: number
+      of: number
+      /** This variant's own direction, beside the set's ("Draft three: tense / tender / funny"), when it had one. */
+      note?: string
+    }
     /** One beat of a Beat by beat draft: which session, which beat (from 1), of how many. */
     beat?: { sessionId: ID; index: number; of: number }
     /** A scene drafted by Write the whole chapter (contracts/chapterWriter.ts): which run. */
@@ -1003,6 +1073,12 @@ export interface GenerationRecord extends GenerationSummary {
      * tagged and gave a tone, its narration moods, and tags that matched no line.
      */
     speakerTags?: { quotes: number; tagged: number; toned: number; moods: number; dropped: number }
+    /**
+     * Directed writing (src/main/director): the draft was written a stretch at a time with a director's notes between:
+     * how many stretches, paragraphs taken again, calls to the director, and notes of Adam's that went in. Each stretch's
+     * note and why are in `steps`.
+     */
+    directed?: { stretches: number; retakes: number; directorCalls: number; notes: number }
   }
   direction: string
   blocks: ContextBlock[]
@@ -1560,8 +1636,13 @@ export type MemoryCheckFact =
   | { kind: 'summary'; sceneId: ID }
   | { kind: 'note'; logId: ID }
   | { kind: 'alias'; logId: ID }
-  /** Overdue: `due` is the chapter it was due by. Quiet: `touch` is the scene that last touched it, `quiet` how long since. */
-  | { kind: 'promise'; threadId: ID; why: 'overdue' | 'quiet'; due?: ID; touch?: ID | null; quiet?: number }
+  /**
+   * Overdue: `due` is the chapter it was due by. Quiet: `touch` is the scene that last touched it, `quiet` how long since.
+   * Since 2026-10-19 (the overhaul's pay-offs; keeper/apply.ts settlePayoffs), the memory's own notes, `logId` the line:
+   * 'payoff', "Did this scene pay it off?" (its card planned the pay-off there, the words didn't show it), and
+   * 'paid-before', paid off while a later scene's card still plans its pay-off. Keep dismisses either.
+   */
+  | { kind: 'promise'; threadId: ID; why: 'overdue' | 'quiet' | 'payoff' | 'paid-before'; due?: ID; touch?: ID | null; quiet?: number; logId?: ID }
 
 export interface MemoryCheckItem {
   /** Stable while the item stays in the list. */
@@ -1637,11 +1718,22 @@ export interface MemoryStatus {
   /** A re-read Adam asked for (World Memory Overhaul B8): scenes still to be read, of how many. Missing when none. */
   rereading?: { left: number; total: number }
   /**
+   * "Fill in the whole story" (the story index, 2026-10-19): the scenes of a story whose physical details are being
+   * worked out, done of how many. Missing when none is going on.
+   */
+  filling?: { storyId: ID; title: string; done: number; total: number }
+  /**
    * The memory model (or the consistency check model) turned scenes down, as some models do with explicit scenes: what
    * went without, in plain words with the next step, until Adam dismisses it or picks another model (2026-10-16,
    * main/keeper/refusals.ts). Missing when there is nothing to tell.
    */
   refused?: { title: string; message: string }
+  /**
+   * The calm overhaul: the memory catching up before a draft or a check of a scene (keeper/engine.ts catchUpBefore): the
+   * scene it is for, the earlier scenes read so far of how many (`stage` 'earlier'), then the scene's own latest words
+   * ('scene'). Missing when nothing is waiting on it.
+   */
+  catchingUp?: { sceneId: ID; done: number; total: number; stage: 'earlier' | 'scene' }[]
 }
 
 /** What to read again in full (World Memory Overhaul B8): one scene, or every scene of a story. */

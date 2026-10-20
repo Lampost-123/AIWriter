@@ -24,6 +24,8 @@ export interface TreeNode {
   paysOff?: string[]
   /** A chapter's card as the reply gave it, or where a scene differs from its chapter's (chapter cards); none for an act. */
   card?: SuggestedCard
+  /** An act's rough number of chapters (its "Chapters:" line, the outline in stages); left out: not said. */
+  about?: number
   /** Fully arrived (see parse.ts). */
   complete: boolean
   children: TreeNode[]
@@ -49,6 +51,44 @@ export interface NodeEdit {
   beats: string[]
   /** A scene's When as Adam changed it; left out: the AI's. */
   when?: string
+  /**
+   * The card as Adam changed it (2026-10-19: the Edit form shows every part): a chapter's point of view, characters,
+   * location, When and mood; a scene's, where it differs from its chapter (its When is `when`). Left out: the AI's.
+   */
+  card?: SuggestedCard
+  /** The plot threads a scene sets up and pays off, as Adam changed them; left out: the AI's. */
+  setsUp?: string[]
+  paysOff?: string[]
+  /** An act's rough number of chapters, as Adam changed it; left out: the AI's. */
+  about?: number
+}
+
+/** A suggestion's words as they stand: Adam's where he changed them, else the AI's. */
+export interface Words {
+  title: string
+  text: string
+  beats: string[]
+  /** A scene's When; '' for acts and chapters (a chapter's is its card's). */
+  when: string
+  /** None for an act. */
+  card: SuggestedCard | undefined
+  setsUp: string[]
+  paysOff: string[]
+  /** An act's rough number of chapters; null for none said (and for chapters and scenes). */
+  about: number | null
+}
+
+export function wordsOf(node: TreeNode, edit?: NodeEdit): Words {
+  return {
+    title: edit?.title ?? node.title,
+    text: edit?.text ?? node.text,
+    beats: edit?.beats ?? node.beats,
+    when: node.kind === 'scene' ? (edit?.when ?? node.when) : '',
+    card: node.kind === 'act' ? undefined : (edit?.card ?? node.card),
+    setsUp: node.kind === 'scene' ? (edit?.setsUp ?? node.setsUp ?? []) : [],
+    paysOff: node.kind === 'scene' ? (edit?.paysOff ?? node.paysOff ?? []) : [],
+    about: node.kind === 'act' ? (edit?.about ?? node.about ?? null) : null
+  }
 }
 
 /** What became of a suggestion. Not listed: still open. */
@@ -100,6 +140,7 @@ export function outlineTree(o: ParsedOutline): TreeNode[] {
       text: a.purpose,
       beats: [],
       when: '',
+      ...(a.chapterCount ? { about: a.chapterCount } : {}),
       complete: a.complete,
       children: [...(i === 0 ? o.chapters : []), ...a.chapters].map(chapterNode)
     })
@@ -194,19 +235,22 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
       .reverse()
       .find((s) => decisions[s.key]?.status === 'kept' || keeping.has(s.key))
     const before = after ? undefined : siblings.slice(at + 1).find((s) => decisions[s.key]?.status === 'kept')
-    const words = edits[node.key] ?? node
+    // Adam's words where he changed them (any part, his card and plot threads too), else the AI's.
+    const words = wordsOf(node, edits[node.key])
     const item: KeepItem = { key: node.key, kind: node.kind, title: words.title.trim(), text: words.text.trim() }
     if (node.kind === 'scene') {
       item.beats = words.beats.map((b) => b.trim()).filter(Boolean)
-      // Adam's When if he changed it, else the AI's; empty, the story fills it in (keepOutline).
-      const when = (edits[node.key]?.when ?? node.when).trim()
+      // Empty, the story fills it in (keepOutline).
+      const when = words.when.trim()
       if (when) item.when = when
       // The plot threads it sets up and pays off go on its card (new ones are made: outline/structure.ts).
-      if (node.setsUp?.length) item.setsUp = node.setsUp
-      if (node.paysOff?.length) item.paysOff = node.paysOff
+      const setsUp = words.setsUp.map((t) => t.trim()).filter(Boolean)
+      const paysOff = words.paysOff.map((t) => t.trim()).filter(Boolean)
+      if (setsUp.length) item.setsUp = setsUp
+      if (paysOff.length) item.paysOff = paysOff
     }
     // Chapter cards: a chapter's card, and where a scene differs from its chapter's (its When is `when` above).
-    const card = node.kind === 'act' ? undefined : cardNames(node.card, node.kind === 'chapter')
+    const card = node.kind === 'act' ? undefined : cardNames(words.card, node.kind === 'chapter')
     if (card) item.card = card
     const p = ref(parent)
     if (p) item.parent = p
@@ -217,6 +261,46 @@ export function keepPlan(tree: TreeNode[], decisions: Decisions, edits: Edits, k
     items.push(item)
   }
   return items
+}
+
+/**
+ * Where Adam chose to keep an act or chapter (2026-10-19: Keep went at the end of the binder, with no choice): the end
+ * of the story, just after an act or chapter in the story (a chapter with the act it is in, null for none), or first in
+ * an act (a chapter: before the act's first chapter, or into an empty act) or in the story (an act: before its first act).
+ */
+export type KeepPlace =
+  | { at: 'end' }
+  | { at: 'after'; id: ID; actId?: ID | null }
+  | { at: 'first'; actId: ID | null; beforeId: ID | null }
+
+/**
+ * What Keep on one act or chapter adds once Adam has chosen its place: it goes there, with what is inside it, rather
+ * than where the outline would put it. A chapter put in an act of the story's leaves its suggested act out (that act
+ * stays a suggestion). Scenes have no choice: they go into their chapter.
+ */
+export function placeKeep(items: KeepItem[], key: string, place: KeepPlace): KeepItem[] {
+  const main = items.find((i) => i.key === key)
+  if (!main || main.kind === 'scene') return items
+  const out = main.kind === 'chapter' ? items.filter((i) => !(i.kind === 'act' && key.startsWith(i.key) && i.key !== key)) : [...items]
+  const at = out.indexOf(main)
+  const next: KeepItem = { ...main }
+  delete next.after
+  delete next.before
+  if (main.kind === 'act') {
+    if (place.at === 'after') next.after = { id: place.id }
+    else if (place.at === 'first' && place.beforeId) next.before = { id: place.beforeId }
+  } else if (place.at === 'end') {
+    // The end of the story: its last act, when it has acts (keepOutline's own rule for a chapter with no act given).
+    delete next.parent
+  } else if (place.at === 'after') {
+    next.parent = { id: place.actId ?? null }
+    next.after = { id: place.id }
+  } else {
+    next.parent = { id: place.actId }
+    if (place.beforeId) next.before = { id: place.beforeId }
+  }
+  out[at] = next
+  return out
 }
 
 /** The decisions once the story has what keepOutline made. */
@@ -350,6 +434,18 @@ export function madePagesNote(kept: Pick<KeptItem, 'entryNames'>[]): string {
   const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} more`] : names
   const list = shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
   return ` Made ${names.length === 1 ? 'a page' : 'pages'} for ${list}.`
+}
+
+/**
+ * What a keep's toast adds for the events it put in the scenes they happen in (2026-10-19): " The Storm now happens in
+ * its scene.", " The Storm and the Wedding now happen in their scenes.", " 5 events now happen in their scenes." ('' for none).
+ */
+export function placedEventsNote(kept: Pick<KeptItem, 'events'>[]): string {
+  const names = [...new Set(kept.flatMap((k) => k.events ?? []).map((e) => e.name.trim()).filter(Boolean))]
+  if (!names.length) return ''
+  if (names.length === 1) return ` ${names[0]} now happens in its scene.`
+  if (names.length === 2) return ` ${names[0]} and ${names[1]} now happen in their scenes.`
+  return ` ${names.length} events now happen in their scenes.`
 }
 
 /** The toast after one Discard: "Discarded “Rain on the Narrows” and its 2 scenes." */

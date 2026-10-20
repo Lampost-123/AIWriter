@@ -14,6 +14,8 @@ export interface SceneDraftOptions {
   fresh?: boolean
   /** For one draft only, never kept: Add below carries on from the scene's words (DraftOptions.addBelow). */
   addBelow?: boolean
+  /** For one draft only, never kept: show the plan first, or not (DraftOptions.showPlan); left out, as Settings say. */
+  showPlan?: boolean
 }
 
 export const BLANK_DRAFT_OPTIONS: SceneDraftOptions = { direction: '', targetWords: null, creativity: null }
@@ -37,8 +39,23 @@ export function resolveDraftOptions(
     creativity: o.creativity ?? defaultCreativity,
     ...(polish ? { polish: true } : {}),
     ...(o.fresh ? { fresh: true } : {}),
-    ...(o.addBelow ? { addBelow: true } : {})
+    ...(o.addBelow ? { addBelow: true } : {}),
+    ...(typeof o.showPlan === 'boolean' ? { showPlan: o.showPlan } : {})
   }
+}
+
+/**
+ * The direction a draft is written with (2026-10-19, the stale direction): the desk's steer box when it has words. With
+ * the box empty, Add below has no direction, unless Adam asked for it from the Draft options, where their Direction is in
+ * front of him: Add below says its direction last, as "what happens now", so a direction kept from an earlier whole draft
+ * had it write that draft's events again. A whole draft, and anything with no steer box (`steer` left out), takes the
+ * Draft options' direction, as before.
+ */
+export function draftDirection(o: { saved: string; steer?: string; addBelow: boolean; fromOptions: boolean }): string {
+  const steer = (o.steer ?? '').trim()
+  if (steer) return steer
+  if (o.steer !== undefined && o.addBelow && !o.fromOptions) return ''
+  return o.saved
 }
 
 /** Applies a change to one scene's options, leaving every other scene's alone. */

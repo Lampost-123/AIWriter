@@ -41,6 +41,7 @@ import { DrawnTick } from '@/components/ui/DrawnTick'
 import { Trail } from './Trail'
 import { useNewLook } from '@/features/look/look'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
+import { CheckButton } from '@/features/check/CheckButton'
 
 /** How the open scene is saving. Its slot stays when there is nothing to say, so the bar never moves. */
 function SaveIndicator(): React.JSX.Element {
@@ -415,6 +416,8 @@ export function TopBar(): React.JSX.Element {
       {/* Write the whole chapter, while it works: what it is doing, with Stop. */}
       {hasWorld ? <ChapterWriterStatus /> : null}
       {hasWorld ? <KeeperStatus /> : null}
+      {/* The one Check: this scene, chapter or story (the calm overhaul). */}
+      {hasWorld ? <CheckButton /> : null}
       {hasWorld && isNew ? <SearchBox /> : null}
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (

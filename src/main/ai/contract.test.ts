@@ -6,17 +6,23 @@ import { defaultStyleGuide, emptySceneCard } from '@shared/defaults'
 import type { SceneState } from '@shared/continuity'
 import { assembleContext, MUST_BLOCK, MUST_PRIORITY, prepareContext, SEND_ORDER, type ContextInput } from './context'
 import { countRaw } from './tokens'
+import { DIRECTION_LEAD } from './prompts'
 import {
+  ASKS_MOST,
   CONTRACT_BLOCK,
   CONTRACT_LEAD,
   CONTRACT_MOST,
   contractSays,
   contractText,
   contractWanted,
+  directionAsks,
+  keepsLength,
+  lengthAsk,
   mostlyIn,
   changedBy,
   mustChange,
   partTitle,
+  SAID,
   saysFact,
   sceneContract,
   toneOnly,
@@ -96,18 +102,27 @@ describe('what must change', () => {
     expect(mustChange(from({ asks: 'stretch', card: { beats: ['Mara reaches the gate'], outcome: '' }, soFar }))).toEqual([])
   })
 
-  it('a direction that only says how it should read is nothing that must change (review, 2026-10-16)', () => {
+  it('a direction that only says how it should read leaves the card’s words standing, and is an ask of a draft (the receipt, 2026-10-19)', () => {
     for (const d of ['Make it darker', 'more dialogue, a faster pace', 'Tone it down a bit.', 'Keep it tense and quiet', 'Less description'])
       expect(toneOnly(d)).toBe(true)
     for (const d of ['Make it darker: Tobin dies', 'Mara slams the gate', 'Tobin is angrier', '']) expect(toneOnly(d)).toBe(false)
-    expect(mustChange(from({ card, direction: 'Make it darker' })).map((c) => c.text)).toEqual([
+    // How it reads is an ask of its own (the receipt shows it), and nothing that happens: the card's beats all stand.
+    const darker = mustChange(from({ card, direction: 'Make it darker' }))
+    expect(darker.map((c) => c.text)).toEqual([
+      'Make it darker',
       'Mara reaches the gate',
       'Tobin tells her the letter is forged',
       'By the end: Mara turns back for the mill'
     ])
+    expect(darker[0].ask).toBe('reads')
+    expect(darker.slice(1).every((c) => !c.ask)).toBe(true)
     // Add below: the next beat not on the page, as with no direction.
     const soFar = 'Mara reached the gate at last, out of breath.'
-    expect(mustChange(from({ asks: 'stretch', card, soFar, direction: 'darker, and slower' })).map((c) => c.text)).toEqual(['Tobin tells her the letter is forged'])
+    expect(mustChange(from({ asks: 'stretch', card, soFar, direction: 'darker, and slower' })).map((c) => c.text)).toEqual([
+      'Darker, and slower',
+      'Tobin tells her the letter is forged'
+    ])
+    // Continue never asks how it reads (no receipt): nothing, as before.
     expect(mustChange(from({ asks: 'continue', card, direction: 'more tension' }))).toEqual([])
   })
 
@@ -504,12 +519,127 @@ describe('in the writer’s briefing', () => {
       'Wren shows him the case Ash left'
     ])
     const beat = prepareContext(briefingInput({ contract: { asks: 'beat', focus: 'Wren shows him the case' } }))
-    expect(beat.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Must change by the end of this beat:\n1. Wren shows him the case')
+    expect(beat.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text).toContain('Must change by the end of this beat:\n1. This beat, as given last of all, below.')
+    // The check still reads the beat itself.
+    expect(contractText(beat.contract!, { codes: true })).toContain('Wren shows him the case')
   })
 
   it('is never left out, even for a model with very little room', () => {
     const small = assembleContext(briefingInput({ contract: { asks: 'scene' }, contextLength: 4_096 }), countRaw)
     const block = small.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!
     expect(block.dropped).toBe(false)
+  })
+})
+
+// ---------- Adam's direction, ask by ask (the direction receipt, 2026-10-19) ----------
+
+describe('the direction, ask by ask', () => {
+  it('splits a direction into its asks, each whole, and says what each is about', () => {
+    expect(directionAsks('Make it tense, end on the knock at the door')).toEqual([
+      { text: 'Make it tense', kind: 'reads' },
+      { text: 'End on the knock at the door', kind: 'event' }
+    ])
+    expect(directionAsks('Mira lies about the key. End on the knock. More dialogue.')).toEqual([
+      { text: 'Mira lies about the key', kind: 'event' },
+      { text: 'End on the knock', kind: 'event' },
+      { text: 'More dialogue', kind: 'reads' }
+    ])
+    expect(directionAsks('Have Mira lie about the key, and keep it under 800 words').map((a) => a.kind)).toEqual(['event', 'length'])
+    expect(directionAsks('Mira lies about the key, more dialogue and a faster pace').map((a) => a.text)).toEqual([
+      'Mira lies about the key',
+      'More dialogue',
+      'A faster pace'
+    ])
+    expect(directionAsks('Mr. Hale arrives late. Mira, frightened, lies about the key, then Tobin leaves.').map((a) => a.text)).toEqual([
+      'Mr. Hale arrives late',
+      'Mira, frightened, lies about the key',
+      'Tobin leaves'
+    ])
+    expect(directionAsks('- Mira lies\n- Tobin leaves\n2. end on the knock').map((a) => a.text)).toEqual(['Mira lies', 'Tobin leaves', 'End on the knock'])
+    expect(directionAsks('')).toEqual([])
+  })
+
+  it('never splits one happening at its commas or "and"', () => {
+    for (const d of [
+      'Wren pulls off her wet boots and sets them by the hearth to dry, and hangs her oilskin coat on the peg behind the door.',
+      'Wren puts the survey case down on the windowsill, then lies down on the settle by the fire.',
+      'Tobin brings bread, more wine and cheese',
+      'Keep it tense and quiet',
+      'They never reach the gate: Tobin turns them back at the bridge'
+    ])
+      expect(directionAsks(d)).toHaveLength(1)
+    // Kept whole, however long (the contract once cut the direction at 320 characters).
+    const long = `Mara ${'walks slowly along the river wall '.repeat(12)}and stops at the gate`
+    expect(long.length).toBeGreaterThan(320)
+    expect(directionAsks(long)[0].text).toBe(long)
+  })
+
+  it('keeps at most a handful of asks, the rest with the last, whole', () => {
+    const asks = directionAsks('One happens. Two happens. Three happens. Four happens. Five happens. Six happens. Seven happens.')
+    expect(asks).toHaveLength(ASKS_MOST)
+    expect(asks.at(-1)!.text).toBe('Six happens. Seven happens')
+  })
+
+  it('reads an ask of length, and counts words against it', () => {
+    expect(lengthAsk('keep it under 800 words')).toEqual({ most: 800 })
+    expect(lengthAsk('800 words max')).toEqual({ most: 800 })
+    expect(lengthAsk('At least 1,500 words')).toEqual({ least: 1500 })
+    expect(lengthAsk('Keep the scene short, about 600 words')).toEqual({ about: 600 })
+    expect(lengthAsk('Mira gives a 200 word speech')).toBeNull()
+    expect(lengthAsk('More dialogue')).toBeNull()
+    expect(keepsLength({ most: 800 }, 800)).toBe(true)
+    expect(keepsLength({ most: 800 }, 801)).toBe(false)
+    expect(keepsLength({ least: 1500 }, 1400)).toBe(false)
+    expect(keepsLength({ about: 600 }, 700)).toBe(true)
+    expect(keepsLength({ about: 600 }, 800)).toBe(false)
+  })
+
+  it('a whole scene: one item per ask, in the author’s words, first; the card shares what is left, the direction counting as one', () => {
+    const card = { beats: ['Mara reaches the gate', 'Tobin tells her the letter is forged', 'Mara burns it'], outcome: 'Mara turns back for the mill' }
+    const got = mustChange(from({ card, direction: 'Mira lies about the key. End on the knock. More dialogue. Keep it under 800 words.' }))
+    expect(got.map((c) => [c.text, c.ask])).toEqual([
+      ['Mira lies about the key', 'event'],
+      ['End on the knock', 'event'],
+      ['More dialogue', 'reads'],
+      ['Keep it under 800 words', 'length'],
+      ['Mara reaches the gate', undefined],
+      ['Tobin tells her the letter is forged', undefined],
+      ['Mara burns it', undefined],
+      ['By the end: Mara turns back for the mill', undefined]
+    ])
+    // Add below: the direction's asks, and no beat (what happens now is the direction).
+    expect(mustChange(from({ asks: 'stretch', card, direction: 'Mira lies about the key. More dialogue.' })).map((c) => c.text)).toEqual([
+      'Mira lies about the key',
+      'More dialogue'
+    ])
+    // Continue: what happens, without how it reads.
+    expect(mustChange(from({ asks: 'continue', card, direction: 'Mira lies about the key. More dialogue.' })).map((c) => c.text)).toEqual([
+      'Mira lies about the key'
+    ])
+  })
+
+  it('the writer reads the asks as one line pointing to the direction; the check reads each, but for length', () => {
+    const direction = 'Mira lies about the key. More dialogue. Keep it under 800 words.'
+    const c = sceneContract(from({ card: { beats: ['Mara reaches the gate'], outcome: '' }, direction }))!
+    const said = [{ text: direction, as: SAID.below }]
+    expect(contractText(c, { said })).toContain(`Must change by the end of the scene:\n1. ${SAID.below}\n2. Mara reaches the gate`)
+    expect(contractText(c, { said }).split(SAID.below)).toHaveLength(2)
+    const codes = contractText(c, { codes: true })
+    expect(codes).toContain('- [C1] Mira lies about the key\n- [C2] More dialogue\n- [C4] Mara reaches the gate')
+    expect(codes).not.toContain('800 words')
+    expect(c.items.map((i) => i.ask ?? null)).toEqual(['event', 'reads', 'length', null])
+  })
+
+  it('in the briefing: Generate’s contract points to the direction last of all, and the closing says it word for word, once', () => {
+    const direction = 'Wren lies about the case. End on the knock at the hatch.'
+    const p = prepareContext(briefingInput({ contract: { asks: 'scene' }, options: { direction, targetWords: 800, creativity: 'balanced' } }))
+    const block = p.blocks.find((b) => b.id === CONTRACT_BLOCK.id)!.text
+    expect(block).toContain(`1. ${SAID.below}`)
+    expect(block).not.toContain('Wren lies')
+    expect(p.blocks.find((b) => b.id === 'scene-card')!.text).not.toContain('Wren lies')
+    expect(p.finals.withPrevious.trimEnd().endsWith(`${DIRECTION_LEAD}\n${direction}`)).toBe(true)
+    const all = [...p.blocks.map((b) => b.text), p.finals.withPrevious].join('\n')
+    expect(all.split('Wren lies about the case')).toHaveLength(2)
+    expect(p.contract!.items.filter((i) => i.ask).map((i) => i.text)).toEqual(['Wren lies about the case', 'End on the knock at the hatch'])
   })
 })

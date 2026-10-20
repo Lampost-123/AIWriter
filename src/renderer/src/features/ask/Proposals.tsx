@@ -37,6 +37,7 @@ import { applyChanges, declineChange, showScene } from './applyProposal'
 import { parseEmphasis } from '@/features/editor/streamText'
 import { blockAt, findEditAt, findPassageAt } from './askEdits'
 import { compactDiff, diffSize, folds, wordDiff, type DiffPart } from './wordDiff'
+import { staleBadge } from './askWords'
 
 const CARD_LABELS: Record<string, string> = { goal: 'Goal', conflict: 'Conflict', outcome: 'Outcome', mood: 'Mood', when: 'When', notes: 'Notes' }
 
@@ -427,6 +428,8 @@ function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: stri
           <Line label="Name" value={p.name} />
           {p.summary ? <Line label="Summary" value={p.summary} /> : null}
           {p.description ? <Line label="Description" value={p.description} /> : null}
+          {p.when ? <Line label="When" value={p.when} /> : null}
+          {p.sceneLabel ? <Line label="Happens in" value={p.sceneLabel} /> : null}
         </div>
       )
     case 'newScene':
@@ -633,7 +636,7 @@ function ChangeCard({ generationId, p, locked }: { generationId: ID; p: Proposal
           </span>
         ) : stale ? (
           <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-danger">
-            <AlertTriangle size={12} aria-hidden /> Not found
+            <AlertTriangle size={12} aria-hidden /> {staleBadge(local.stale ?? '')}
           </span>
         ) : null}
       </div>

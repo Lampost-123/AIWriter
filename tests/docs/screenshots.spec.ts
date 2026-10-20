@@ -4,8 +4,8 @@
 //   DOCS_SHOTS=hero,ask npm run docs:screenshots   only those (names without .png)
 //   DOCS_THEME=light npm run docs:screenshots      another theme (dark, light or sepia)
 //
-// The shots show the New look's desk layout (its rooms Write, Plan, World and Check), except look-classic.png (Classic).
-// Every shot is in the Dark theme by default (Settings › Appearance › Theme, set in the app's own settings), Classic,
+// The shots show the New look's desk layout (its rooms Write, Plan, World and Check), except layout-panels.png (the
+// Panels layout). Every shot is in the Dark theme by default (Settings › Appearance › Theme, set in the app's own settings),
 // the start screen and the first-run setup included, and so is the social preview card (social-preview.png, 1280 x 640).
 //
 // Not part of the app tests or CI: it has its own config (tests/docs/playwright.config.ts) and the main
@@ -575,16 +575,16 @@ test('docs screenshots', async () => {
       await room(win, 'Write').click()
     })
 
-    await take('look-classic', async () => {
-      // Classic with its scene panel open beside the page.
-      await invoke(win, 'updateSettings', { look: 'classic', layout: { inspectorOpen: true } })
+    await take('layout-panels', async () => {
+      // The Panels layout, with the binder and the scene panel open beside the page.
+      await invoke(win, 'updateSettings', { arrangement: 'panels', layout: { binderOpen: true, inspectorOpen: true } })
       await open!.close()
       open = await reopen(dataDir)
       ;({ app, win } = open)
       await expect(prose(win)).toContainText('A hundred and twelve steps to the lamp room.')
       await dismissToasts(win)
-      await shot(app, win, 'look-classic')
-      await invoke(win, 'updateSettings', { look: 'new' })
+      await shot(app, win, 'layout-panels')
+      await invoke(win, 'updateSettings', { arrangement: 'desk' })
       await open.close()
       open = await reopen(dataDir)
       ;({ app, win } = open)

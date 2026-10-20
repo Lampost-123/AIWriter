@@ -43,7 +43,7 @@ import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import type { Entry, EntryKind } from '@shared/types'
-import { binder, createWorldFromWelcome, expect, invoke, openSettings, startFake, test, useFakeModel } from './helpers'
+import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, startFake, test, useFakeModel } from './helpers'
 
 /** The memory waits long after any typing, so the only AI calls are the ones each check makes. */
 const QUIET = { AIWRITE_KEEPER_QUIET_MS: '600000' }
@@ -460,7 +460,7 @@ test('milestone 4, check 3: after one-click downloads, a scene is read aloud wit
     })
 
     await test.step('3. Mara and Tobin each get a voice from the list on their page', async () => {
-      await binder(win).getByRole('button', { name: 'Characters' }).click()
+      await openPage(win, 'Characters')
       for (const c of CAST) {
         const row = main(win)
           .getByRole('listbox', { name: 'Characters', exact: true })
@@ -477,6 +477,7 @@ test('milestone 4, check 3: after one-click downloads, a scene is read aloud wit
     })
 
     await test.step('3. Ctrl+L reads the scene to the end: the narrator, then each character in their own voice', async () => {
+      await openWrite(win)
       await sceneRow(win, 'Scene 1').click()
       await expect(prose(win)).toBeVisible()
       await writeParagraphs(win, READ_ALOUD_SCENE)
@@ -627,7 +628,7 @@ test("milestone 4, check 5: a world typed as a one-paragraph summary comes out a
     await useFakeModel(win, fake)
 
     await test.step('5. Adam types one paragraph and clicks Build the world once', async () => {
-      await win.getByRole('navigation', { name: 'World' }).getByRole('button', { name: 'Build from a summary' }).click()
+      await openPage(win, 'Build from a summary')
       await expect(main(win).getByRole('heading', { level: 1, name: 'Build the world from a summary' })).toBeVisible()
       const summary = main(win).getByRole('textbox', { name: 'Your summary' })
       await expect(summary).toBeFocused()

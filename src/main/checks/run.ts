@@ -10,7 +10,12 @@
 // models won't read explicit scenes) stops with a plain-words reason and is noted for the top bar's lasting note
 // (keeper/refusals.ts), rather than being asked again as if the reply were in the wrong format. Since 2026-10-16 the
 // facts a scene touches are ranked by meaning too when the search model is on (rankByMeaning), and what the checks find
-// about what is so goes through one second opinion before it is kept (findingsRuling). No Electron imports.
+// about what is so goes through one second opinion before it is kept (findingsRuling). Since 2026-10-19 (the checks'
+// cost) every request about a scene opens the same way, its two groups of checks, the contract's ruling and the second
+// opinion alike: the same instructions (CHECK_SYSTEM), the same material and the scene's words (context.ts checkOpening),
+// then the request's own task, so a provider's prefix cache serves all but the task after the first; and a reply that
+// can't be read is asked for again with the same request and a line saying what was wrong, never the reply itself
+// (repair/retry.ts withCorrection). No Electron imports.
 
 import type Database from 'better-sqlite3'
 import type { CheckKind, CheckReport, IssueKind } from '@shared/contracts/checks'
@@ -25,18 +30,32 @@ import { CUT_OFF } from '../keeper/json'
 import { estimateTokens, plain } from '../keeper/text'
 import { fieldOrigin, fieldValue } from '../keeper/facts'
 import { newId, UserError } from '../util'
-import { checkRequest, checkSections, factRelevance, factsToRank, gatherSceneCheck, personNames, splitScene, type SceneCheckContext } from './context'
+import {
+  CHECK_GROUPS,
+  checkOpening,
+  checkRequest,
+  checkRequests,
+  checkSections,
+  factRelevance,
+  factsToRank,
+  gatherSceneCheck,
+  personNames,
+  sectionText,
+  splitScene,
+  type SceneCheckContext,
+  type Section
+} from './context'
 import { scenePassages } from '../retrieval/text'
 import type { Claim } from '../repair/claims'
 import { foundIssues, orderedChecks, readCheckReply, type ReadContext } from './parse'
-import { retryMessage, sceneSystem } from './prompts'
+import { CHECK_SYSTEM, checkTask, retryMessage, TASK_HEADING } from './prompts'
+import { withCorrection } from '../repair/retry'
 import { reportHash, reportItems, saveReport } from './report'
 import { ruleChecksQuietly } from './ruleChecks'
-import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt } from './quote'
+import { findSceneQuote, issueKey, KIND_OF_CHECK, occurrenceAt, quotesOverlap } from './quote'
 import type { ContractCheck } from '@shared/contracts/checks'
 import type { SceneContract } from '../ai/contract'
 import {
-  CONTRACT_SECTION,
   contractResults,
   contractSection,
   contractSources,
@@ -47,17 +66,13 @@ import {
   type ContractAnswer,
   type JudgedContract
 } from '../repair/contract'
-import { SECOND_MARKER, secondOpinion, secondSystem } from '../repair/second'
+import { SECOND_MARKER, secondOpinion, secondSystem, type SharedOpening } from '../repair/second'
 import * as gens from '../db/generations'
 import { now } from '../util'
 
 type DB = Database.Database
 
-/** The checks asked together in one request: what is so, then who knows what and how it reads. */
-export const CHECK_GROUPS: CheckKind[][] = [
-  ['facts', 'timeline', 'continuity'],
-  ['knowledge', 'voice', 'style']
-]
+export { CHECK_GROUPS }
 
 /** Low creativity: the check reports, it doesn't invent. */
 export const CHECK_TEMPERATURE = 0.2
@@ -100,6 +115,11 @@ export interface CheckOptions {
    * by keyword alone.
    */
   byMeaning?: (queries: string[], docs: { key: string; text: string }[], signal: AbortSignal) => Promise<Map<string, number> | null>
+  /**
+   * Every check asked for in one request, not CHECK_GROUPS' two (Write the whole chapter's state check, spec "Write the
+   * chapter, reworked", 2026-10-19: one short call with the facts the scene touches, what is so and who knows what).
+   */
+  together?: boolean
   fetchImpl?: typeof fetch
   retryDelays?: number[]
 }
@@ -116,6 +136,46 @@ export function checkBudget(model: Pick<JobModel, 'choice'>, system: string): { 
   let reply = Math.max(800, Math.min(3000, Math.floor(contextLength * 0.15)))
   if (model.choice.maxOutput && model.choice.maxOutput > 0) reply = Math.min(reply, model.choice.maxOutput)
   return { reply, available: Math.floor(contextLength * 0.9) - reply - estimateTokens(system) }
+}
+
+/** A request's sections, in tokens, as checkBudget's room counts them. */
+const sizeOf = (s: Section[]): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
+
+/** The scene's contract as a request says it: "## The scene’s contract (C ids)" and its C lines. */
+const contractWords = (c: SceneContract): string => sectionText(contractSection(c).section)
+
+/** What every request about one scene shares, and the room the scene's parts have (2026-10-19, the checks' cost). */
+export interface CheckLayout {
+  /** The material, the same sections in the same order for every request about the scene (everything but its words). */
+  sections: Section[]
+  /** The request the scene's contract rides in (the one about what is so, or the only one); null: none, or no room for it. */
+  contractGroup: CheckKind[] | null
+  /** Room for the scene's words in each request: the same for all, so each part of the scene opens every request alike. */
+  room: number
+  budget: { reply: number; available: number }
+}
+
+/**
+ * How the requests about a scene are laid out: the material for every check asked (`checks`; told in a line an entry when a
+ * big memory would leave the scene too little room), and the room for the scene left by the largest task (`groups`'
+ * checks, with the contract in the request about what is so). Too little room with the contract: it is left out, never the
+ * check (fix 13's review).
+ */
+export function checkLayout(
+  model: Pick<JobModel, 'choice'>,
+  ctx: SceneCheckContext,
+  checks: CheckKind[],
+  groups: CheckKind[][],
+  contract: SceneContract | null
+): CheckLayout {
+  const budget = checkBudget(model, CHECK_SYSTEM)
+  let sections = checkSections(ctx, checks)
+  if (sizeOf(sections) > budget.available * 0.6) sections = checkSections(ctx, checks, true)
+  const withIt = contract ? (groups.find((g) => g.includes('facts')) ?? groups[0] ?? null) : null
+  const task = (g: CheckKind[], group: CheckKind[] | null): number => estimateTokens(checkTask(g, contract && g === group ? contractWords(contract) : null)) + 8
+  const roomWith = (group: CheckKind[] | null): number => budget.available - sizeOf(sections) - Math.max(0, ...groups.map((g) => task(g, group)))
+  const contractGroup = withIt && roomWith(withIt) >= 250 ? withIt : null
+  return { sections, contractGroup, room: roomWith(contractGroup), budget }
 }
 
 /** A field is Adam's when he wrote it (as the memory keeper decides it). */
@@ -168,6 +228,8 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   }
   const versions = new Map(ctx.entries.map((c) => [c.entry.id, c.entry.updatedAt]))
   const items: Record<string, unknown>[] = []
+  // What each request found, apart, so a slip two requests found on their own is known (corroborated).
+  const byRequest: Record<string, unknown>[][] = []
   // What each check looked at and found good, from every part (the critic's report).
   const checked: Record<string, unknown>[] = []
   let splits = 0
@@ -177,58 +239,47 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   let partial = false
 
   // The checks in two focused requests (a live run found one request for all six spread the model thin and missed
-  // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads.
-  const groups = CHECK_GROUPS.map((g) => checks.filter((c) => g.includes(c))).filter((g) => g.length)
-  // The scene's contract (fix 13) rides in the request about what is so (or the only one), item by item.
+  // plain contradictions): what is so (facts, timeline, continuity), then who knows what and how it reads, each asking
+  // facts and who knows what too (checkfix, 2026-10-20: context.ts ASKED_IN_BOTH). They open alike.
+  const groups = checkRequests(checks, o.together)
+  // The scene's contract (fix 13) rides in the request about what is so (or the only one), item by item, in its task.
   const contract = o.contract?.items.length ? o.contract : null
-  const contractGroup = contract ? (groups.find((g) => g.includes('facts')) ?? groups[0]) : null
   const answers: ContractAnswer[][] = []
   // What must be true at the start is judged on the scene's opening alone (fix 13's review): a long scene's later parts
   // are told what must change and what must not.
   const startCodes = new Set((contract?.items ?? []).filter((i) => i.part === 'start').map((i) => i.code))
   const laterContract = contract && contract.items.some((i) => i.part !== 'start') ? { ...contract, items: contract.items.filter((i) => i.part !== 'start') } : null
-  // What the request through the contract was given, for the second opinion on what it found.
-  let material = ''
+  const { sections, contractGroup, room, budget } = checkLayout(o.model, ctx, checks, groups, contract)
+  if (room < 250) {
+    return {
+      status: 'error',
+      error: 'This is more than the consistency check model can read at once. Pick a model that can read more in Settings › Models.',
+      found: 0
+    }
+  }
+  // The scene's parts, the same for every request, so each part opens them all alike.
+  const parts = splitScene(ctx.text, room)
   for (const group of groups) {
     if (stopped || failure) break
-    const size = (s: ReturnType<typeof checkSections>): number => s.reduce((n, x) => n + estimateTokens(x.text) + 8, 0)
-    const fit = (withContract: boolean) => {
-      const system = sceneSystem(group, withContract)
-      const budget = checkBudget(o.model, system)
-      const terms = withContract && contract ? [contractSection(contract).section] : []
-      let sections = [...checkSections(ctx, group), ...terms]
-      // A big memory leaves too little room for the scene: its entries are told in a line each.
-      if (size(sections) > budget.available * 0.6) sections = [...checkSections(ctx, group, true), ...terms]
-      return { withContract, system, budget, sections, room: budget.available - size(sections) }
-    }
-    let f = fit(group === contractGroup)
-    // Too little room with the contract: it is left out, never the check (fix 13's review).
-    if (f.room < 250 && f.withContract) f = fit(false)
-    const { withContract, system, budget, sections, room } = f
-    const sectionsLater =
-      withContract && contract
-        ? [...sections.filter((x) => x.id !== CONTRACT_SECTION.id), ...(laterContract ? [contractSection(laterContract).section] : [])]
-        : sections
-    if (withContract) material = sections.map((x) => `## ${x.title}\n${x.text}`).join('\n\n')
-    if (room < 250) {
-      return {
-        status: 'error',
-        error: 'This is more than the consistency check model can read at once. Pick a model that can read more in Settings › Models.',
-        found: 0
-      }
-    }
-    const queue = splitScene(ctx.text, room).map((text) => ({ text }))
+    const mine: Record<string, unknown>[] = []
+    byRequest.push(mine)
+    const withContract = !!contract && group === contractGroup
+    const queue = parts.map((text) => ({ text }))
     let number = 0
     const total = (): number => number + queue.length
 
     while (queue.length && !stopped && !failure) {
       const part = queue.shift()!
       number++
-      const req = checkRequest(number === 1 ? sections : sectionsLater, part.text, { part: number, parts: total() })
-      let messages: ChatMessage[] = [
-        { role: 'system', content: system },
-        { role: 'user', content: req.user }
+      const terms = withContract ? (number === 1 ? contract : laterContract) : null
+      const req = checkRequest(sections, part.text, { part: number, parts: total() }, checkTask(group, terms ? contractWords(terms) : null))
+      // The opening (instructions, material, the scene's words) is the same for every request about this part; the task
+      // comes last.
+      const asked: ChatMessage[] = [
+        { role: 'system', content: CHECK_SYSTEM },
+        { role: 'user', content: req.user, cacheUpTo: req.opening }
       ]
+      let messages = asked
       let got: Record<string, unknown>[] | null = null
       for (let attempt = 0; attempt < 2 && !got && !stopped && !failure; attempt++) {
         if (o.stopped()) {
@@ -240,6 +291,7 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
         let done
         try {
           done = await runTask({
+            background: true,
             db: o.db,
             taskId,
             job: 'check',
@@ -299,13 +351,17 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
             break
           }
         }
-        messages = [...messages, { role: 'assistant', content: done.text }, { role: 'user', content: retryMessage(reply.why) }]
+        // Asked once more: the same request with a line on what was wrong, never the reply (a provider's cache serves the rest).
+        messages = withCorrection(asked, retryMessage(reply.why))
         if (attempt === 1) {
           failure =
             "The consistency check model's reply wasn't in the right format. Try again, or pick another consistency check model in Settings › Models."
         }
       }
-      if (got) items.push(...got)
+      if (got) {
+        items.push(...got)
+        mine.push(...got)
+      }
     }
   }
 
@@ -317,18 +373,24 @@ export async function checkScene(o: CheckOptions, sceneId: ID, asked: CheckKind[
   const answered = contract && !stopped ? mergeAnswers(answers).filter((a) => contract.items.some((i) => i.code === a.item)) : []
   let kept: ReturnType<typeof contractFindings> | null = null
   if (contract && answered.length) {
-    const ruling = await contractRuling(o, sceneId, contract, judgeContract(answered, contract, ctx.text), ctx.text, material)
+    const ruling = await contractRuling(o, sceneId, contract, judgeContract(answered, contract, ctx.text), ctx.text, sections)
     if (!o.db.open || o.closed?.()) return { status: 'stopped', found: 0 }
     // Stopped while it ruled: what the checks found is kept, the contract's not (it wasn't ruled on).
     if (o.stopped()) stopped = true
     else kept = contractFindings(contract, ruling.judged, ctx, ruling)
   }
-  let found = [...foundIssues(items, read), ...(kept?.found ?? [])]
+  // What each request found (the same as reading them all at once: the first of one key stands), and which of it two
+  // requests found on their own. What the contract found comes first: the request without the contract, asking facts too
+  // (checkfix), may find the same words plainly, and saving keeps the first of the same thing (db/checks.ts saveFound).
+  const foundIn = byRequest.map((x) => foundIssues(x, read))
+  const sure = corroborated(foundIn, ctx.text)
+  let found = [...(kept?.found ?? []), ...firstOfEachKey(foundIn.flat())]
   // A second opinion on what the checks found about what is so, before it is kept (2026-10-16: continuity findings, kept
   // since then, raised false alarms from a stage record that didn't hold): one call, only when something was found; what
-  // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything.
+  // it rules not real goes. A failed call, a reply it can't read or a stop keeps everything. What both requests found on
+  // their own isn't put to it (checkfix, 2026-10-20: on the book's live run it ruled a slip both had found not real).
   if (!stopped && !failure && found.length && !o.secondOpinionOff) {
-    const ruling = await findingsRuling(o, sceneId, found, ctx, checks)
+    const ruling = await findingsRuling(o, sceneId, found, ctx, checks, sections, sure)
     if (!o.db.open || o.closed?.()) return { status: 'stopped', found: 0 }
     if (o.stopped()) stopped = true
     else found = ruling.kept
@@ -383,11 +445,23 @@ export const CHECK_REFUSED =
 const KEEP_SECOND_PROMPTS = 10
 
 /**
+ * The second opinion's own instructions on what a check through the scene's contract found (repair/second.ts secondSystem),
+ * as the task of a request that opens as the checks' did (2026-10-19): the whole scene stands for its new words, and the
+ * contract's C lines follow.
+ */
+export function contractRulingTask(contract: SceneContract, notShown: boolean): string {
+  const [marker, ...rest] = secondSystem(true, notShown).split('\n')
+  const here = 'Here the new words are the whole scene (under "The scene"), and the material is everything before it, with the scene\'s contract (its C lines) below.'
+  return `${TASK_HEADING}\n${marker}\n${here}\n${rest.join('\n')}\n\n${contractWords(contract)}`
+}
+
+/**
  * The second opinion on what a check through the scene's contract found (fix 13's review, repair/second.ts), on the check
  * model: one call, only when something is broken or not shown yet. A broken item it rules not real goes; one it keeps is
  * confirmed, so the chapter writer may put it right (chapterWriter/run.ts issueFindings); something it finds shown after
- * all isn't asked. No room for the scene with the contract, the call failing, or a reply it can't read: nothing is
- * dropped and nothing confirmed.
+ * all isn't asked. It opens as the checks did (`sections`, their material, then the scene: 2026-10-19), or with the scene
+ * alone when the material leaves no room. No room for the scene with the contract, the call failing, or a reply it can't
+ * read: nothing is dropped and nothing confirmed.
  */
 export async function contractRuling(
   o: Pick<CheckOptions, 'db' | 'model' | 'stopped' | 'closed' | 'fetchImpl' | 'retryDelays'>,
@@ -395,16 +469,18 @@ export async function contractRuling(
   contract: SceneContract,
   j: JudgedContract,
   text: string,
-  material: string
+  sections: Section[]
 ): Promise<{ judged: JudgedContract; confirmed: boolean; shown: Set<string> }> {
   const missing = j.notYet.map((i) => ({ line: i.code, text: i.text }))
   const none = { judged: j, confirmed: false, shown: new Set<string>() }
   if (!j.broken.length && !missing.length) return none
-  const terms = contractSection(contract).section
-  const room = checkBudget(o.model, secondSystem(true, true)).available
-  const fits = (m: string): boolean => !!m && estimateTokens(m) + estimateTokens(text) + 300 <= room
-  const use = fits(material) ? material : fits(`## ${terms.title}\n${terms.text}`) ? `## ${terms.title}\n${terms.text}` : null
+  const task = contractRulingTask(contract, missing.length > 0)
+  const room = checkBudget(o.model, CHECK_SYSTEM).available
+  const fits = (s: Section[]): boolean => sizeOf(s) + estimateTokens(text) + estimateTokens(task) + 300 <= room
+  const use = fits(sections) ? sections : fits([]) ? [] : null
   if (!use) return none
+  const open = checkOpening(use, text, { part: 1, parts: 1 })
+  const shared: SharedOpening = { system: CHECK_SYSTEM, opening: open.user, blocks: open.blocks, task }
   const stop = new AbortController()
   const watch = setInterval(() => {
     if (o.stopped() || o.closed?.()) stop.abort()
@@ -414,7 +490,7 @@ export async function contractRuling(
       { db: o.db, model: o.model, signal: stop.signal, closed: () => !o.db.open || !!o.closed?.(), fetchImpl: o.fetchImpl, retryDelays: o.retryDelays },
       sceneId,
       j.broken,
-      { newWords: text, leadIn: '', material: use, lines: new Set(contract.items.map((i) => i.code)) },
+      { newWords: text, leadIn: '', material: `${open.user}\n\n${task}`, lines: new Set(contract.items.map((i) => i.code)), shared },
       missing
     )
     // Only the newest few keep their whole prompt (each holds the scene).
@@ -468,30 +544,81 @@ const MEANING_PASSAGES = 8
 /** The second opinion on a whole check's findings (2026-10-16): its own marker, apart from check and repair's. */
 export const CHECK_SECOND_MARKER = '[AIWRITE-CHECK-SECOND v1]'
 
-/** What it is told: the second opinion's (repair/second.ts) rules, for a scene checked whole rather than new words. */
-export const CHECK_SECOND_SYSTEM = `${CHECK_SECOND_MARKER} verdicts
-You are checking another continuity editor's notes on a scene of a novel (the scene is under "The new words"), against the same material they read (under "What the check was given"): the story's memory as the scene begins (each entry under a "### E1 ..." heading), who knows what, the story so far, the scenes just before (S1 ...), where things stood as the previous scene ended, the story calendar and the author's plan for the scene. For each numbered note, decide whether it is a real slip: the quoted words and what the material says cannot both be true, and nothing in the scene shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the scene itself shows, flags what the author's plan for the scene asks for, or carries where things stood as the previous scene ended across time that has passed since (someone asleep, sitting or holding something then need not be, hours or days later). Keep a note that is right even if it is worded badly, and keep it when unsure.
+/**
+ * What it is told, as the task after the scene of a request that opens as the checks' did (2026-10-19): the second
+ * opinion's (repair/second.ts) rules, for a scene checked whole rather than new words.
+ */
+export const CHECK_SECOND_TASK = `${TASK_HEADING}
+${CHECK_SECOND_MARKER} verdicts
+You are checking another continuity editor's notes on this scene (under "The scene"), against the same material they read (everything before the scene): the story's memory as the scene begins (each entry under a "### E1 ..." heading), who knows what, the story so far, the scenes just before (S1 ...), where things stood as the previous scene ended, the story calendar and the author's plan for the scene. For each numbered note, decide whether it is a real slip: the quoted words and what the material says cannot both be true, and nothing in the scene shows the change happening. Reject a note that misreads the words, confuses two people, relies on something that is not in the material, flags something merely left out, flags details that can both be true on a natural reading, flags a change the scene itself shows, flags what the author's plan for the scene asks for, or carries where things stood as the previous scene ended across time that has passed since (someone asleep, sitting or holding something then need not be, hours or days later). How someone learned something (who told them, or that they heard or saw it themselves) is a fact like any other: a note that the scene tells it otherwise than the material is real even when the material says they know it. Keep a note that is right even if it is worded badly, and keep it when unsure: the rules above for leaving out what you are unsure of are for finding issues, not for ruling on them.
 Reply with JSON only: {"verdicts": [{"n": 1, "reason": "...", "real": true}]}, one per note: reason first (one sentence, citing the line or the words that settle it), then real (true or false).`
 
 /** The kinds of finding the second opinion rules on: what is so. Voice and style are how it reads, never put to it. */
 const RULED_KINDS = new Set<IssueKind>(['fact', 'knowledge', 'timeline', 'continuity'])
 
+/** The kinds of finding asked in both requests (context.ts ASKED_IN_BOTH), so two of them can find the same slip apart. */
+const BOTH_KINDS = new Set<IssueKind>(['fact', 'knowledge'])
+
+/** Where a finding's words are in the scene (its quote is the scene's own words), or null when they can't be placed. */
+function spanOf(text: string, f: cdb.FoundIssue): [number, number] | null {
+  let at = -1
+  for (let n = 0; n <= (f.payload.occurrence ?? 0); n++) {
+    at = text.indexOf(f.quote, at + 1)
+    if (at < 0) return null
+  }
+  return [at, at + f.quote.length]
+}
+
+/** True when two findings point at words that overlap in the scene. */
+function sameWords(text: string, a: cdb.FoundIssue, b: cdb.FoundIssue): boolean {
+  const x = spanOf(text, a)
+  const y = spanOf(text, b)
+  return x && y ? x[0] < y[1] && y[0] < x[1] : quotesOverlap(a.quote, b.quote)
+}
+
+/**
+ * The findings two requests made on their own (checkfix, 2026-10-20): a finding of fact or of who knows what (the checks
+ * asked in both) whose words overlap such a finding of the other request. Their keys. Two looks with different tasks
+ * agreeing on the same words is the surest sign there is: on the book's live runs (37 checks of planted passages, released
+ * and overhaul) every such pair was a planted slip, and the second opinion once ruled a pair (X6, Kit's "I heard her")
+ * not real. Findings of the same request never count for each other (one look), nor continuity or the timeline (asked once).
+ */
+export function corroborated(byRequest: cdb.FoundIssue[][], text: string): Set<string> {
+  const sure = new Set<string>()
+  byRequest.forEach((mine, r) => {
+    const others = byRequest.filter((_, i) => i !== r).flat().filter((g) => BOTH_KINDS.has(g.kind))
+    for (const f of mine) if (BOTH_KINDS.has(f.kind) && others.some((g) => sameWords(text, f, g))) sure.add(f.key)
+  })
+  return sure
+}
+
+/** The findings with the first of each key (as foundIssues keeps them, reading every request's at once). */
+export function firstOfEachKey(found: cdb.FoundIssue[]): cdb.FoundIssue[] {
+  const out = new Map<string, cdb.FoundIssue>()
+  for (const f of found) if (!out.has(f.key)) out.set(f.key, f)
+  return [...out.values()]
+}
+
 /**
  * The second opinion (repair/second.ts) on what a whole check found (2026-10-16), before it is kept: one call on the check
  * model, only when a finding about what is so was found (not the contract's: those had their own, contractRuling). Each
- * finding is a note citing its entry (E) or earlier scene (S), with what the memory and the scene say; the material is
- * what the checks were given (shortened when the model reads too little; no room at all: nothing asked). A finding ruled
- * not real goes. No ruling (a failed call, a reply it can't read, stopped): every finding is kept.
+ * finding is a note citing its entry (E) or earlier scene (S), with what the memory and the scene say. It opens as the
+ * checks did (`sections`, their material, then the scene: 2026-10-19), with the material shortened when the model reads
+ * too little (no room at all: nothing asked). A finding ruled not real goes. No ruling (a failed call, a reply it can't
+ * read, stopped): every finding is kept. `sure`: the keys of findings both requests made on their own (corroborated), kept
+ * without asking (checkfix, 2026-10-20); none left to ask: no call.
  */
 export async function findingsRuling(
   o: Pick<CheckOptions, 'db' | 'model' | 'stopped' | 'closed' | 'fetchImpl' | 'retryDelays'>,
   sceneId: ID,
   found: cdb.FoundIssue[],
   ctx: SceneCheckContext,
-  checks: CheckKind[]
+  checks: CheckKind[],
+  sections?: Section[],
+  sure: ReadonlySet<string> = new Set()
 ): Promise<{ kept: cdb.FoundIssue[]; dropped: cdb.FoundIssue[]; ruled: boolean }> {
   const none = { kept: found, dropped: [], ruled: false }
-  const asked = found.filter((f) => RULED_KINDS.has(f.kind) && !f.payload.contract && f.quote.trim())
+  const asked = found.filter((f) => RULED_KINDS.has(f.kind) && !f.payload.contract && f.quote.trim() && !sure.has(f.key))
   if (!asked.length) return none
   const entryCode = new Map(ctx.entries.map((c) => [c.entry.id, c.code]))
   const sceneCode = new Map(ctx.earlier.map((s) => [s.sceneId, s.code]))
@@ -505,15 +632,12 @@ export async function findingsRuling(
     const said = f.payload.memory && f.payload.text ? ` (The memory says: ${f.payload.memory}. The scene says: ${f.payload.text}.)` : ''
     return { quote: f.quote, who: '', about: 'other', line: lineOf(f), verdict: 'slip', bothTrue: 'maybe', between: 'unclear', why: `${f.message}${said}`, fix: null, question: '' }
   })
-  const sectionsText = (short: boolean): string =>
-    checkSections(ctx, checks, short)
-      .map((x) => `## ${x.title}\n${x.text}`)
-      .join('\n\n')
-  const room = checkBudget(o.model, CHECK_SECOND_SYSTEM).available
-  const fits = (m: string): boolean => estimateTokens(m) + estimateTokens(ctx.text) + 60 * claims.length + 300 <= room
-  const full = sectionsText(false)
-  const material = fits(full) ? full : fits(sectionsText(true)) ? sectionsText(true) : null
-  if (!material) return none
+  const room = checkBudget(o.model, CHECK_SYSTEM).available
+  const fits = (s: Section[]): boolean => sizeOf(s) + estimateTokens(ctx.text) + estimateTokens(CHECK_SECOND_TASK) + 60 * claims.length + 300 <= room
+  const use = [sections ?? checkSections(ctx, checks), checkSections(ctx, checks, true)].find(fits)
+  if (!use) return none
+  const open = checkOpening(use, ctx.text, { part: 1, parts: 1 })
+  const shared: SharedOpening = { system: CHECK_SYSTEM, opening: open.user, blocks: open.blocks, task: CHECK_SECOND_TASK }
   const stop = new AbortController()
   const watch = setInterval(() => {
     if (o.stopped() || o.closed?.()) stop.abort()
@@ -523,7 +647,7 @@ export async function findingsRuling(
       { db: o.db, model: o.model, signal: stop.signal, closed: () => !o.db.open || !!o.closed?.(), fetchImpl: o.fetchImpl, retryDelays: o.retryDelays },
       sceneId,
       claims,
-      { newWords: ctx.text, leadIn: '', material, lines: new Set(claims.map((c) => c.line)), system: CHECK_SECOND_SYSTEM }
+      { newWords: ctx.text, leadIn: '', material: open.user, lines: new Set(claims.map((c) => c.line)), shared }
     )
     try {
       if (o.db.open) gens.forgetOldPrompts(o.db, sceneId, CHECK_SECOND_MARKER, KEEP_SECOND_PROMPTS)

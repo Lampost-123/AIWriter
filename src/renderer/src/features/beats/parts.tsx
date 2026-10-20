@@ -2,13 +2,17 @@
 // already has text (as Generate asks, with the same answers and keys), and what is missing first: beats
 // on the scene card, or a writer model. Shown under the toolbar button, or over the bar's Write button.
 import * as P from '@radix-ui/react-popover'
-import { ArrowDownToLine, ListOrdered, RefreshCw } from '@/components/ui/icons'
-import { useId, useRef, type ReactNode } from 'react'
+import { ArrowDownToLine, ListOrdered, RefreshCw, Sparkles, Square } from '@/components/ui/icons'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
-import { answer, dismissQuestion, openCardAtBeats } from './flow'
+import type { ID } from '@shared/types'
+import { WritingStatus } from '@/features/builder/parts'
+import { ToastsAboveElement } from '@/features/desk/dock/ToastsAbove'
+import { resetSuggestBeats, stopSuggestBeats, suggestBeats, useBeatSuggest } from '@/features/outline/suggestBeats'
+import { answer, dismissQuestion, openBeats, openCardAtBeats } from './flow'
 import { useBeats, type BeatQuestion } from './session'
 
 /**
@@ -61,14 +65,72 @@ function ModeChoice({
   )
 }
 
+/**
+ * No beats on the card (2026-10-19, no dead ends): Suggest beats asks the AI for them (outline/suggestBeats.ts) and puts
+ * them on the card, with Undo; then Write beat by beat starts at once. Or open the card and write them.
+ */
+function NoBeats({ sceneId }: { sceneId: ID }): React.JSX.Element {
+  const s = useBeatSuggest()
+  const here = s.sceneId === sceneId
+  const running = here && s.status === 'running'
+  const done = here && s.status === 'done'
+  return (
+    <>
+      <h3 className="text-[13.5px] font-semibold text-fg">{done ? 'The scene card has its beats' : "This scene's card has no beats yet"}</h3>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+        {done
+          ? `${s.count === 1 ? 'One beat is' : `${s.count} beats are`} on the card now. Beat by beat writes them one at a time, and pauses after each so you can steer the next.`
+          : 'Beat by beat writes the scene one beat at a time, from the beats on its card, and pauses after each so you can steer the next. Let the AI suggest the beats, or add your own: the things that must happen, in order.'}
+      </p>
+      {here && s.status === 'error' ? <p className="mt-2 text-[12.5px] text-danger" role="alert">{s.error}</p> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {done ? (
+          <Button
+            data-first
+            variant="primary"
+            size="sm"
+            icon={<ListOrdered size={14} />}
+            onClick={() => {
+              resetSuggestBeats()
+              dismissQuestion()
+              void openBeats(sceneId, false)
+            }}
+          >
+            Write beat by beat
+          </Button>
+        ) : running ? (
+          <>
+            <WritingStatus text="Suggesting beats…" />
+            <Button size="sm" variant="ghost" icon={<Square size={10} fill="currentColor" />} onClick={stopSuggestBeats}>
+              Stop
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button data-first variant="primary" size="sm" icon={<Sparkles size={14} />} data-suggest-beats onClick={() => void suggestBeats(sceneId)}>
+              {here && s.status === 'error' ? 'Try again' : 'Suggest beats'}
+            </Button>
+            <Button size="sm" icon={<ListOrdered size={14} />} onClick={() => openCardAtBeats(sceneId)}>
+              Open the scene card
+            </Button>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
 /** A question about to start Beat by beat, in a small panel beside what asked it. */
 export function QuestionPanel({ question, side }: { question: BeatQuestion; side: 'top' | 'bottom' }): React.JSX.Element {
   /** Where the keyboard was when the question opened, so closing it puts the keyboard back. */
   const before = useRef<HTMLElement | null>(null)
   const { kind, byKey, sceneId, resume } = question
+  // Opened over the desk's dock (side top), messages show above it, never over its answers (ToastsAbove.tsx).
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
   return (
     <P.Portal>
       <P.Content
+        ref={side === 'top' ? setEl : undefined}
         side={side}
         align="end"
         sideOffset={6}
@@ -105,7 +167,8 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
         }}
         className={cn(
           'z-50 rounded-xl border border-line bg-surface p-4 shadow-pop focus:outline-none data-[state=open]:animate-pop-in',
-          kind === 'choose' ? 'w-[340px]' : 'w-[320px]'
+          // No beats: room for Suggest beats and Open the scene card side by side, as one row of answers.
+          kind === 'choose' ? 'w-[340px]' : kind === 'no-beats' ? 'w-[360px]' : 'w-[320px]'
         )}
       >
         {kind === 'choose' ? (
@@ -149,23 +212,7 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
             <p className="mt-3 text-[12px] text-faint">Either way, {modKey()}+Z takes the beats out one at a time.</p>
           </>
         ) : kind === 'no-beats' ? (
-          <>
-            <h3 className="text-[13.5px] font-semibold text-fg">This scene's card has no beats yet</h3>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-              Beat by beat writes the scene one beat at a time, from the beats on its card, and pauses after each so you can steer the next.
-              Add the beats first: the things that must happen, in order.
-            </p>
-            <Button
-              data-first
-              variant="primary"
-              size="sm"
-              className="mt-3"
-              icon={<ListOrdered size={14} />}
-              onClick={() => openCardAtBeats(sceneId)}
-            >
-              Open the scene card
-            </Button>
-          </>
+          <NoBeats sceneId={sceneId} />
         ) : (
           <>
             <h3 className="text-[13.5px] font-semibold text-fg">Choose a writer model first</h3>
@@ -186,6 +233,7 @@ export function QuestionPanel({ question, side }: { question: BeatQuestion; side
             </Button>
           </>
         )}
+        {side === 'top' ? <ToastsAboveElement el={el} /> : null}
       </P.Content>
     </P.Portal>
   )

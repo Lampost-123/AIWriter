@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityLine, activityOf, isBusy, progressOf, type ActivityInput } from './activity'
+import { activityLine, activityOf, dockKindOf, isBusy, progressOf, type ActivityInput } from './activity'
 
 const quiet: ActivityInput = {
   draft: { phase: 'idle', retrying: false, written: null, target: null },
@@ -19,9 +19,17 @@ describe('what the AI dock shows', () => {
   it('says why a draft is getting ready: the memory catching up first, or just getting ready', () => {
     const a = activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' }, memoryReading: true })
     expect(a).toEqual({ kind: 'starting', what: 'draft', memory: true })
-    expect(activityLine(a)).toBe('Updating memory…')
+    expect(activityLine(a)).toBe('Catching up the memory…')
     expect(isBusy(a)).toBe(true)
     expect(activityLine(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' } }))).toBe('Getting ready…')
+  })
+
+  it('names the step a draft is on before its first word (the calm overhaul)', () => {
+    const a = activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' }, waitLine: 'Planning the scene…' })
+    expect(a).toEqual({ kind: 'starting', what: 'draft', memory: false, line: 'Planning the scene…' })
+    expect(activityLine(a)).toBe('Planning the scene…')
+    // Only while it gets ready.
+    expect(activityOf({ ...quiet, waitLine: 'Planning the scene…' })).toEqual({ kind: 'idle' })
   })
 
   it('counts an Add below draft’s words, with its progress when the length is known', () => {
@@ -75,5 +83,17 @@ describe('what the AI dock shows', () => {
 
   it('keeps a change waiting in the page ahead of Beat by beat, so Accept and Reject are never under its bar', () => {
     expect(activityOf({ ...quiet, beats: true, change: { tool: 'rewrite', status: 'ready', text: 'A b.' } })).toMatchObject({ kind: 'review' })
+  })
+})
+
+describe('what the foot of the page takes turns by (the dock on the desk, the same said for the panels)', () => {
+  it('is busy while anything writes, review while a change waits, and beats while Beat by beat has the foot', () => {
+    expect(dockKindOf(activityOf(quiet))).toBe('idle')
+    expect(dockKindOf(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'starting' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, draft: { ...quiet.draft, phase: 'streaming' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, polish: { running: true, stopping: false } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, change: { tool: 'continue', status: 'writing', text: 'A b.' } }))).toBe('busy')
+    expect(dockKindOf(activityOf({ ...quiet, change: { tool: 'continue', status: 'ready', text: 'A b.' } }))).toBe('review')
+    expect(dockKindOf(activityOf({ ...quiet, beats: true }))).toBe('beats')
   })
 })

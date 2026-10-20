@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntryState, ID } from '@shared/types'
+import { ALL_CHECKS } from '@shared/contracts/checks'
 import * as repo from '../db/repo'
 import * as cdb from '../db/checks'
 import * as kdb from '../db/keeper'
@@ -7,12 +8,12 @@ import { dbWorld, pureWorld, ashHairLast } from '../../../tests/unit/testWorld'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { issueKey, occurrenceAt, plainQuote, sceneQuote, stillThere } from './quote'
 import { memoryFixable } from './memoryFix'
-import { canUpdateField } from './run'
+import { canUpdateField, CHECK_GROUPS } from './run'
 import { checkOf, fieldOf, foundIssues, readCheckReply, severityOf, type ReadContext } from './parse'
 import { checkRequest, checkSections, factsThatMatter, gatherSceneCheck, splitScene } from './context'
 import * as mem from '../db/memory'
 import { storyComparisons, storyIssues } from './stories'
-import { sceneSystem } from './prompts'
+import { CHECK_SYSTEM, checkTask } from './prompts'
 import { codexLines } from '../repair/prompts'
 import { loadMemoryData, loadShape } from '../memory/scene'
 import { sideClashes } from '../memory/state'
@@ -506,7 +507,7 @@ describe('what a check of a scene is told', () => {
     expect(knowledge('b1.c2.s1')).not.toContain('east gate')
     expect(knowledge('b1.c2.s1')).not.toContain('wrongly believes')
     // The knowledge check is told what a belief that isn't true means.
-    expect(sceneSystem(['knowledge'])).toContain('acts on the truth of something the memory says they believe wrongly')
+    expect(CHECK_SYSTEM).toContain('acts on the truth of something the memory says they believe wrongly')
   })
 
   it('offers to update one of Adam’s notes only while no earlier scene’s change has set that field', () => {
@@ -529,6 +530,28 @@ describe('what a check of a scene is told', () => {
     expect(c.entries.find((x) => x.entry.name === 'Mara')!.entry.happened.map((h) => h.note)).not.toContain('lost her left hand')
   })
 
+  it('the material every request about a scene shares holds all that each group of checks was told on its own (2026-10-19)', () => {
+    const w = dbWorld()
+    repo.saveSceneText(w.db, w.id('b1.c2.s2'), null, 'Mara held the blade with both hands.')
+    repo.saveSceneText(w.db, w.id('b1.c3.s1'), null, 'Mara held the blade with both hands while Tobin watched. "You are the heir," he said.')
+    repo.saveSceneText(w.db, w.id('b1.c3.s2'), null, 'Tobin bowed to Mara.')
+    for (const key of ['b1.c2.s2', 'b1.c3.s1', 'b1.c3.s2']) {
+      const ctx = gatherSceneCheck(w.db, w.id(key), PREFS)
+      const all = checkSections(ctx, ALL_CHECKS)
+      // Every line once in the shared material: a fact the words touch is in the facts check's own list, not again in who
+      // knows what (checkfix, 2026-10-20).
+      const lines = all.flatMap((x) => x.text.split('\n'))
+      for (const group of CHECK_GROUPS) {
+        for (const s of checkSections(ctx, group)) {
+          expect(all.find((x) => x.id === s.id), `${key}: ${s.id}`).toBeDefined()
+          for (const line of s.text.split('\n')) expect(lines, `${key}: ${s.id}`).toContain(line)
+        }
+      }
+      const facts = all.filter((x) => x.id === 'touched' || x.id === 'knowledge').flatMap((x) => x.text.split('\n').filter((l) => l.startsWith('- ')))
+      expect(new Set(facts).size, key).toBe(facts.length)
+    }
+  })
+
   it('asks for every check in one request, with the scene’s text last, in parts when it is long', () => {
     const w = dbWorld()
     repo.saveSceneText(w.db, w.id('b1.c3.s1'), null, 'Mara spoke.')
@@ -537,7 +560,15 @@ describe('what a check of a scene is told', () => {
     expect(req.user.endsWith('## The scene\nMara spoke.')).toBe(true)
     // Since 2026-10-16 the entries tied to Mara come too (with how they are tied), and the plot threads still open.
     expect(req.blocks.map((b) => b.id)).toEqual(['scene-card', 'memory', 'relationships', 'threads', 'scene-text'])
-    expect(sceneSystem(['style', 'facts']).split('\n')[0]).toBe('[AIWRITE-CHECK v1] facts, style')
+    // With its task (2026-10-19), the scene's text closes the opening every request about it shares, and the task is last.
+    // Its checks named in the order given: a request's own first (checkfix, 2026-10-20).
+    const task = checkTask(['style', 'facts'])
+    expect(task.split('\n').slice(0, 2)).toEqual(['## Your task', '[AIWRITE-CHECK-TASK v1] style, facts'])
+    const asked = checkRequest(checkSections(c, ['facts', 'style']), 'Mara spoke.', { part: 1, parts: 1 }, task)
+    expect(asked.user).toBe(`${req.user}\n\n${task}`)
+    expect(asked.opening).toBe(req.user.length)
+    expect(asked.blocks.map((b) => b.id)).toEqual(['scene-card', 'memory', 'relationships', 'threads', 'scene-text', 'task'])
+    expect(CHECK_SYSTEM.split('\n')[0]).toBe('[AIWRITE-CHECK v2] scene')
     const long = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} goes on for a while so that it takes up some room in the request.`).join('\n\n')
     const parts = splitScene(long, 200)
     expect(parts.length).toBeGreaterThan(1)

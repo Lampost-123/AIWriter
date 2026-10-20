@@ -13,7 +13,7 @@ import { countRaw } from '../ai/tokens'
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { memorySearchIndex, type SearchIndex } from './store'
 import { syncNow, readPassages } from './indexing'
-import { factDocs, queryParts, recallFor, withoutNames } from './recall'
+import { factDocs, findPassages, queryParts, recallFor, withoutNames } from './recall'
 import { Vectors } from './vectors'
 import { stubEmbedder } from './stub'
 import { isRecallBlock, RECALL_WHY } from './briefing'
@@ -79,6 +79,38 @@ function world() {
 
 const inputFor = (db: Database.Database, scene: ID, contextLength = 128_000) =>
   gatherContextInput(db, scene, undefined, { prefs: defaultWritingPrefs(), contextLength, creativity: 'balanced' })
+
+describe('the planner’s own search (find_in_story)', () => {
+  it('finds earlier passages on the line by its words, and by meaning with the search model; never a later scene', async () => {
+    const w = world()
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const plain = await findPassages({ db: w.db, index, embedder: null }, w.scene, 'the old well', 2)
+    expect(plain[0]).toMatchObject({ where: 'Book 1, Ch 1, Sc 1', kind: 'scene' })
+    expect(plain[0].text).toContain('At the old well Mara took his hands.')
+    expect(plain.map((p) => p.text).join(' ')).not.toContain('Much later')
+    expect(plain.length).toBeLessThanOrEqual(2)
+    const embedder = stubEmbedder()
+    await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })
+    const meant = await findPassages({ db: w.db, index, embedder, vectors: new Vectors() }, w.scene, 'a vow she swore to come back', 3)
+    expect(meant.map((p) => p.text).join(' ')).toContain('I swear I will come back for you before the snow')
+    expect(await findPassages({ db: w.db, index: null, embedder: null }, w.scene, 'the old well', 2)).toEqual([])
+  })
+
+  it('finds a scene by its summary too, at most half of what it gives, never a later scene’s (2026-10-19)', async () => {
+    const w = world()
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[1], text: 'Ana, the village healer, nurses Tobin through his sickness.', origin: 'text' })
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[5], text: 'Much later the village healer leaves for the coast.', origin: 'text' })
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const found = await findPassages({ db: w.db, index, embedder: null }, w.scene, 'the village healer', 4)
+    const summaries = found.filter((p) => p.kind === 'summary')
+    expect(summaries.map((p) => p.text)).toEqual(['Ana, the village healer, nurses Tobin through his sickness.'])
+    expect(summaries[0]).toMatchObject({ where: 'Book 1, Ch 1, Sc 2', sceneId: w.ids[1] })
+    expect(found.length).toBeLessThanOrEqual(4)
+    expect(found.map((p) => p.text).join(' ')).not.toContain('leaves for the coast')
+  })
+})
 
 describe('recall for a briefing', () => {
   it('searches only what comes before the scene on its line, by keyword and by meaning', async () => {
@@ -151,6 +183,78 @@ describe('recall for a briefing', () => {
     const before = assembleContext(inputFor(w.db, w.scene), countRaw)
     expect(before.blocks.some((b) => b.id === 'said' || b.id === 'recalled')).toBe(false)
     expect(before.entries!.some((e) => e.why === RECALL_WHY.sticky)).toBe(false)
+  })
+})
+
+describe('summaries searched like passages (summary-level recall, 2026-10-19)', () => {
+  /**
+   * Scene 3's words say only that Kell slipped the ring into his coat; its summary says he took the lantern. The
+   * previous scene's (4) and a later scene's (6) summaries say "lantern" too, and so does the chapter's, still going.
+   */
+  const withSummaries = () => {
+    const w = world()
+    const put = (id: ID, text: string, level: 'scene' | 'chapter' = 'scene') => mem.putSummary(w.db, { level, targetId: id, text, origin: 'text' })
+    put(w.ids[2], 'By the end, Kell had taken the lantern from the inn and hidden it in his coat.')
+    put(w.ids[3], 'By the end, Kell had waited at the ferry steps with the lantern until dark.')
+    put(w.ids[5], 'By the end, the lantern was found in the river.')
+    const chapter = repo.getOutline(w.db, repo.listStories(w.db)[0].id).chapters[0].id
+    put(chapter, 'The lantern goes missing from the inn, and the snow comes.', 'chapter')
+    const input = inputFor(w.db, w.scene)
+    input.options = { ...input.options, direction: 'Mara asks who took the lantern from the inn.' }
+    return { ...w, chapter, input }
+  }
+
+  it('finds a scene by its summary when no passage says it, as a summary pointing at the scene', async () => {
+    const w = withSummaries()
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const r = await recallFor({ db: w.db, index, embedder: null }, w.scene, w.input)
+    const sums = r.passages.filter((p) => p.kind === 'summary')
+    expect(sums).toEqual([
+      { kind: 'summary', where: 'Book 1, Ch 1, Sc 3', text: 'By the end, Kell had taken the lantern from the inn and hidden it in his coat.', order: expect.any(Number), sceneId: w.ids[2] }
+    ])
+    // The previous scene's summary (its end is sent already), a later scene's and the chapter still being written: never.
+    const all = r.passages.map((p) => p.text).join('\n')
+    expect(all).not.toContain('ferry steps with the lantern')
+    expect(all).not.toContain('found in the river')
+    expect(all).not.toContain('goes missing')
+    // Passages still come, each pointing at its scene.
+    expect(r.passages.find((p) => p.kind === 'scene')?.sceneId).toBeTruthy()
+    // In the briefing, said to be in short.
+    w.input.recall = r
+    expect(assembleContext(w.input, countRaw).messages[1].content).toContain('### Book 1, Ch 1, Sc 3 (in short)\nBy the end, Kell had taken the lantern')
+  })
+
+  it('finds them without the search index too, and a finished chapter’s summary from the next chapter on', async () => {
+    const w = withSummaries()
+    const none = await recallFor({ db: w.db, index: null, embedder: null }, w.scene, w.input)
+    expect(none.passages).toMatchObject([{ kind: 'summary', sceneId: w.ids[2] }])
+    // A scene in a new chapter: the first chapter has ended, so its summary is searched, pointing at the chapter.
+    const story = repo.listStories(w.db)[0].id
+    const two = repo.createChapter(w.db, story, { title: 'Two' })
+    const next = repo.createScene(w.db, two.id, { title: 'Next' }).id
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const input = inputFor(w.db, next)
+    input.options = { ...input.options, direction: 'Where did the lantern go missing?' }
+    const r = await recallFor({ db: w.db, index, embedder: null }, next, input)
+    expect(r.passages.find((p) => p.chapterId === w.chapter)).toMatchObject({ kind: 'summary', where: 'Book 1, Ch 1', text: 'The lantern goes missing from the inn, and the snow comes.' })
+  })
+
+  it('finds a summary by meaning alone, its vector read with the passages', async () => {
+    const w = world()
+    mem.putSummary(w.db, { level: 'scene', targetId: w.ids[1], text: 'By the end, the vessel had gone down off the point.', origin: 'text' })
+    const index = memoryIndex()
+    syncNow(w.db, index)
+    const embedder = stubEmbedder()
+    await readPassages(index, embedder, (t) => embedder.embed(t, 'passage'), { signal: new AbortController().signal })
+    expect(index.withoutVectors('stub', 10)).toEqual([])
+    const input = inputFor(w.db, w.scene)
+    input.options = { ...input.options, direction: 'Who sank the boat?' }
+    const plain = await recallFor({ db: w.db, index, embedder: null }, w.scene, input)
+    expect(plain.passages.some((p) => p.kind === 'summary')).toBe(false)
+    const meant = await recallFor({ db: w.db, index, embedder, vectors: new Vectors() }, w.scene, input)
+    expect(meant.passages.find((p) => p.kind === 'summary')).toMatchObject({ sceneId: w.ids[1], where: 'Book 1, Ch 1, Sc 2' })
   })
 })
 
@@ -278,8 +382,11 @@ describe('a small model gives step 5 a share of its room, and loses nothing more
         expect({ length, id, dropped: now?.dropped }).toEqual({ length, id, dropped: false })
         if (spareRoom) expect({ length, id, kept: now!.text.length >= was.text.length }).toEqual({ length, id, kept: true })
       }
-      // With a little room, what was said gets in (short), where it used to wait for room left over.
-      if (length >= 10_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)
+      // With a little room, step 5 gets in, where it used to wait for room left over. Since the writing instructions
+      // overhaul (2026-10-19) block 1 is about 80 tokens smaller, so at 10,000 the setting (more important) keeps its full
+      // form and step 5's share holds the entries recalled; what was said follows with a little more room.
+      if (length >= 10_000) expect(b.blocks.some((x) => isRecallBlock(x.id) && !x.dropped)).toBe(true)
+      if (length >= 14_000) expect(b.blocks.find((x) => x.id === 'said')?.dropped).toBe(false)
     }
   })
 })

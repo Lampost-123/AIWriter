@@ -7,23 +7,26 @@
 import { create } from 'zustand'
 import type { ChatTurn } from '@shared/contracts/storyBuilder'
 import type { ID } from '@shared/types'
+import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { arriving, followTask, relay, say, settlePreview, talkOf } from '@/features/planning/talkStore'
-import { applyRedo, applyRevision, settledRun, treeOf } from './helperStore'
+import { applyRedo, applyRevision, settledRun, treeOf, type HelperRun } from './helperStore'
 import {
   applyPlanChanges,
   firstOfKind,
   keysUnder,
   nodeText,
+  openKeys,
   openText,
   spliceText,
   splitPlanReply,
-  stripTags,
   taggedText,
   titleOfTag,
   touchesOf,
-  type PlanChange
+  wholePlanChanges,
+  type PlanChange,
+  type PlanChanges
 } from './outlineText'
 import { emptySuggestedCard, parseOutline, type SuggestedAct, type SuggestedChapter, type SuggestedScene } from './parse'
 import { outlineTree, type NodeKind, type TreeNode } from './tree'
@@ -51,6 +54,36 @@ export interface PlanRevision {
   changes: PlanChange[] | null
   /** Changes that named a part that isn't there. */
   lost: number
+  /**
+   * Where its parts came from (2026-10-19), so applying it keeps what Adam did: each part's key among the suggestions
+   * (revised key to theirs), the parts it changed or added, the suggestions it was sent, and the suggestions' text and
+   * task id these go by (helperStore applyRevision, revision.ts).
+   */
+  from?: Record<string, string>
+  changed?: string[]
+  sent?: string[]
+  base?: string
+  runId?: ID
+}
+
+/**
+ * The trail of a revision made from `current` (the open suggestions as sent, or a revision still waiting that was built
+ * on): `made`'s parts, by way of what was sent, to the suggestions' own keys.
+ */
+function trailOf(run: HelperRun, pending: PlanRevision | null, made: PlanChanges): Pick<PlanRevision, 'from' | 'changed' | 'sent' | 'base' | 'runId'> {
+  // What was sent, to the suggestions' keys: openText's own form, or the waiting revision's trail.
+  const sentKeys = pending ? (pending.base === run.text && pending.runId === run.taskId ? (pending.from ?? null) : null) : openKeys(run.text, run.decisions)
+  const changedBefore = new Set(pending?.changed ?? [])
+  const from: Record<string, string> = {}
+  const changed = new Set(made.changed)
+  for (const [key, was] of Object.entries(made.origin)) {
+    const theirs = sentKeys?.[was]
+    if (theirs) from[key] = theirs
+    // Changed by the revision it was built on, it is still a change.
+    if (changedBefore.has(was)) changed.add(key)
+  }
+  const sent = pending ? (pending.sent ?? undefined) : Object.values(sentKeys ?? {})
+  return { from: sentKeys ? from : undefined, changed: [...changed], sent, base: run.text, runId: run.taskId }
 }
 
 export const isPlanRevision = (v: unknown): v is PlanRevision => !!v && typeof v === 'object' && typeof (v as PlanRevision).text === 'string'
@@ -76,7 +109,8 @@ export function talkPlan(storyId: ID, message: string): Promise<void> {
     async (taskId, history) => {
       const run = settledRun(storyId)
       if (!run) throw new Error('Wait for the plan to finish arriving first.')
-      const current = isPlanRevision(pending) ? pending.text : openText(run.text, run.decisions, run.edits)
+      const waiting = isPlanRevision(pending) ? pending : null
+      const current = waiting ? waiting.text : openText(run.text, run.decisions, run.edits)
       const sent = taggedText(current)
       const ask = async (id: ID, turns: ChatTurn[], words: string, shown: string): Promise<{ status: string; text: string }> => {
         const done = await followTask(
@@ -93,8 +127,13 @@ export function talkPlan(storyId: ID, message: string): Promise<void> {
       const first = splitPlanReply(done.text)
       const answer = first.answer
       if (first.plan) {
-        const whole = stripTags(first.plan)
-        return { answer, revision: outlineTree(parseOutline(whole, true)).length ? ({ text: whole, changes: null, lost: 0 } satisfies PlanRevision) : null }
+        const whole = wholePlanChanges(current, first.plan)
+        return {
+          answer,
+          revision: outlineTree(parseOutline(whole.text, true)).length
+            ? ({ text: whole.text, changes: null, lost: 0, ...trailOf(run, waiting, whole) } satisfies PlanRevision)
+            : null
+        }
       }
 
       let changes = first.changes ?? ''
@@ -119,7 +158,7 @@ export function talkPlan(storyId: ID, message: string): Promise<void> {
       if (!result) return { answer, revision: null }
       return {
         answer,
-        revision: { text: result.text, changes: result.changes, lost: result.lost } satisfies PlanRevision,
+        revision: { text: result.text, changes: result.changes, lost: result.lost, ...trailOf(run, waiting, result) } satisfies PlanRevision,
         changes: result.changes.map(labelOf)
       }
     },
@@ -127,12 +166,21 @@ export function talkPlan(storyId: ID, message: string): Promise<void> {
   )
 }
 
-/** Apply: the revised plan takes the place of the suggestions (Undo in a toast). */
+/**
+ * Apply: the revised plan takes the place of the suggestions, what Adam kept, discarded and changed carried over (Undo in
+ * a toast). One made for suggestions that have since moved under "Earlier suggestions" isn't applied to the new ones.
+ */
 export function applyPlanTalk(storyId: ID): void {
   const scope = planScope(storyId)
   const preview = talkOf(scope).preview
   if (!isPlanRevision(preview)) return
-  if (applyRevision(storyId, preview.text)) settlePreview(scope, 'applied')
+  const run = settledRun(storyId)
+  if (preview.runId && run && run.taskId !== preview.runId) {
+    settlePreview(scope, 'declined')
+    toast('Those changes were for the earlier suggestions, so they weren’t made. Say what you’d like changed in the new ones.')
+    return
+  }
+  if (applyRevision(storyId, preview)) settlePreview(scope, 'applied')
 }
 
 export function declinePlanTalk(storyId: ID): void {
@@ -187,7 +235,9 @@ export async function startRedo(storyId: ID, nodeKey: string): Promise<void> {
   const k = redoKey(storyId, nodeKey)
   const r = get(k)
   const run = settledRun(storyId)
-  if (!r || r.status === 'running' || !run) return
+  if (!r || r.status === 'running') return
+  // The outline, or a part of it planned in stages, is still arriving.
+  if (!run) return put(k, { ...r, status: 'error', error: 'Wait for the plan to finish arriving first.' })
   const target = nodeText(run.text, nodeKey, run.edits)
   if (!target) return put(k, { ...r, status: 'error', error: 'That suggestion isn’t there any more.' })
   const current = openText(run.text, run.decisions, run.edits)

@@ -4,6 +4,7 @@
 // nothing came with the answer. Only clear claims count: "apply pressure" in a brainstorm doesn't. Pure.
 
 import type { AskIntent } from './askIntent'
+import { changeClaims } from './askTruth'
 
 const CLAIMS = [
   // "Apply the changes", "accept these edits", "apply my fix".
@@ -30,8 +31,11 @@ export const asksForChanges = (question: string): boolean =>
   /\bmake\s+(it|them|(this|that|these|those|the|my)(\s+\w+)?)\s+(more|less|darker|lighter|harder|softer|tenser|shorter|longer|scarier|funnier|sadder|better|clearer|punchier|tighter)\b/i.test(question) ||
   /\bpush(es|ing)?\b.{0,40}\b(harder|further)\b/i.test(question)
 
-/** True when an answer clearly says it made or proposed changes, or hands over rewritten words. */
-export const claimsChanges = (answer: string): boolean => CLAIMS.some((re) => re.test(answer))
+/**
+ * True when an answer clearly says it made or proposed changes, or hands over rewritten words: these patterns, or any
+ * claim the truth check reads (shared/askTruth.ts: "I've updated Mara's entry", "the change is ready", "Done.").
+ */
+export const claimsChanges = (answer: string): boolean => CLAIMS.some((re) => re.test(answer)) || changeClaims(answer).length > 0
 
 /** Sent back to a model whose answer claims changes it never proposed (once). */
 export const PROPOSE_NOW =
@@ -55,17 +59,19 @@ export function proposeNow(intent: AskIntent | null | undefined, attempt = 1): s
 
 /**
  * The contract's last words, before the last request (the one without tools): what was proposed, or, when nothing
- * was, what blocked it. Never that the writer can ask again.
+ * was, what blocked it. Never that the writer can ask again. `failure`: why the last proposal was turned down, as the
+ * check said it, so the model gives the real reason (2026-10-19: an example reason here, "the scene you couldn't read",
+ * came back as "I couldn't access the scene to edit" when nothing had been refused).
  */
-export function contractLastWords(proposed: string[], intent?: AskIntent | null): string {
+export function contractLastWords(proposed: string[], intent?: AskIntent | null, failure?: string | null): string {
+  const turned = failure ? ` A proposal was turned down: ${failure.replace(/\s+/g, ' ').trim().slice(0, 300)}` : ''
   if (proposed.length) {
     const list = proposed.map((id) => `change ${id}`).join(', ')
-    return `${AI} No more tools can be used for this answer. Proposed: ${list}. Answer the writer now: the first line says how many changes are ready; mention only these and don't repeat them in words. If something you meant to change is missing, say in one line what stopped it.`
+    return `${AI} No more tools can be used for this answer. Proposed: ${list}. Answer the writer now: the first line says how many changes are ready; mention only these and don't repeat them in words. If something you meant to change is missing, say in one line what stopped it.${turned}`
   }
-  const stop = "nothing was proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything, and don't write a change out in words."
-  if (intent === 'answer' || intent === 'brainstorm') return `${AI} No more tools can be used for this answer. Answer the writer now from what you have found; ${stop}`
-  const blocked =
-    'Say in one or two lines what stopped you from proposing it (the words you couldn’t find, the scene you couldn’t read, or the one thing you need to know).'
+  const stop = "nothing was proposed, so there is nothing for the writer to apply: don't tell them to apply or accept anything, don't say you changed or proposed anything, and don't write a change out in words."
+  if (intent === 'answer' || intent === 'brainstorm') return `${AI} No more tools can be used for this answer. Answer the writer now from what you have found; ${stop}${turned}`
+  const blocked = `Say in one or two lines what stopped you from proposing it: what the tool said when it turned the change down, or the one thing you need to know. Name only what truly happened: never say you couldn’t read, find or reach something no tool turned down.${turned}`
   if (intent === 'edit') return `${AI} No more tools can be used for this answer, and ${stop} ${blocked}`
   return `${AI} No more tools can be used for this answer, and ${stop} If the writer asked for a change: ${blocked.charAt(0).toLowerCase()}${blocked.slice(1)} Otherwise answer from what you have found.`
 }

@@ -13,13 +13,15 @@ import { getSettings } from '../settings'
 import { emit } from '../events'
 import { refreshDefaultExistsPoints, loadShape } from '../db/memory'
 import { scenesDeleted, scenesRestored } from '../keeper'
+import { indexStories } from '../keeper/indexing'
 import { actDeleteNotes, createChapterAt, keepOutline, unkeepOutline } from '../outline/structure'
 import { startIdeasJob, startOutlineJob, type JobDeps } from '../outline/jobs'
+import { startStageJob } from '../outline/stages'
 import { isBlankPlan, storyPlan } from '../outline/context'
 import { askPlanQuestion, fillSceneCard, startChapterPlan } from '../outline/interview'
 import { cancelBuildFor } from '../worldBuilder/run'
 import { readBrief } from '../storyBuilder/brief'
-import { hasIdea, startStoryOutline } from '../storyBuilder/jobs'
+import { hasIdea, startStoryOutline, startStoryStage } from '../storyBuilder/jobs'
 import { storyBuilderDeps } from './storyBuilder'
 
 /** Wraps a write so the world's "last changed" time moves (backups watch it). */
@@ -29,9 +31,13 @@ function write<T>(fn: () => T): T {
   return result
 }
 
-/** The codex and pages showing the plot threads, characters and places a keep made (or its Undo took back) reload. */
+/** The codex and pages showing the plot threads, characters, places and events a keep made or moved (or its Undo took back) reload. */
 function madeChanged(kept: KeptItem[]): void {
-  const entryIds = [...new Set((Array.isArray(kept) ? kept : []).flatMap((k) => [...(k?.threadIds ?? []), ...(k?.entryIds ?? [])]))]
+  const entryIds = [
+    ...new Set(
+      (Array.isArray(kept) ? kept : []).flatMap((k) => [...(k?.threadIds ?? []), ...(k?.entryIds ?? []), ...(Array.isArray(k?.events) ? k.events.map((e) => e?.entryId) : [])])
+    )
+  ].filter((id): id is ID => typeof id === 'string' && !!id)
   if (entryIds.length) emit('memory:changed', { sceneId: null, entryIds })
 }
 
@@ -92,9 +98,17 @@ export const outlineHandlers: Handlers<keyof OutlineApi> = {
     if (hasIdea(brief)) return startStoryOutline(storyBuilderDeps(), input, brief)
     return startOutlineJob(jobDeps(), input)
   },
+  startOutlineStage: (input) => {
+    // The outline in stages (2026-10-19): a story with an idea in the Story builder is planned from it, as above.
+    const brief = readBrief(world.db(), String(input?.storyId ?? ''))
+    if (hasIdea(brief)) return startStoryStage(storyBuilderDeps(), input, brief)
+    return startStageJob(jobDeps(), input)
+  },
   keepOutline: (storyId, items) => {
     const kept = write(() => keepOutline(world.db(), storyId, items ?? []))
     madeChanged(kept)
+    // New scenes and their cards (who, where, when): the story index takes them in, in the background.
+    indexStories(world.db(), [storyId])
     return kept
   },
   unkeepOutline: async (kept) => {

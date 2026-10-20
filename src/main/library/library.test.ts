@@ -199,7 +199,9 @@ describe('the start screen', () => {
     const alderFolder = world.listWorlds().find((w) => w.id === alder)!.folder
     const gone = await library.deleteWorld(alder)
     expect(gone).toMatchObject({ trashId: 'Alder', worldId: alder, name: 'Alderney', stories: 3, words: 16 })
-    expect(Date.parse(gone.purgeAt) - Date.parse(gone.deletedAt)).toBe(30 * DAY)
+    // 30 calendar days later at the same time of day, by this computer's clock (so about 30 × 24 hours, ± the hour a clock
+    // change moves).
+    expect(Math.abs(Date.parse(gone.purgeAt) - Date.parse(gone.deletedAt) - 30 * DAY)).toBeLessThanOrEqual(60 * 60 * 1000)
     expect(existsSync(alderFolder)).toBe(false)
     const note = JSON.parse(readFileSync(join(trash, 'Alder', 'deleted.json'), 'utf8'))
     expect(note).toMatchObject({ worldId: alder, name: 'Alderney', stories: 3, words: 16, originalFolder: 'Alder' })

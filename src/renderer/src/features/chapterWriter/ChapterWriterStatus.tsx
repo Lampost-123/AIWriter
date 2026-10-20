@@ -1,5 +1,6 @@
-// The top bar while Write the whole chapter works: what it is doing ("Fixing Sc 2 “The ferry”, round 2…"), and, on a
-// click, the round, what it has spent so far, the report and Stop. Nothing shows (and no room is kept) otherwise.
+// The top bar while Write the whole chapter works: what it is doing ("Fixing Sc 2 “The ferry”…"), and, on a click, the
+// round, what it has spent so far, the report and Stop; while the chapter plan waits for Adam, a click opens the plan.
+// Nothing shows (and no room is kept) otherwise.
 
 import * as P from '@radix-ui/react-popover'
 import { useState } from 'react'
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { PopoverPanel } from '@/features/generate/parts'
 import { costWords, progressLine } from './chapterWriterLogic'
-import { showReport, stopChapterWriter, useChapterWriter } from './chapterWriterStore'
+import { openChapterPlan, showReport, stopChapterWriter, useChapterWriter } from './chapterWriterStore'
 
 const slotButton =
   'flex h-7 max-w-[260px] items-center gap-2 rounded-md px-2 text-[12px] outline-none transition-colors duration-150 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent/40 animate-fade-in'
@@ -28,6 +29,17 @@ export function ChapterWriterStatus(): React.JSX.Element | null {
     }
   }
   const spent = costWords(progress.cost)
+  // The plan waits for Adam: the top bar opens it again.
+  if (progress.stage === 'review') {
+    return (
+      <div className="flex min-w-0 shrink justify-end" role="status" aria-live="polite" data-testid="chapter-writer-status">
+        <button type="button" className={cn(slotButton, 'text-muted hover:text-fg')} onClick={openChapterPlan} title="Read the chapter plan, change it if you like, then write.">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai" aria-hidden />
+          <span className="truncate">The chapter plan is ready for you</span>
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="flex min-w-0 shrink justify-end" role="status" aria-live="polite" data-testid="chapter-writer-status">
       <P.Root open={open} onOpenChange={setOpen}>
@@ -42,7 +54,7 @@ export function ChapterWriterStatus(): React.JSX.Element | null {
           <h3 className="text-[13.5px] font-semibold text-fg">Writing the chapter</h3>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted">{progressLine(progress)}</p>
           <p className="mt-2 text-[12px] leading-relaxed text-faint">
-            {progress.round ? `Round ${progress.round} of checks. ` : ''}It keeps going until the checks find nothing more, for at most {CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes.
+            {progress.round ? `Round ${progress.round} of checks. ` : ''}It fixes only what the checks and the critic flag, for at most {CHAPTER_WRITER_LIMITS.fixRounds} rounds of fixes.
             {spent ? ` Spent ${spent}.` : ''} The scenes it is working on can be read but not typed in until it finishes.
           </p>
           <div className="mt-3 flex items-center gap-2">

@@ -1,11 +1,14 @@
 // One memory keeper run for one scene: plan what changed, ask the memory model about the new and
 // changed paragraphs (in chunks that fit it; one whose reply ran past the reply limit is read again
-// in halves), repair or retry a reply that can't be read once, then apply everything in one
-// transaction and mark the scene version processed. A failure leaves the memory as it was, marks the
-// scene "Memory not updated" and lists it in What changed; it is tried again on the next trigger and
+// in halves), repair or retry a reply that can't be read once (the same request again, without the reply that couldn't
+// be used, so a provider's cache serves it: overhaul phase 1), then apply everything in one transaction and mark the
+// scene version processed. Read in one request, the same call can also say where things stand at the end of the words
+// read and write the scene's summary (one reading of a scene, oneReading.ts). A failure leaves the memory as it was, marks
+// the scene "Memory not updated" and lists it in What changed; it is tried again on the next trigger and
 // at app start. Re-running a processed version changes nothing. A scene the memory model turns down (some models won't
 // read explicit scenes) says so, and its words are remembered (refusals.ts), so the engine doesn't ask again until they
-// change, another memory model is picked, or Adam presses Try again.
+// change, another memory model is picked, or Adam presses Try again. Every request also asks a verdict on the pay-off of
+// each open plot thread due here (oneReading.ts payoffAsks; applied in apply.ts settlePayoffs).
 // Never writes once the world has closed. No Electron imports.
 
 import type Database from 'better-sqlite3'
@@ -21,6 +24,8 @@ import { estimateTokens, hashText } from './text'
 import { markRefused, modelKeyOf } from './refusals'
 import { nothingToDo, planRead } from './track'
 import { loadShapeSafe, memoryAt, placeWords, sideClashesFor } from './places'
+import { oneReadingFor, payoffAsks, stageFromReply, summaryFromReply, type OneReading, type SummaryRead } from './oneReading'
+import { keepStageRead } from '../continuity/tracker'
 
 type DB = Database.Database
 
@@ -42,6 +47,12 @@ export interface RunOptions {
   onRecord?: (generationId: ID) => void
   fetchImpl?: typeof fetch
   retryDelays?: number[]
+  /**
+   * One reading of a scene (oneReading.ts): a scene read in one request also says where things stand at the end of the
+   * words read, when they are the ones the tracker would read next, and writes the scene's summary when every paragraph is
+   * read and `summaryDue()` says it is due. Left out: the reading alone, as before.
+   */
+  oneReading?: { summaryDue: () => boolean }
 }
 
 export type RunOutcome =
@@ -49,7 +60,18 @@ export type RunOutcome =
   | { status: 'gone' }
   | { status: 'no-model' }
   | { status: 'stopped' }
-  | { status: 'done'; runId: ID | null; lines: number; entryIds: ID[]; readParagraphs: number; newEntryIds?: ID[] }
+  | {
+      status: 'done'
+      runId: ID | null
+      lines: number
+      entryIds: ID[]
+      readParagraphs: number
+      newEntryIds?: ID[]
+      /** Where things stand at the scene's end was kept from this reading (one reading of a scene): the tracker needn't ask. */
+      staged?: boolean
+      /** The scene's summary this reading wrote (one reading of a scene), for the engine to keep while it is due. */
+      summary?: SummaryRead
+    }
   | { status: 'failed'; runId: ID; error: string }
 
 /** Tokens and cost of a run's calls, added up (null when nothing was reported). */
@@ -178,13 +200,22 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   const chunks = planChunks(plan.paras, plan.toRead, plan.atRisk, budget)
   const card = repo.getScene(db, sceneId).card
   const versions = new Map(memory.entries.map((e) => [e.id, e.updatedAt]))
+  // The open plot threads due here: every request asks a verdict on their pay-off (overhaul, 2026-10-19).
+  const payoffs = payoffAsks(db, sceneId, card, memory)
   o.onReading?.()
+
+  // One reading of a scene: read in one request, the same call can say where things stand and write the summary.
+  const oneAsked = o.oneReading && chunks.length === 1 ? oneReadingFor(db, scene, plan.paras, chunks[0], model, o.oneReading.summaryDue) : null
+  /** What the one request also said (one reading of a scene), when it asked and its reply could be read. */
+  let also: { one: OneReading; value: unknown; generationId: ID } | null = null
 
   const replies: ChunkReply[] = []
   let splits = 0
   while (chunks.length) {
     const chunk = chunks.shift()!
-    const req = buildRequest({ where, title: scene.title, card, chunk, found: plan.found, memory, budget })
+    const request = (one: OneReading | null): ReturnType<typeof buildRequest> =>
+      buildRequest({ where, title: scene.title, card, chunk, found: plan.found, memory, budget, one, maxOutput: model.choice.maxOutput, payoffs })
+    let req = request(chunks.length === 0 && !replies.length ? oneAsked : null)
     const ask = (messages: ChatMessage[]): Promise<CallResult> =>
       callModel({
         db,
@@ -194,11 +225,13 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         task: 'read',
         messages,
         blocks: req.blocks,
-        maxTokens: budget.reply,
+        maxTokens: req.maxTokens,
         entries: req.entryIds.map((id) => ({ entryId: id, version: versions.get(id) ?? '' })),
         signal: o.signal,
         closed: o.closed,
         onRecord: o.onRecord,
+        // Read in the background: a provider that has stopped answering is given up on sooner (ai/patience.ts).
+        background: true,
         fetchImpl: o.fetchImpl,
         retryDelays: o.retryDelays
       })
@@ -217,15 +250,26 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
       const checked = parsed.ok ? readingReply(parsed.value) : parsed
       if (checked.ok) {
         reply = checked.reply
+        if (req.one) also = { one: req.one, value: parsed.ok ? parsed.value : null, generationId: call.generationId }
         break
       }
-      // A long reply cut off by the reply limit: asking again would be cut off the same way, so the
-      // chunk is read in two smaller halves instead.
+      // A long reply cut off by the reply limit: asking again would be cut off the same way. A reading that also asked
+      // where things stand or for the summary is asked again for the reading alone (they make their own calls, as
+      // before); otherwise the chunk is read in two smaller halves instead.
       const cutOff = checked.why === CUT_OFF && estimateTokens(call.text) >= budget.reply * 0.6
+      if (cutOff && req.one) {
+        req = request(null)
+        messages = req.messages
+        attempt = -1
+        continue
+      }
       halves = cutOff && splits < MAX_SPLITS ? splitChunk(chunk) : null
       if (halves) break
-      // Asked once more, saying what was wrong.
-      messages = [...req.messages, { role: 'assistant', content: call.text }, { role: 'user', content: retryMessage(checked.why) }]
+      // Asked once more (overhaul phase 1): the same request without the reply that couldn't be used, so a provider's
+      // cache serves all of it, with what was wrong said at its end. A reading that also asked where things stand or for
+      // the summary is asked for the reading alone, the way that has always worked (they make their own calls).
+      if (req.one) req = request(null)
+      messages = withCorrection(req.messages, retryMessage(checked.why))
     }
     if (halves) {
       splits++
@@ -237,7 +281,7 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
         "The memory model's reply wasn't in the right format; it will try again, or you can pick another memory model in Settings › Models."
       )
     }
-    replies.push({ ids: req.ids, reply, paras: chunk.paras })
+    replies.push({ ids: req.ids, reply, paras: chunk.paras, payoffs: req.payoffs })
   }
 
   if (o.closed() || !db.open) return { status: 'stopped' }
@@ -245,12 +289,31 @@ export async function runScene(o: RunOptions, sceneId: ID): Promise<RunOutcome> 
   if (!kdb.keeperScene(db, sceneId)) return stopped()
   const result = db.transaction(() => applyRead(db, { runId, memory, shape, sideClashes: sideClashesFor(db, shape) }, plan, replies))()
   kdb.finishRun(db, runId, 'done', null, totals.of(model))
+  // Where things stand at the end of the words read, kept by the tracker's own rules (never on a start that changed since).
+  let staged = false
+  const stage = also?.one.stage ? stageFromReply(also.value) : undefined
+  if (also?.one.stage && stage) {
+    try {
+      staged = keepStageRead(db, also.one.stage, stage)
+    } catch (e) {
+      console.warn('Could not keep where things stand from the reading', e)
+    }
+  }
+  const summary = also ? summaryFromReply(also.value, also.one.summary, also.generationId) : undefined
   return {
     status: 'done',
     runId,
     lines: result.lines,
     entryIds: result.entryIds,
     readParagraphs: plan.toRead.length,
-    newEntryIds: result.newEntryIds ?? []
+    newEntryIds: result.newEntryIds ?? [],
+    ...(staged ? { staged } : {}),
+    ...(summary ? { summary } : {})
   }
+}
+
+/** The request asked once more: the same messages, with a short line on what was wrong after the last one. */
+export function withCorrection(messages: ChatMessage[], correction: string): ChatMessage[] {
+  const last = messages.length - 1
+  return messages.map((m, i) => (i === last ? { ...m, content: `${m.content}\n\n${correction}` } : m))
 }

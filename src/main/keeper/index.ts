@@ -10,11 +10,12 @@
 
 import type Database from 'better-sqlite3'
 import type { Entry, ID, MemoryStatus, SceneMeta } from '@shared/types'
+import type { MemoryRefusal } from '@shared/contracts/calm'
 import { onWorldClosing, onWorldOpened, maybeCurrentWorld } from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
 import { getProvider, providerTarget } from '../ai/providers'
 import { isLocalUrl, providerWho } from '../ai/errors'
-import { setBeforeDraft, setStandAt, withStageRead } from '../ai/gather'
+import { setBeforeDraft, setStandAt, withStageRead, type BeforeDraft } from '../ai/gather'
 import { emit } from '../events'
 import * as kdb from '../db/keeper'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
@@ -26,13 +27,16 @@ import { fillFound } from '../builder/fill'
 import { voiceLater } from '../readAloud'
 import { pausedNote } from '../usage/gate'
 import { setAsideWordingClashes } from './wordingClashes'
-import { stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
+import { CATCH_UP, stateAfter, stateAtText, stateBefore, storedState, type SceneState } from '../continuity/tracker'
 import { jobModel } from '../ai/jobModel'
-import { dismissRefusals, modelKeyOf, onRefusal, refusalNote } from './refusals'
+import { dismissRefusals, modelKeyOf, onRefusal, refusalNote, refusedKind } from './refusals'
 import { loadShapeSafe, placeWords } from './places'
 import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
 import { settleByEntry } from '../db/checks'
 import { fieldValue } from './facts'
+import { fillProgress, indexScene, indexStories, startIndexing, stopIndexing } from './indexing'
+import { refreshSceneSafely } from '../storyIndex/upkeep'
+import { hashText } from './text'
 
 let keeper: Keeper | null = null
 
@@ -59,9 +63,40 @@ export function memoryModel(): MemoryModel | { error: string } {
 /** True when the memory can work now: a memory model is set up and this month's spending limit isn't holding it. */
 export const memoryReady = (): boolean => !pausedNote() && !('error' in memoryModel())
 
-const quietMs = (): number | undefined => {
-  const v = Number(process.env.AIWRITE_KEEPER_QUIET_MS)
+const quietMs = (): number | undefined => envMs('AIWRITE_KEEPER_QUIET_MS')
+
+/** A wait in ms from the environment (app tests make the waits short), or undefined for the usual one. */
+function envMs(name: string): number | undefined {
+  const v = Number(process.env[name])
   return Number.isFinite(v) && v > 0 ? v : undefined
+}
+
+/** Drafts waiting for the memory to catch up now: the story index's background work gives way meanwhile (indexing.ts). */
+let draftsWaiting = 0
+/** Where things stand being brought up to date after a read (standLater) now: the background work gives way to it too. */
+let standingNow = 0
+
+/** The before-draft catch-up, counted while it goes on (draftsWaiting). */
+const countingDrafts =
+  (fn: BeforeDraft): BeforeDraft =>
+  async (db, sceneId, limitMs) => {
+    draftsWaiting++
+    try {
+      return await fn(db, sceneId, limitMs)
+    } finally {
+      draftsWaiting--
+    }
+  }
+
+/** The memory's status with how far "Fill in the whole story" has got (MemoryStatus.filling), when it is going on. */
+function withFilling(db: Database.Database, status: MemoryStatus): MemoryStatus {
+  try {
+    const p = fillProgress(db)
+    return p ? { ...status, filling: { storyId: p.storyId, title: p.title, done: p.done, total: p.total } } : status
+  } catch (e) {
+    console.warn('Could not tell how far filling in the story has got', e)
+    return status
+  }
 }
 
 export function initKeeper(): void {
@@ -93,16 +128,40 @@ export function initKeeper(): void {
         const paused = pausedNote()
         return paused ? { error: paused } : memoryModel()
       },
-      emitStatus: (s) => emit('memory:status', s),
-      emitChanged: (p) => emit('memory:changed', { sceneId: p.sceneId, entryIds: [...new Set(p.entryIds)] }),
+      emitStatus: (s) => emit('memory:status', withFilling(w.db, s)),
+      emitChanged: (p) => {
+        emit('memory:changed', { sceneId: p.sceneId, entryIds: [...new Set(p.entryIds)] })
+        // A scene's read or summary changed what its index rows are built from (the story index follows, soon).
+        if (p.sceneId) indexScene(w.db, p.sceneId)
+      },
       onNewEntries: (entryIds, model) => fillLater(w.db, entryIds, model),
-      onSceneRead: (sceneId, model) => standLater(w.db, sceneId, model),
+      onSceneRead: (sceneId, model, read) => standLater(w.db, sceneId, model, !!read?.staged),
       quietMs: quietMs()
     })
     keeper.start()
+    // The story index (overhaul phase 1): built for every story once the window is up, then kept current; the last
+    // chapters' physical details are worked out in the background at low priority (keeper/indexing.ts).
+    const k = keeper
+    startIndexing(w.db, {
+      model: () => {
+        const paused = pausedNote()
+        return paused ? { error: paused } : memoryModel()
+      },
+      busy: () => draftsWaiting > 0 || standingNow > 0 || k.busy,
+      live: () => w.db.open && maybeCurrentWorld()?.db === w.db && !k.isClosed,
+      onProgress: () => {
+        if (currentKeeper()?.db === w.db) emit('memory:status', memoryStatus())
+      },
+      onDone: (d) => emit('storyFill:done', d),
+      openDelayMs: envMs('AIWRITE_INDEX_OPEN_MS'),
+      fillWaitMs: envMs('AIWRITE_INDEX_WAIT_MS'),
+      // App tests that count AI calls leave the recent chapters' details out unless they ask (AIWRITE_INDEX_FILL).
+      recent: process.env.AIWRITE_INDEX_FILL !== 'off'
+    })
   })
   // Closing a world stops the keeper and finishes its records first; nothing is written after.
   onWorldClosing((w) => {
+    stopIndexing(w.db)
     if (keeper && keeper.db === w.db) {
       keeper.stop()
       keeper = null
@@ -111,14 +170,23 @@ export function initKeeper(): void {
   })
   // Before a draft (and Continue), the memory catches up with earlier scenes on the line and reads the scene's own
   // unread words (waiting a few seconds at most), and where things stand as the previous scene ends is brought up to
-  // date (continuity/tracker.ts) at the same time (gather.ts withStageRead).
+  // date (continuity/tracker.ts) at the same time (gather.ts withStageRead), once the last few scenes before have been
+  // read: their reading can say where things stand too (one reading of a scene, oneReading.ts), so the tracker doesn't
+  // read them a second time meanwhile.
   const mine = (db: Database.Database): Keeper | null => (keeper && keeper.db === db ? keeper : null)
   setBeforeDraft(
-    withStageRead(
-      // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review). A
-      // draft that waits until the memory is done (no limit) waits for the scene's own fresh read just as long.
-      async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, limitMs === Infinity ? Infinity : undefined, limitMs),
-      async (db, sceneId) => (mine(db) ? continuityBefore(db, sceneId) : undefined)
+    countingDrafts(
+      withStageRead(
+        // The summaries a draft can't do without are waited for no longer than the draft waits at all (fix 15 review). A
+        // draft that waits until the memory is done (no limit) waits for the scene's own fresh read just as long.
+        async (db, sceneId, limitMs) => mine(db)?.beforeDraft(sceneId, limitMs === Infinity ? Infinity : undefined, limitMs),
+        async (db, sceneId) => {
+          const k = mine(db)
+          if (!k) return undefined
+          await k.whenReadBefore(sceneId, CATCH_UP)
+          return continuityBefore(db, sceneId)
+        }
+      )
     )
   )
   // Add below, a later beat and Continue carry on from the scene so far: where things stand at its end.
@@ -157,31 +225,42 @@ let standing: Promise<void> = Promise.resolve()
 
 /**
  * After the memory read a scene (a pause in typing, a draft, a beat, leaving the scene): where things stand as it
- * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts). Recall reloads when
- * it changed. Then the free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
+ * ends, read on from its last checkpoint, so only the new words are read (continuity/tracker.ts); nothing to ask when the
+ * read itself said it (`staged`: one reading of a scene, keeper/oneReading.ts). Recall reloads when it changed. Then the
+ * free rule checks run over the scene (long story memory fix 8, checks/ruleChecks.ts: no AI call),
  * with the memory and the stage as they now are, and over the later scenes whose open findings may rest on it. Never
  * holds up the memory; never throws.
  */
-function standLater(db: Database.Database, sceneId: ID, model: MemoryModel): void {
+function standLater(db: Database.Database, sceneId: ID, model: MemoryModel, staged = false): void {
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
-  standing = standing.then(async () => {
-    if (!live()) return
-    if (!pausedNote()) await standUp(db, sceneId, model, live)
-    if (live()) rulesAfterRead(db, sceneId, getWritingPrefs())
-  })
+  standingNow++
+  standing = standing
+    .then(async () => {
+      if (!live()) return
+      if (!pausedNote()) await standUp(db, sceneId, model, live, staged)
+      if (!live()) return
+      rulesAfterRead(db, sceneId, getWritingPrefs())
+      // The story index takes in what the read and where things stand now say of the scene (overhaul phase 1; free).
+      refreshSceneSafely(db, sceneId)
+    })
+    .finally(() => standingNow--)
 }
 
 /** Where things stand as a scene ends, brought up to date (standLater). Never throws. */
-async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean): Promise<void> {
+async function standUp(db: Database.Database, sceneId: ID, model: MemoryModel, live: () => boolean, staged = false): Promise<void> {
   try {
     const o = { db, model, signal: new AbortController().signal, closed: () => !live() }
     const was = storedState(db, sceneId)
-    if (was?.current) return
+    if (was?.current) {
+      // Kept by the read itself (one reading of a scene): Recall reloads.
+      if (staged) emit('recall:changed', { sceneId })
+      return
+    }
     await stateBefore(o, sceneId)
     await stateAfter(o, sceneId)
     // Reloaded when it changed, even when a scene far back still waits to be read again (so it isn't current).
     const now = live() ? storedState(db, sceneId) : null
-    if (now && (now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
+    if (now && (staged || now.current || JSON.stringify(now.state) !== JSON.stringify(was?.state))) emit('recall:changed', { sceneId })
   } catch (e) {
     console.warn('Could not bring where things stand up to date', e)
   }
@@ -239,6 +318,9 @@ export function recordEdited(db: Database.Database, at: { sceneIds?: (ID | null 
       if (story) stories.add(story)
     }
     k.recordEdited(stories.size ? [...stories] : undefined)
+    // The story index rests on the same record (a change, a card, a scene or chapter moved, an entry's names): the
+    // stories it touches are brought up to date in the background (only what changed is built again).
+    indexStories(db, stories.size ? [...stories] : undefined)
   } catch (e) {
     console.warn('The memory keeper missed an edit to the record', e)
   }
@@ -267,6 +349,8 @@ export function scenesDeleted(db: Database.Database): void {
   }
   // A deleted scene keeps none of the rule checks' findings open (long story memory fix 8).
   rulesAfterDeleting(db)
+  // Nor any rows in the story index: every story is looked at (only what changed is built again), the gone dropped.
+  indexStories(db)
 }
 
 /**
@@ -284,6 +368,8 @@ export function scenesRestored(db: Database.Database): void {
     console.warn('The memory keeper could not bring back a restored scene', e)
   }
   rulesAfterDeleting(db, back, getWritingPrefs())
+  // The story index takes the scenes back in (every story looked at; only what changed is built again).
+  indexStories(db)
 }
 
 /**
@@ -321,9 +407,24 @@ export function memorySettingsChanged(): void {
   }
 }
 
+/**
+ * The calm overhaul: whether the memory model now turned this scene down as its words are now (Issues › Memory, with Try
+ * again and another model for the memory). Null when it didn't, or there is no memory model.
+ */
+export function memoryRefusalOf(sceneId: ID): MemoryRefusal | null {
+  const k = currentKeeper()
+  if (!k || !k.db.open) return null
+  const m = memoryModel()
+  if ('error' in m) return null
+  const scene = kdb.keeperScene(k.db, sceneId)
+  if (!scene) return null
+  const kind = refusedKind(k.db, sceneId, hashText(scene.text), modelKeyOf(m))
+  return kind ? { sceneId, kind, model: m.choice.label || m.choice.modelId } : null
+}
+
 export function memoryStatus(): MemoryStatus {
   const k = currentKeeper()
-  const status = k?.status() ?? idleStatus()
+  const status = k ? withFilling(k.db, k.status()) : idleStatus()
   const refused = k ? refusedNow(k.db) : null
   return refused ? { ...status, refused } : status
 }

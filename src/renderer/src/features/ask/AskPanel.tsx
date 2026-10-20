@@ -63,7 +63,7 @@ import {
   type ShownTurn
 } from './askStore'
 import { citedTargets, nameIndex, type LinkTarget } from './citations'
-import { EXAMPLES, examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, speaksOfChanges } from './askWords'
+import { EXAMPLES, examples, NO_ANSWER, NO_CHANGES_CAME, answerNote, asOfHint, asOfText, chatWhen, notProposedNote, speaksOfChanges } from './askWords'
 import { withoutChoice } from './askChoice'
 import { ActionBar } from './ActionBar'
 import { AnswerBlocks } from './AnswerBlocks'
@@ -692,6 +692,12 @@ function TurnView({
       {!streaming && turn.status === 'complete' && !turn.proposals?.length && !turn.choice && speaksOfChanges(answer) ? (
         <div className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted" data-no-changes>
           {NO_CHANGES_CAME}
+        </div>
+      ) : null}
+      {/* Changes it tried that their checks turned down: why, in plain words (else only in a folded tool row). */}
+      {!streaming && turn.status === 'complete' && !turn.choice && notProposedNote(answer, turn.tools, turn.proposals?.length ?? 0) ? (
+        <div className="mt-2 px-1 text-[12.5px] leading-relaxed text-muted" data-not-proposed>
+          {notProposedNote(answer, turn.tools, turn.proposals?.length ?? 0)}
         </div>
       ) : null}
 

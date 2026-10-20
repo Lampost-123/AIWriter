@@ -10,7 +10,7 @@ import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defau
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
 import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
-import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamOutcome } from './client'
+import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamChatOptions, type StreamOutcome } from './client'
 import { replyTokenLimit, sentEntryIds, TAG_ALLOWANCE, TOKENS_PER_WORD } from './context'
 import { isKeyFailure, looksLikeRefusalReply, strongContentRefusal } from './errors'
 import { carriesPlan, PlanEchoFilter } from '../plan/echo'
@@ -83,6 +83,27 @@ function tellWatchers(e: DraftActivity): void {
   }
 }
 
+/**
+ * Directed writing (src/main/director): the draft is written a stretch at a time, with a director's note between, in
+ * place of one call. `run` stands in for streamChat: it gets the same options (onText puts words on the page, through the
+ * same filters, saves and batching) and the page, and answers with the draft's outcome as a whole.
+ */
+export interface DraftStream {
+  run(args: StreamChatOptions, page: DraftPage, job: { generationId: ID; sceneId: ID }): Promise<StreamOutcome>
+  /** Kept with the record as the draft finishes (each stretch's note and why, What the AI saw). */
+  params?(): Partial<GenerationParams>
+}
+
+/** The draft as it stands, for a DraftStream. */
+export interface DraftPage {
+  /** The draft's words so far, as the page has them (the writer's speaker tags and echoed notes taken out). */
+  text(): string
+  /** Gives out what the filters still hold back (a stretch has ended), so `text` has all of it. */
+  settle(): void
+  /** Takes back the last `chars` characters (a retake): from the record, the speaker tags and, by an event, the page. */
+  takeBack(chars: number): void
+}
+
 export interface DraftRequest {
   db: DB
   sceneId: ID
@@ -119,6 +140,8 @@ export interface DraftRequest {
    * hear it ended).
    */
   onSpeakers?: (speakers: WriterSpeaker[], generationId: ID) => void
+  /** Directed writing (src/main/director): written a stretch at a time in place of one call. Left out: one call. */
+  stream?: DraftStream
   /** For tests. */
   fetchImpl?: typeof fetch
   retryDelays?: number[]
@@ -241,9 +264,33 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     }
   }
 
+  const take = (t: string): void => {
+    if (!t) return
+    job.text += t
+    pending += t
+    chunkTimer ??= setTimeout(sendChunk, CHUNK_INTERVAL_MS)
+    saveTimer ??= setTimeout(save, SAVE_INTERVAL_MS)
+  }
+  // Directed writing (src/main/director): what the director's stretches need of the draft as it stands.
+  const page: DraftPage = {
+    text: () => job.text,
+    settle: () => take(tags.push(echo.flush()) + tags.flush()),
+    takeBack: (chars) => {
+      const n = Math.max(0, Math.min(chars, job.text.length))
+      if (!n) return
+      // What hasn't gone to the window yet goes first, so the page and the record agree on what is taken back.
+      sendChunk()
+      const gone = job.text.slice(job.text.length - n)
+      job.text = job.text.slice(0, job.text.length - n)
+      tags.takeBack(n)
+      emit('generation:takeBack', { generationId: job.id, sceneId: job.sceneId, text: gone })
+      saveTimer ??= setTimeout(save, SAVE_INTERVAL_MS)
+    }
+  }
+
   let outcome: StreamOutcome
   try {
-    outcome = await streamChat({
+    const args: StreamChatOptions = {
       target: req.provider,
       body: {
         model: req.model.modelId,
@@ -256,21 +303,15 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       // A set's variants are sent side by side, so only the first can leave the briefing in the cache.
       cache: (req.partOf?.variant?.index ?? 1) === 1,
       signal: job.controller.signal,
-      onText: (raw) => {
-        const t = tags.push(echo.push(raw))
-        if (!t) return
-        job.text += t
-        pending += t
-        chunkTimer ??= setTimeout(sendChunk, CHUNK_INTERVAL_MS)
-        saveTimer ??= setTimeout(save, SAVE_INTERVAL_MS)
-      },
+      onText: (raw) => take(tags.push(echo.push(raw))),
       onRetry: (info) => emit('generation:retrying', { generationId: job.id, ...info }),
       fallbackMaxTokens,
       startParams: startParams(req),
       thinking: req.thinking,
       fetchImpl: req.fetchImpl,
       delays: req.retryDelays
-    })
+    }
+    outcome = req.stream ? await req.stream.run(args, page, { generationId: job.id, sceneId: job.sceneId }) : await streamChat(args)
   } catch (e) {
     // streamChat doesn't throw; this is a last line of defence so the record always finishes.
     console.error('Draft failed unexpectedly', e)
@@ -324,7 +365,9 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   const cutOff = outcome.cutOff && status === 'complete'
   // The settings as actually sent: a smaller reply limit, a model that sets its own
   // creativity, or a reply that ran into the limit, so "What the AI saw" stays truthful.
-  const used = withSent({ ...params, max_tokens: outcome.maxTokens }, outcome.sentParams, outcome.effort)
+  // Directed writing: each stretch's note and why go with the record (What the AI saw).
+  const directed = safeParams(req.stream)
+  const used = withSent({ ...params, max_tokens: outcome.maxTokens, ...directed }, outcome.sentParams, outcome.effort)
   if (cutOff) used.cutOff = true
   if (asksForTags(req.preview.messages)) used.speakerTags = tags.coverage(job.text)
   const paramsChanged = JSON.stringify(used) !== JSON.stringify(params)
@@ -358,6 +401,13 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
   } catch (e) {
     console.error('Could not note whether the provider worked', e)
   }
+  // The calm overhaul: a scene the writer model turned down is said so, and the window offers another of Adam's models.
+  const turnedDown =
+    !job.closed &&
+    (outcome.failure?.type === 'refused' ||
+      !!refused ||
+      (outcome.failure?.type === 'http' && outcome.failure.status === 403) ||
+      (status === 'complete' && looksLikeRefusalReply(job.text)))
   emit('generation:done', {
     generationId: job.id,
     sceneId: job.sceneId,
@@ -366,7 +416,8 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     promptTokens: outcome.promptTokens,
     completionTokens: outcome.completionTokens,
     cost,
-    cutOff
+    cutOff,
+    ...(turnedDown ? { refused: true } : {})
   })
   return {
     status,
@@ -374,6 +425,16 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
     error,
     ...(cutOff ? { cutOff: true } : {}),
     ...(status === 'complete' && looksLikeRefusalReply(job.text) ? { refused: true } : {})
+  }
+}
+
+/** What a DraftStream keeps with the record; nothing when it can't say. */
+function safeParams(stream: DraftStream | undefined): Partial<GenerationParams> {
+  try {
+    return stream?.params?.() ?? {}
+  } catch (e) {
+    console.error('Could not keep how the draft was directed', e)
+    return {}
   }
 }
 

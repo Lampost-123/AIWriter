@@ -4,8 +4,9 @@
 //   - Must be true at the start: from the record as of this point (the stage, fix 11's time since the scene before,
 //     who knows what), only what the scene's people touch, a handful at most;
 //   - Must change: what this draft is asked for, strongest first: the author's direction for it (a whole scene's too),
-//     then what the plan before writing said must change, checked against the card (plan/plan.ts), then the scene card
-//     (its beats; for Add below the next beat, for a beat that beat with the author's note for it), each left out when
+//     ask by ask and each whole (directionAsks: what happens, how it reads, how long; the direction receipt shows how
+//     each came out), then what the plan before writing said must change, checked against the card (plan/plan.ts), then
+//     the scene card (its beats; for Add below the next beat, for a beat that beat with the author's note for it), each left out when
 //     something stronger already says it; the card's outcome and the plot threads it sets up or pays off keep a place of
 //     their own (fix 13's review: the plan never pushes the card out, nor the beats the outcome);
 //   - Must not change: the dead stay dead, what is kept from someone stays kept, injuries stay, what someone gave away
@@ -28,6 +29,12 @@ import { isPerson, shortPlace, type MustKind, type MustLine } from './mustStay'
 /** What the draft is asked to write: a whole scene, a stretch of one (Add below), one beat, or Continue's few paragraphs. */
 export type ContractAsks = 'scene' | 'stretch' | 'beat' | 'continue'
 export type ContractPart = 'start' | 'change' | 'keep'
+/**
+ * What one ask of Adam's direction is about (the direction receipt, 2026-10-19): something that happens (an ending too,
+ * "end on the knock"), how the words read ("more dialogue"), or how long they are ("keep it under 800 words": the app
+ * counts the words itself, so the check never answers it).
+ */
+export type AskKind = 'event' | 'reads' | 'length'
 
 export interface ContractItem {
   /** Its id in the check (C1...). */
@@ -38,6 +45,8 @@ export interface ContractItem {
   check: CheckKind
   /** The codex entries it is about (the people, the item), for the issue's links. */
   entryIds: ID[]
+  /** One ask of the author's direction, in the author's own words (the receipt shows how each came out). */
+  ask?: AskKind
 }
 
 export interface SceneContract {
@@ -142,12 +151,127 @@ const TONE_LITTLE = new Set(
  * other word (a name, a deed) and it is what must happen.
  */
 export function toneOnly(direction: string): boolean {
-  const words = clean(direction)
+  const words = letterWords(direction)
+  return words.some((w) => TONE.has(w)) && words.every((w) => TONE.has(w) || TONE_LITTLE.has(w))
+}
+
+const letterWords = (s: string): string[] =>
+  clean(s)
     .toLowerCase()
     .replace(/[’']/g, '')
     .split(/[^\p{L}]+/u)
     .filter(Boolean)
-  return words.some((w) => TONE.has(w)) && words.every((w) => TONE.has(w) || TONE_LITTLE.has(w))
+
+// ---------- A direction, ask by ask (the direction receipt, 2026-10-19) ----------
+
+/** The most asks a direction is split into; whatever is left goes with the last one, whole. */
+export const ASKS_MOST = 6
+
+/** A verb that starts an instruction of its own after a comma or "and": "…, end on the knock", "… and make it darker". */
+const BIDDING =
+  /^(?:then\s+)?(?:end|ends|ending|finish|close|open|start|begin|make|keep|give|add|use|cut|let|have|show|include|write|put|set|bring|slow|speed|focus|stay|avoid|skip|play|linger|don['’]?t|do not|never)\b/i
+/** Someone doing something next: a name or a pronoun after "then" ("…, then Tobin leaves"). */
+const SUBJECT = /^(?:\p{Lu}[\p{L}’'-]*|he|she|they|it|i|we|you)\b/u
+/** Words that end a sentence without ending it ("Mr. Hale"). */
+const SHORT_FORM = /\b(?:Mr|Mrs|Ms|Dr|St|Mt|Sr|Jr|Capt|Col|Gen|Lt|Sgt|Prof|Rev)\.$/
+
+const wordCount = (s: string): number => clean(s).split(' ').filter(Boolean).length
+
+/** The clauses of one sentence that ask for something of their own (see directionAsks). */
+function clausesOf(sentence: string): string[] {
+  // Text and the joins between them: ", ", ", and ", ", then ", " and ", " and then ".
+  const parts = sentence.split(/(,\s*(?:and\s+then\s+|and\s+|then\s+)?|\s+and\s+(?:then\s+)?)/i)
+  const out: string[] = [parts[0] ?? '']
+  for (let i = 1; i < parts.length; i += 2) {
+    const join = parts[i]
+    const next = parts[i + 1] ?? ''
+    const prev = out[out.length - 1]
+    const comma = join.includes(',')
+    const then = /\bthen\b/i.test(join)
+    const bids = BIDDING.test(next)
+    // How it reads, on its own after a comma ("…, more dialogue"), or after "and" when it is more than a word.
+    const reads = toneOnly(next) && (comma || wordCount(next) > 1)
+    const leads = then && SUBJECT.test(next.trim())
+    if (wordCount(prev) >= 2 && wordCount(next) >= 2 - (reads ? 1 : 0) && (bids || reads || leads)) out.push(next)
+    else out[out.length - 1] = `${prev}${join}${next}`
+  }
+  return out
+}
+
+/** "800" or "1,200" as a number. */
+const toNumber = (s: string): number => Number(s.replace(/[,\s]/g, ''))
+
+/**
+ * How long an ask says the words should be ("keep it under 800 words": at most 800; "at least 1,500 words"; "about 600
+ * words"), or null when it says nothing of length, or more than that besides.
+ */
+export function lengthAsk(ask: string): { most?: number; least?: number; about?: number } | null {
+  const t = clean(ask)
+  const n = String.raw`(\d[\d,]*)\s*words?\b`
+  const tests: [RegExp, 'most' | 'least' | 'about'][] = [
+    [new RegExp(String.raw`\b(?:under|below|less than|fewer than|at most|no more than|not more than|no longer than|max(?:imum)?(?: of)?|up to|within)\s+(?:about\s+|around\s+)?${n}`, 'i'), 'most'],
+    [new RegExp(String.raw`\b(\d[\d,]*)\s*words?\s+(?:or\s+(?:less|fewer|under)|at most|max(?:imum)?|tops)\b`, 'i'), 'most'],
+    [new RegExp(String.raw`\b(?:at least|over|more than|no fewer than|no less than|min(?:imum)?(?: of)?)\s+${n}`, 'i'), 'least'],
+    [new RegExp(String.raw`\b(\d[\d,]*)\s*words?\s+(?:or\s+(?:more|over)|at least|min(?:imum)?)\b`, 'i'), 'least'],
+    [new RegExp(String.raw`\b(?:(?:about|around|roughly|some|approximately|near(?:ly)?|close to)\s+)?${n}`, 'i'), 'about']
+  ]
+  for (const [re, kind] of tests) {
+    const m = re.exec(t)
+    if (!m) continue
+    const value = toNumber(m[1])
+    if (!value) return null
+    // Only a length: the rest is little words ("keep it", "make the scene") or how it reads ("short and tense").
+    const rest = letterWords(t.replace(m[0], ' ')).filter((w) => !/^(?:words?|long|length|total|in|all|or|so|the|scene|stretch|draft|passage|it)$/.test(w))
+    if (!rest.every((w) => TONE.has(w) || TONE_LITTLE.has(w))) return null
+    return { [kind]: value }
+  }
+  return null
+}
+
+/** True when words of this length keep to a length ask: under or over it as asked, or within a fifth of "about". */
+export function keepsLength(ask: NonNullable<ReturnType<typeof lengthAsk>>, words: number): boolean {
+  if (ask.most != null) return words <= ask.most
+  if (ask.least != null) return words >= ask.least
+  if (ask.about != null) return Math.abs(words - ask.about) <= ask.about * 0.2
+  return true
+}
+
+/** What one ask is about (AskKind). */
+export const askKind = (ask: string): AskKind => (lengthAsk(ask) ? 'length' : toneOnly(ask) ? 'reads' : 'event')
+
+/**
+ * Adam's direction split into what it asks for, one ask each, each kept whole in his own words (first letter capitalised,
+ * the closing full stop off): its sentences (and lines, and parts between semicolons), and inside a sentence a clause
+ * that bids something of its own after a comma or "and" ("Make it tense, end on the knock at the door"), says how it
+ * should read ("…, more dialogue"), or has someone do something next ("…, then Tobin leaves"). A comma or "and" inside
+ * one happening never splits it ("Wren pulls off her boots and sets them by the hearth"). At most ASKS_MOST: the rest
+ * goes with the last, whole.
+ */
+export function directionAsks(direction: string): { text: string; kind: AskKind }[] {
+  const lines = (direction ?? '')
+    .split(/\r?\n+/)
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean)
+  const sentences: string[] = []
+  for (const line of lines) {
+    let held = ''
+    for (const piece of line.split(/(?<=[.!?…]["'”’)\]]*)\s+|;\s*/)) {
+      const p = `${held}${held ? ' ' : ''}${piece}`.trim()
+      if (SHORT_FORM.test(p)) held = p
+      else {
+        held = ''
+        if (p) sentences.push(p)
+      }
+    }
+    if (held) sentences.push(held)
+  }
+  const tidy = (s: string): string => {
+    const t = clean(s).replace(/[\s.,;:]+$/, '')
+    return t ? t[0].toLocaleUpperCase() + t.slice(1) : ''
+  }
+  const asks = sentences.flatMap(clausesOf).map(tidy).filter(Boolean)
+  const kept = asks.length > ASKS_MOST ? [...asks.slice(0, ASKS_MOST - 1), asks.slice(ASKS_MOST - 1).join('. ')] : asks
+  return kept.map((text) => ({ text, kind: askKind(text) }))
 }
 
 // ---------- Building it ----------
@@ -212,19 +336,26 @@ const CHECK_OF: Partial<Record<MustKind, CheckKind>> = {
 }
 
 /**
- * What must change (see the top of this file): the author's direction, then the plan's words, then the card's (or the
- * beat), each left out when something before it already says it; then the card's outcome and the plot threads, which
- * keep their places however many beats there are (the most CONTRACT_MOST.change in all).
+ * What must change (see the top of this file): the author's direction, ask by ask, then the plan's words, then the card's
+ * (or the beat), each left out when something before it already says it; then the card's outcome and the plot threads,
+ * which keep their places however many beats there are. The direction's asks each have a place of their own, each whole
+ * (the direction receipt, 2026-10-19: one item cut at 320 characters said nothing of which ask landed); the rest share
+ * CONTRACT_MOST.change, the direction counting as one (the writer reads it as one line pointing to where it is said).
  */
-export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | 'direction' | 'soFar' | 'focus' | 'planned'>): { text: string; entryIds: ID[] }[] {
-  type Item = { text: string; entryIds: ID[] }
+export function mustChange(
+  o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | 'direction' | 'soFar' | 'focus' | 'planned'>
+): { text: string; entryIds: ID[]; ask?: AskKind }[] {
+  type Item = { text: string; entryIds: ID[]; ask?: AskKind }
   const plain = (t: string): Item => ({ text: clip(clean(t)), entryIds: [] })
   const beats = o.card.beats.map(clean).filter(Boolean)
-  // A direction that only says how it should read ("make it darker") asks for nothing to happen: the card's words stand.
-  const direction = toneOnly(o.direction) ? '' : clean(o.direction)
   // What the draft is asked for in the author's own words (Continue's "what happens next", Add below's direction, a whole
-  // scene's direction), and what the card asks (a beat: that beat with the author's note for it).
-  const asked = o.asks !== 'beat' && direction ? [plain(direction)] : []
+  // scene's direction), ask by ask. How it should read ("make it darker", "more dialogue") and how long it should be are
+  // asks of a draft only (Generate, Add below, which show the receipt): Continue's are left out, as before. A direction
+  // with nothing that happens in it leaves the card's words standing.
+  const asks = o.asks === 'beat' ? [] : directionAsks(o.direction).filter((a) => a.kind === 'event' || o.asks === 'scene' || o.asks === 'stretch')
+  const happens = asks.some((a) => a.kind === 'event')
+  const direction = happens ? clean(o.direction) : ''
+  // ...and what the card asks (a beat: that beat with the author's note for it).
   const card =
     o.asks === 'beat'
       ? clean(o.focus)
@@ -247,8 +378,9 @@ export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | '
       : []
   const planned = (o.planned ?? []).map(clean).filter(Boolean).map(plain)
   // Each source in turn, left out where an earlier one already says it (the plan's "They reach the gate by dusk" stands
-  // for the card's "They reach the gate."). A thread stands unless the author or the plan names it.
-  const said: string[] = []
+  // for the card's "They reach the gate."). A thread stands unless the author or the plan names it. The direction is
+  // weighed whole, as before it was split.
+  const said: string[] = direction ? [direction] : []
   const seen = new Set<string>()
   const take = (list: Item[], against: () => string[] = () => said): Item[] => {
     const out = list.filter((x) => {
@@ -260,17 +392,21 @@ export function mustChange(o: Pick<ContractFrom, 'asks' | 'card' | 'threads' | '
     said.push(...out.map((x) => x.text))
     return out
   }
-  const fromAsked = take(asked)
+  // Every ask stands, each in the author's words (only the same words twice are said once).
+  const fromAsked = take(
+    asks.map((a) => ({ text: a.text, entryIds: [], ask: a.kind })),
+    () => []
+  )
   const fromPlan = take(planned)
   const named = [...said]
   // The outcome before the beats: a beat that only says it again is the one left out.
   const end = take(outcome)
   const fromCard = take(card)
   const extra = take(threads, () => named)
-  const own = [...fromAsked, ...fromPlan, ...fromCard]
-  // The outcome and the threads keep their places; the rest share what is left, the author's words first.
-  const room = Math.max(0, CONTRACT_MOST.change - end.length - extra.length)
-  return [...own.slice(0, room), ...end, ...extra]
+  // The asks, the outcome and the threads keep their places; the plan and the card share what is left, the direction
+  // counting as one.
+  const room = Math.max(0, CONTRACT_MOST.change - end.length - extra.length - (fromAsked.length ? 1 : 0))
+  return [...fromAsked, ...[...fromPlan, ...fromCard].slice(0, room), ...end, ...extra]
 }
 
 /**
@@ -317,12 +453,12 @@ export function sceneContract(o: ContractFrom): SceneContract | null {
   const keep = pick(KEEP_ORDER, CONTRACT_MOST.keep, (l) => changedBy(l, change.map((c) => c.text)))
 
   const items: ContractItem[] = []
-  const put = (part: ContractPart, text: string, check: CheckKind, entryIds: ID[]): void => {
+  const put = (part: ContractPart, text: string, check: CheckKind, entryIds: ID[], ask?: AskKind): void => {
     if (!clean(text) || items.some((x) => x.text === text)) return
-    items.push({ code: `C${items.length + 1}`, part, text, check, entryIds })
+    items.push({ code: `C${items.length + 1}`, part, text, check, entryIds, ...(ask ? { ask } : {}) })
   }
   for (const s of start) put('start', s.text, s.check, s.entryIds)
-  for (const c of change) put('change', c.text, 'facts', c.entryIds)
+  for (const c of change) put('change', c.text, 'facts', c.entryIds, c.ask)
   for (const k of keep) put('keep', k.text, CHECK_OF[k.kind] ?? 'facts', k.entryIds)
   return items.length ? { asks: o.asks, items } : null
 }
@@ -386,15 +522,57 @@ export function partTitle(part: ContractPart, asks: ContractAsks): string {
         : 'Must happen in what you write now'
 }
 
-/** The lists as the writer reads them (short: without the lead), or with ids for a check (`codes`). */
-export function contractText(c: SceneContract, o: { short?: boolean; codes?: boolean } = {}): string {
+/**
+ * What the writer is told in place of an item it reads in full elsewhere in the same request (2026-10-19: Adam's
+ * direction was said three or four times in one request): the item's words, and what to say instead.
+ */
+export interface SaidElsewhere {
+  text: string
+  as: string
+}
+
+/**
+ * The pointers for the direction and a beat, by where the writer reads them in full. Since 2026-10-19 a whole scene's
+ * direction is said last of all too (Generate's closing instruction), so `card` is only for a draft whose closing is its
+ * own (Beat by beat keeps the direction on the scene card).
+ */
+export const SAID = {
+  card: 'What the author directs, as the scene card gives it.',
+  below: 'What the author directs, as given last of all, below.',
+  beat: 'This beat, as given last of all, below.',
+  next: 'What the author asks for next, as given last of all, below.'
+} as const
+
+/**
+ * The lists as the writer reads them (short: without the lead), or with ids for a check (`codes`). `said`: items the
+ * writer reads in full elsewhere in the request (the direction last of all, or on the scene card) are pointed to rather
+ * than said again, the direction's asks with one line; never in a check's list. A check's list leaves out the asks of
+ * length, which the app counts itself (repair/contract.ts).
+ */
+export function contractText(c: SceneContract, o: { short?: boolean; codes?: boolean; said?: readonly SaidElsewhere[] } = {}): string {
   const parts: string[] = []
   if (!o.short && !o.codes) parts.push(CONTRACT_LEAD)
+  const pointers = (o.codes ? [] : (o.said ?? []))
+    .filter((s) => clean(s.text))
+    .map((s) => {
+      const whole = clean(s.text)
+      return { as: s.as, texts: new Set([whole, clip(whole), ...directionAsks(whole).map((a) => a.text)].map((t) => t.toLowerCase())) }
+    })
+  const pointed = new Set<string>()
   for (const part of ['start', 'change', 'keep'] as const) {
-    const list = c.items.filter((i) => i.part === part)
-    if (!list.length) continue
-    const lines = list.map((i, n) => (o.codes ? `- [${i.code}] ${i.text}` : part === 'change' ? `${n + 1}. ${i.text}` : `- ${i.text}`))
-    parts.push(`${partTitle(part, c.asks)}:\n${lines.join('\n')}`)
+    const lines: string[] = []
+    for (const i of c.items.filter((x) => x.part === part)) {
+      if (o.codes) {
+        if (i.ask !== 'length') lines.push(`- [${i.code}] ${i.text}`)
+      } else if (part !== 'change') lines.push(`- ${i.text}`)
+      else {
+        const to = pointers.find((p) => p.texts.has(i.text.toLowerCase()))?.as
+        if (to && pointed.has(to)) continue
+        if (to) pointed.add(to)
+        lines.push(`${lines.length + 1}. ${to ?? i.text}`)
+      }
+    }
+    if (lines.length) parts.push(`${partTitle(part, c.asks)}:\n${lines.join('\n')}`)
   }
   return parts.join('\n')
 }

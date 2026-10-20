@@ -9,12 +9,14 @@ import * as P from '@radix-ui/react-popover'
 import { ArrowDown, Check, FileSearch, ListOrdered, RotateCcw, Sparkles, Square } from '@/components/ui/icons'
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Textarea, useToastsAbove } from '@/components/ui'
+import { Button, useToastsAbove } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { suggestionsOf } from '@/features/edits/suggestions'
+import { DirectionComposer } from '@/features/direction/DirectionComposer'
+import { noteUsed } from '@/features/direction/store'
 import { useDelayed } from '@/features/generate/parts'
 import {
   canWriteAgain,
@@ -201,13 +203,23 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
   // Not a beat the session carried on from in the scene's words: it has no record of its own to write again.
   const again = canWriteAgain(s) ? s.written : null
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+  /** The note in the box goes with the beat: offered back at once in the box's recent directions (and by ↑). */
+  const noteTaken = (): void => {
+    if (s.steer.trim()) noteUsed(s.steer, 'beat')
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>): void => {
     // Enter writes (Shift+Enter starts a new line in the note). Ctrl+Enter does too, here, and not Mark done.
     if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.nativeEvent.isComposing) return
     e.preventDefault()
     if (busy) return
-    if (next != null) writeNext(true)
-    else if (s.steer.trim()) writeAgain()
+    if (next != null) {
+      noteTaken()
+      writeNext(true)
+    } else if (s.steer.trim()) {
+      noteTaken()
+      writeAgain()
+    }
   }
 
   return (
@@ -278,7 +290,10 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
               size="sm"
               icon={<RotateCcw size={13} />}
               disabled={again == null}
-              onClick={writeAgain}
+              onClick={() => {
+                noteTaken()
+                writeAgain()
+              }}
               title={
                 again != null
                   ? `Write beat ${again} afresh in its place, following your note if you wrote one. ${modKey()}+Z takes the new version out.`
@@ -292,18 +307,20 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
         <p className="line-clamp-2 h-10 text-[13.5px] leading-5 text-muted" title={words}>
           {words}
         </p>
-        <div className="mt-2.5 flex items-end gap-2">
-          <Textarea
-            ref={boxRef}
+        <div className="mt-2.5 flex items-start gap-2">
+          {/* The direction composer (features/direction): quick asks under the note, ↑ for the last direction, Recent. */}
+          <DirectionComposer
+            boxRef={boxRef}
+            className="min-w-0 flex-1"
             minRows={1}
             maxRows={3}
             maxLength={MAX_NOTE_CHARS}
             value={s.steer}
-            onChange={(e) => patchSession({ steer: e.target.value })}
+            onChange={(text) => patchSession({ steer: text })}
             onKeyDown={onKeyDown}
-            aria-label={after != null ? 'Your note for the next beat' : 'Your note if the beat is written again'}
+            side="top"
+            ariaLabel={after != null ? 'Your note for the next beat' : 'Your note if the beat is written again'}
             placeholder={after != null ? 'Anything to change for the next beat?' : 'Anything to change if you write it again?'}
-            className="min-w-0 flex-1"
           />
           <P.Root open={!!question} onOpenChange={(open) => !open && dismissQuestion()}>
             <P.Anchor asChild>
@@ -324,7 +341,10 @@ function Bar({ session: s }: { session: BeatSession }): React.JSX.Element {
                     variant="primary"
                     className="h-[35px] w-full"
                     icon={<Sparkles size={14} />}
-                    onClick={() => writeNext(false)}
+                    onClick={() => {
+                      noteTaken()
+                      writeNext(false)
+                    }}
                     title={`Write beat ${next} of ${of}, following your note if you wrote one (Enter in the box)`}
                   >
                     Write the next beat

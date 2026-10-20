@@ -16,7 +16,18 @@ afterEach(() => chatSwitches(null))
 describe('the defaults', () => {
   it('are all on, each turned off only by =off', () => {
     chatSwitches(null)
-    expect(toolSwitches()).toEqual({ anchor: true, toolChoice: true, askUser: true, draft: true, actFirst: true, textTools: true, storyTools: true, extraTools: true })
+    expect(toolSwitches()).toEqual({
+      anchor: true,
+      toolChoice: true,
+      askUser: true,
+      draft: true,
+      actFirst: true,
+      textTools: true,
+      storyTools: true,
+      extraTools: true,
+      lookups: true,
+      packs: true
+    })
     process.env.AIWRITE_EXP_CHAT_ANCHOR = 'off'
     process.env.AIWRITE_EXP_CHAT_DRAFT = ' OFF '
     process.env.AIWRITE_EXP_CHAT_ASKUSER = 'on'
@@ -24,6 +35,8 @@ describe('the defaults', () => {
     process.env.AIWRITE_EXP_CHAT_TEXTTOOLS = 'off'
     process.env.AIWRITE_EXP_CHAT_STORYTOOLS = 'off'
     process.env.AIWRITE_EXP_CHAT_EXTRATOOLS = 'off'
+    process.env.AIWRITE_EXP_CHAT_LOOKUPS = 'off'
+    process.env.AIWRITE_EXP_CHAT_PACKS = 'off'
     expect(toolSwitches()).toEqual({
       anchor: false,
       toolChoice: true,
@@ -32,7 +45,9 @@ describe('the defaults', () => {
       actFirst: false,
       textTools: false,
       storyTools: false,
-      extraTools: false
+      extraTools: false,
+      lookups: false,
+      packs: false
     })
     chatSwitches(null)
     const names = editorTools(toolSwitches()).map((t) => t.name)

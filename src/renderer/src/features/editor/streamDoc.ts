@@ -391,6 +391,24 @@ export function appendStream(state: EditorState, ops: StreamOp[]): Transaction |
   return tr
 }
 
+/**
+ * Directed writing (src/main/director): the draft's last paragraph is taken back for a retake. Its words go and the
+ * paragraph stays, empty, for the paragraph written again to stream into; as with every streamed step, nothing is
+ * recorded, so one Ctrl+Z still takes the whole draft out when it ends. Null when no draft is writing, or its last
+ * paragraph isn't the draft's own.
+ */
+export function takeBackStream(state: EditorState): Transaction | null {
+  const info = activeStream(state)
+  if (!info || waitingToReplace(info)) return null
+  const tr = state.tr
+  const start = streamParagraphStart(tr, info.from)
+  const last = tr.doc.lastChild
+  if (start == null || !last || last.content.size === 0) return null
+  tr.delete(start + 1, start + 1 + last.content.size)
+  keepSelection(state, tr)
+  return tr.setMeta('addToHistory', false).setMeta(streamKey, { type: 'wrote' } satisfies StreamMeta)
+}
+
 /** True when the page has any words on it. */
 const hasWords = (doc: PMNode): boolean => doc.textContent.trim() !== ''
 

@@ -240,5 +240,5 @@ test('the New look elsewhere: style presets as cards, Settings with icons, and a
   await nav.getByRole('button', { name: 'Appearance' }).click()
   await expect(nav.getByRole('button', { name: 'Appearance' })).toHaveAttribute('aria-current', 'page')
   await expect(nav.getByRole('button', { name: 'Appearance' }).locator('svg')).toHaveCount(1)
-  await expect(main(win).getByRole('radiogroup', { name: 'Style' })).toBeVisible()
+  await expect(main(win).getByRole('radiogroup', { name: 'Layout' })).toBeVisible()
 })
