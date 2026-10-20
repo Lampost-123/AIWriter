@@ -1007,8 +1007,9 @@ and dictation"). The data model stays frozen (migrations 1 and 2): world.db is u
   the briefing had room for without it, the reply's room or the budget. Not for Variants (one plan for the set would
   make its drafts alike), Continue (a paragraph or two, and meant to be quick) or the AI edits (they keep what
   happens). With a scene contract (long story memory fix 13) it also says what must change, for the contract's list;
-  with a continuity brief (fix 14) it also reads the whole story record (and the book so far when it can) and writes a
-  short brief for the writer, with longer to do it (90 s, or 120 s with the book: `BRIEF_LIMIT_MS`).
+  with a continuity brief (fix 14) it also reads the earlier chapters in short, the scene before and the scene so far word
+  for word and what the story record says of the scene (until 2026-10-20 the whole book so far: see "The plan reads less"
+  below) and writes a short brief for the writer, with longer to do it (90 s: `BRIEF_LIMIT_MS`).
   Settings › Models, "Plan before writing" (`settings.planFirst`, on by default; beside "Check new words
   straight away"; `features/plan/PlanSettings.tsx`): off, no call, and the list still goes in. `AIWRITE_PLAN=off`
   always turns it off: app tests set it (tests/e2e/helpers.ts) and ask for planning with `AIWRITE_PLAN=on`; the fake
@@ -3433,7 +3434,7 @@ writing is already the memory model's call made before each draft, so it is that
 store, no migration; the memory keeper's prompt is unchanged (its 58 characters to spare are still spare).
 
 - **What the plan reads besides** (`plan/brief.ts` `briefMaterial`, pure; gathered on the open world by `plan/index.ts`
-  `withBrief`). Besides what the plan always read (the scene card, what must stay true, where things stand, the words just
+  `withBrief`). *Until 2026-10-20; since then it reads far less, never the book: see "The plan reads less" below.* Besides what the plan always read (the scene card, what must stay true, where things stand, the words just
   before, the codex's names), in this order, the parts that stay the same from step to step first:
   - *the book so far, word for word* (`bookPart`), this story's scenes before this one on its line, in reading order,
     with where each is ("### Ch 2, Sc 3: The ferry"), only when the memory model reads at least `BOOK_READER` (200,000)
@@ -4044,7 +4045,8 @@ planning every beat. Plan before writing (`settings.planFirst`) stays a switch, 
 - **One round of look-ups** (`plan/plan.ts` `makePlan`, through the agent loop `ai/tasks.ts` `runTask`, job 'memory', the
   memory model): the first request offers the tools; their answers come back and the second request, without tools, asks
   for the plan (`maxSteps` 2). A planner that needs nothing plans in the first. The record (What the AI saw) keeps each
-  request and each look-up (`params.steps`, `params.requests`); the book so far is still kept as a note (`TaskRequest.kept`).
+  request and each look-up (`params.steps`, `params.requests`); the scene before and the scene so far, read word for word
+  with a brief, are kept as notes (`TaskRequest.kept`, since 2026-10-20; the book so far before).
   `[AIWRITE-PLAN v2]`; `PLAN_LIMIT_MS` 60 s for both requests (the brief's limits as before). The story's content note goes
   with it as with every memory job; a refusal is noted for the top bar.
 - **The plan** (reply JSON): `wants`, `against`, `turn`, `beats` (in order), `who_where`, `relies`, `changes` (place,
@@ -4967,6 +4969,80 @@ checks are still governed by Automatic AI (`shared/automaticAi.ts`) and never go
   refused memory scene's buttons; a refused draft's Try with), and the specs that used the Critique tab and the old
   messages (`critique.spec.ts`, `issues.spec.ts`, `repair.spec.ts`, `contract.spec.ts`, `live-checks.spec.ts`,
   `ai.spec.ts`, `manuscript.spec.ts`).
+
+## The plan reads less: no whole book (Adam, 2026-10-20)
+
+A live run of the trap story on DeepSeek Flash (30 scenes, about 60,000 words, the overhaul's code) found Plan before
+writing's continuity brief (fix 14) reading the whole book so far word for word with every plan, plus a story record of up
+to 40,000 tokens: about 85,000 tokens a request ("the plan read 97,692 tokens, the book so far whole"), and its six plans
+were a third of all the run's tokens (507,000 of 1.52 million). Most of the record was who knows what among everyone named
+in the scene (19,600 characters), everyone and everything in it with all their history, and how each chapter ended. Adam:
+"Trim the plan's whole-book reading (use the story index, summaries and look-ups instead)".
+
+- **What the plan reads now with a brief** (`plan/brief.ts` `briefMaterial`, from the briefing's own input; `plan/index.ts`
+  `withBrief` adds only the rule checks' findings from the world). Besides the plan's own parts (the scene card, what must
+  stay true, where things stand, everyone here as the story index has them, "Already happened" for this chapter and the one
+  before, the open threads, the codex's names), in the order sent:
+  - *the story so far, chapter by chapter, in short* (`CHAPTERS_TITLE`): each earlier chapter's summary
+    (`storySoFar.chapters`, its "scene 2" cited as "Ch 3, Sc 2"), a chapter not summed up yet its scenes' gists, never a
+    chapter "Already happened" tells scene by scene (`BriefSources.covered`); when room is short the oldest go first
+    (a shorter form of a summary first), and it says how many were left out and that what_happened tells them. Its lead
+    says the earlier scenes' own words aren't here and read_passage reads them;
+  - *the scene before, word for word* (`PREVIOUS_TITLE`, with where it is: "(Ch 7, Sc 4: The road out of Carrow)"), a long
+    one from where its last 2,000 words start, then 800, then 300 (`SCENE_WORDS`, at a paragraph, `sceneTail`), saying
+    its earlier part is a look-up away;
+  - *everyone and everything in this scene* (`PEOPLE_TITLE`): the people here (`sceneKnowers`) with who they are, how they
+    look and what they want (fields `basics`, `looks`, `arc`; not their voice or past), the place, the card's threads and at
+    most `OTHER_ENTRIES_MOST` (6) entries the scene itself names (its card, Adam's direction, the scene so far, the end of
+    the scene before, a pin, the plan), each with its last 6 changes, then 3, then none (`ENTRY_HISTORY`), and "(25
+    earlier changes left out here: get_entry has them.)";
+  - *who knows what, among everyone here* (`KNOWS_TITLE`): only a fact someone here doesn't know (never one everyone here
+    knows or that is about them), the newest first, at most 12, each fact at most 180 characters, then wrong beliefs (at
+    most 6), and "(Not listed: 57 more facts known here, by everyone here or older: who_knows has them.)" (`KNOWS_MOST`);
+  - the story calendar, the slips put right and the rule checks' findings, as before;
+  - after the plan's own parts, as they change from step to step: *the scene so far, word for word* (`SO_FAR_TITLE`, up to
+    3,000 words, then 1,200, then 400), the first `PASSAGES_MOST` (6) earlier passages the search found (12 before), and
+    the scene's contract.
+  The words just before ("The end of the scene so far", "The end of the previous scene") aren't said again when the record
+  has their scene word for word (`planMessages`). The record is fitted to `RECORD_MOST` (11,000 tokens; 40,000 before), or
+  half of what the memory model reads less the plan and its reply when that is less (`briefRoom`): each part first to its
+  share, then what is left by rank (the scene so far, who knows what, the calendar, the scene before, everyone here, the
+  chapters, the slips, the findings, the passages; `fitParts`, whose parts may now list newest first and say what they
+  left out). No more `BOOK_READER`, `BOOK_SHARE`, `BOOK_MOST`, `bookWithin`, `bookPart` or the chapter ends (fix 15's
+  snapshots still go to the writer).
+- **Also in the world (not in the briefing)** (`plan.ts` `othersFor`, with or without a brief): at most 40 names
+  (`MOST_NAMED.others`, 150 before), those named in what has just happened or tied to someone on the card first, events
+  last, in name order, then "(and 61 more: get_entry finds any by name)".
+- **Look-ups for the rest**: the plan's one round (unchanged), and its instructions say plainly that it has what happened
+  earlier only in short, and that read_passage reads an earlier scene word for word (find_in_story finds where:
+  `LOOKUP_RULE`). `BRIEF_RULE` names what it now reads, "given or looked up". `checkBrief` counts what it looked up as given
+  (`makePlan` passes the answers with the request), and a chapter told only in short counts (its "### Ch 3" heading, and its
+  scenes as its summary cites them), so a line citing them is kept; one citing a scene it never saw is still left out.
+- **The cache**: the chapters in short and the scene before lead the request (the same at every step of a scene, and the
+  chapters at every scene of a chapter); Claude through OpenRouter is asked to cache up to the end of them
+  (`BriefPartText.steady`, `cacheUpTo`). The answering request still keeps the tools listed with tool_choice 'none', so it
+  starts as the first did. The record kept in the world has the scene before and the scene so far as notes ("(1,986
+  words, read word for word. Not kept here…)": `partText(p, false)`); `BRIEF_LIMIT_MS` is 90 s (no 120 s for the book).
+- **The writer's side** (`ai/brief.ts`): `ContinuityBrief.book` and the book's lead are gone; the lead says "a reader of
+  the story record". A brief written before reads back the same (`readBriefText`). Settings › Models' help says what the
+  plan reads now ("the chapters so far in short, the scene before and what the story record says of everyone here").
+- **Every path**: Generate, Add below, Variants and Beat by beat's first beat as before; Directed writing writes by the same
+  plan; Write the whole chapter still plans with no brief (`brief: false`, its chapter plan says what a brief would), so it
+  shrinks only by the shorter "Also in the world".
+- **Measured** (offline, free): the trap harness's fake provider from the live run's saved world, with its real DeepSeek
+  memory (`--fake --samples 1 --from-world <live run> --writer deepseek-flash --memory deepseek-flash --judge
+  deepseek-flash --measure …`, chain K1; a fake run that names a real model now reads as much as it does live, DeepSeek
+  Flash's 1,000,000 tokens: `tests/traps/app.ts` `choose`): each plan request 81,210 to 82,830 tokens before (the book so
+  far whole, as live), 13,150 to 17,014 after (the answering request, with the look-ups' answers, about 1,100 more than the
+  first; the later scenes 15,800 to 17,000, about 80% less); the six plans' twelve requests 984,782 to 190,744 tokens, and
+  the whole run 1,403,038 to 608,850. With Directed writing on (`--directed on`) the plans the same, the run 1,412,451 to
+  618,261. Of the 54,000 characters asked after, the scene so far is 15,600, the scene before 6,600, the chapters in short
+  4,700, everyone here 3,800, who knows what 2,800, the passages 2,900. The trap checks came out the same on both runs
+  (the fake writer). A live re-test on DeepSeek Flash comes after merging.
+- **Tests**: `plan/brief.test.ts` (the room, the parts and their caps, the order and the cache, a long story within
+  RECORD_MOST, a chapter told in short counted as given, the scene's words kept as notes, a retry counted under a cent),
+  `plan/withBrief.test.ts` (never the book from the world, the covered chapters), `plan/plan.test.ts` ("Also in the world"
+  capped, the look-up rule, a brief line backed by a look-up kept), `plan/index.test.ts`, `ai/brief.test.ts`.
 
 ## Milestone 1 scope
 
