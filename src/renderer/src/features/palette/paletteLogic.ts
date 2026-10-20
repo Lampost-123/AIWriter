@@ -209,7 +209,7 @@ const toWriting = (c: ActionContext): boolean => c.view !== 'write'
 const newLabel = (kind: EntryKind): string => `New ${KIND_LABELS[kind].one.toLowerCase()}`
 
 export const ACTIONS: ActionDef[] = [
-  // First, so from another page "write" finds the way back before Generate (which would start a draft).
+  // First, so from another page "write" finds the way back before Draft the scene (which would start a draft).
   { id: 'go-write', label: 'Back to writing', keywords: 'write page scene editor manuscript', away: true, when: (c) => c.view !== 'write' },
   {
     id: 'generate',

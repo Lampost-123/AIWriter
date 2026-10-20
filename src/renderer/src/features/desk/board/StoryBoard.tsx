@@ -253,6 +253,21 @@ function Cards({
   const names = useMemo(() => new Map((board?.threads ?? []).map((t) => [t.id, t.name])), [board])
   const tags = useMemo(() => stringTags(layout), [layout])
   const canvas = useRef<HTMLDivElement>(null)
+  // The right edge's fade (board.css) stops at the scroll bars, which come and go with the board's size.
+  useEffect(() => {
+    const el = scroller.current
+    const wrap = el?.parentElement
+    if (!el || !wrap) return
+    const measure = (): void => {
+      wrap.style.setProperty('--board-sb-r', `${el.offsetWidth - el.clientWidth}px`)
+      wrap.style.setProperty('--board-sb-b', `${el.offsetHeight - el.clientHeight}px`)
+    }
+    measure()
+    const watch = new ResizeObserver(measure)
+    watch.observe(el)
+    if (canvas.current) watch.observe(canvas.current)
+    return () => watch.disconnect()
+  }, [])
   const [tip, setTip] = useState<{ id: ID; x: number; y: number } | null>(null)
   const lineOf = (id: ID): string => {
     const s = layout.strings.find((x) => x.id === id)

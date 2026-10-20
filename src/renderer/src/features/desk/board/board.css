@@ -190,14 +190,14 @@
   box-shadow: inset 0 0 0 1px var(--desk-line-2);
 }
 /* The board runs on past the window's edge: the right edge fades rather than cutting a column off. The canvas has PAD_X
-   (40px) of room after its last column, so at the far end only that empty room sits under the fade. Kept clear of the
-   scroll bars. */
+   (40px) of room after its last column, so at the far end only that empty room sits under the fade. It stops at the
+   scroll bars (their sizes measured into --board-sb-r and --board-sb-b, StoryBoard.tsx). */
 [data-arrangement='desk'] .board-wrap::after {
   content: '';
   position: absolute;
   top: 1px;
-  right: 12px;
-  bottom: 12px;
+  right: var(--board-sb-r, 0px);
+  bottom: var(--board-sb-b, 0px);
   width: 40px;
   border-radius: 0 14px 14px 0;
   pointer-events: none;

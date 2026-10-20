@@ -821,6 +821,17 @@
   padding: 40px 44px 64px;
   text-align: center;
 }
+/* The last issue just went: the words arrive a little slower and from further, the tick drawing in. */
+[data-arrangement='desk'] .ck-clear[data-moment] .ck-clear-words {
+  animation: ck-clear-moment 700ms var(--desk-ease) backwards;
+}
+@keyframes ck-clear-moment {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+    scale: 0.97;
+  }
+}
 [data-arrangement='desk'] .ck-clear-words {
   display: flex;
   max-width: 520px;

@@ -43,7 +43,7 @@ function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
 
 const menuItem = 'flex h-8 items-center gap-2.5 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
 
-/** Several links behind one (Plan a chapter, By kind): a menu, lit when one of them is the page showing. */
+/** Several links behind one (Plan a chapter): a menu, lit when one of them is the page showing. */
 function SubMenu({ label, links, icon: Icon }: { label: string; links: AreaLink[]; icon: AreaLink['icon'] }): React.JSX.Element | null {
   if (!links.length) return null
   const on = links.find((l) => l.active)

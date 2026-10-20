@@ -181,7 +181,7 @@ describe('finding actions by typing', () => {
     // "draft" is a word of "Draft the scene"; "write" only one of its other words.
     expect(labels('draft')[0]).toBe('Draft the scene')
     expect(labels('write').slice(0, 2)).toEqual(['Draft the scene', 'New scene'])
-    // From another page, the way back comes before Generate (which would start a draft there and then).
+    // From another page, the way back comes before Draft the scene (which would start a draft there and then).
     const settings = { ...writing, view: 'settings' }
     expect(labels('write', settings).slice(0, 2)).toEqual(['Back to writing', 'Draft the scene'])
     expect(labels('writing', settings)[0]).toBe('Back to writing')
