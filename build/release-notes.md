@@ -1,8 +1,10 @@
-<!-- version: 0.8.1 -->
-What's new in 0.8.1:
+<!-- version: 0.8.2 -->
+What's new in 0.8.2:
 
-- Talk it over now makes the whole change in one go, everywhere it shows up, instead of saying it changed something when it hadn't.
-- Only the parts you ask about are rewritten, so changes are faster and cheaper.
-- The preview shows just what changed, old words struck through.
-- "Not quite" fixes the waiting change instead of starting over.
-- A friendlier chat: what each answer changed, Try again, New talk, and Apply straight away (with Undo).
+- The AI plans each scene first, looking up where everyone is and what they know, so stories stay consistent with far fewer AI calls.
+- Your directions are followed more closely, with a note of what landed, and "Change it…" keeps this and changes that.
+- New: Directed writing, a director steering the writer as it goes.
+- Write the chapter plans the chapter first.
+- Calmer pages: one Check, one Issues list, one note per draft.
+- The chat never claims a change it didn't make.
+- Your stories carry over. The Classic layout is retired.
