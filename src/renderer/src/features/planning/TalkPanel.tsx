@@ -9,8 +9,10 @@ import { Button, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { modKey } from '@/lib/api'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
+import { OutcomeLine } from '@/features/ask/OutcomeLine'
 import { LampStatus } from './LampThinking'
 import { clearTalk, dismissTalkError, stopTalk, takeBackLast, useTalks, type Talk } from './talkStore'
+import { talkOutcome } from './talkTruth'
 
 const EMPTY: Talk = { turns: [], running: null, preview: null, error: null }
 
@@ -46,6 +48,8 @@ export function TalkPanel({
   onDecline,
   canApplyStraightAway = false,
   applyLabel = 'Apply',
+  where = 'The preview below',
+  onHandOff,
   className
 }: {
   scope: string
@@ -68,6 +72,10 @@ export function TalkPanel({
   canApplyStraightAway?: boolean
   /** The words on the button that makes the change (the Plan hub: "Make this change"). */
   applyLabel?: string
+  /** What holds a waiting change, for the outcome line: "The plan below" → "The plan below has 2 changes waiting". */
+  where?: string
+  /** Make this change in the story: an answer that handed its request on (talkStore TalkTurn.handOff) sends it there. */
+  onHandOff?: (request: string) => void
   className?: string
 }): React.JSX.Element {
   const talk = useTalks((s) => s.talks[scope]) ?? EMPTY
@@ -188,16 +196,11 @@ export function TalkPanel({
                     {t.changes.length > 8 ? <li className="px-1 py-0.5 text-[11px] text-faint">and {t.changes.length - 8} more</li> : null}
                   </ul>
                 ) : null}
-                {t.outcome === 'applied' ? (
-                  <span className="mt-1 flex items-center gap-1 text-[11.5px] text-success">
-                    <Check size={11} aria-hidden /> Applied
-                  </span>
-                ) : t.outcome === 'declined' ? (
-                  <span className="mt-1 block text-[11.5px] text-faint">Left as it was</span>
-                ) : t.outcome === 'revised' ? (
-                  <span className="mt-1 block text-[11.5px] text-faint">Built on below</span>
-                ) : t.outcome === 'offered' && waiting ? (
-                  <span className="mt-1 block text-[11.5px] text-ai">See the change below</span>
+                <OutcomeLine outcome={talkOutcome(t, where, applyLabel)} streaming={false} />
+                {t.handOff && onHandOff ? (
+                  <Button size="sm" variant="ai" className="mt-1.5" onClick={() => onHandOff(t.handOff ?? '')} data-hand-off>
+                    Make this change in the story
+                  </Button>
                 ) : null}
               </div>
             </div>

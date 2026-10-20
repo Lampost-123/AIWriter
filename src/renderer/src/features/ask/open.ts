@@ -1,7 +1,7 @@
 // Opening Ask the world beside the page (from the top bar or the palette), with the keyboard in its box.
 // Owned by the Ask the world part.
 import { useApp } from '@/lib/store'
-import { requestBoxFocus, setDraft, setQuote, useAsk } from './askStore'
+import { ask, newChat, requestBoxFocus, setDraft, setQuote, showStory, useAsk } from './askStore'
 
 export function openAsk(): void {
   const a = useApp.getState()
@@ -43,4 +43,34 @@ function quoteInBox(words: string, pids: string[], mode: 'edit' | null): void {
   setDraft(`About this passage: “${quote}”\n\n${typed}`)
   setQuote({ text: quote, pids, mode })
   openAsk()
+}
+
+/** Resolves once the open story's chats have loaded in Ask (a question can't be asked while they load). */
+function chatsLoaded(): Promise<void> {
+  if (!useAsk.getState().loading) return Promise.resolve()
+  return new Promise((resolve) => {
+    const off = useAsk.subscribe((s) => {
+      if (s.loading) return
+      off()
+      resolve()
+    })
+  })
+}
+
+/**
+ * Make this change in the story (the Plan hub's talk, chat-truth R6): opens Ask the world beside the page with the
+ * request already sent, in a new chat, where it becomes changes to apply. When it can't be sent (an answer is still
+ * coming), the request waits in the box instead.
+ */
+export async function askInStory(request: string): Promise<void> {
+  const words = request.trim()
+  if (!words) return openAsk()
+  openAsk()
+  const a = useApp.getState()
+  const place = { worldId: a.world?.id ?? null, storyId: a.storyId, sceneId: a.sceneId }
+  await showStory(place)
+  await chatsLoaded()
+  if (useAsk.getState().running) return setDraft(words)
+  newChat()
+  if (!(await ask(words, place)) && !useAsk.getState().turns.length) setDraft(words)
 }

@@ -211,6 +211,14 @@ export async function planStoryCodex(deps: StoryDeps, input: { taskId: ID; story
   return { ...base, status: 'complete', error: null, items: settleList(items, brief.mine, entryNames(deps.db)) }
 }
 
+/** Why a talk's reply changed nothing though it sent something, in plain words after "Nothing was changed: ". */
+const NO_CHANGE = {
+  notList: 'its reply didn’t read as a list',
+  sameList: 'the list it sent is the same as before',
+  notParts: 'its reply didn’t read as recipe parts',
+  sameParts: 'the parts it sent are the same as before'
+} as const
+
 export async function storyCodexChat(deps: StoryDeps, input: CodexChatRequest, brief: StoryBrief): Promise<CodexChatReply> {
   const f = factsOf(deps, input.storyId, brief)
   const before = cleanCodex(input.items)
@@ -236,8 +244,11 @@ export async function storyCodexChat(deps: StoryDeps, input: CodexChatRequest, b
   if (stop) return { ...base, ...stop }
   const { answer, rest } = splitAnswer(done.text, LIST_LINE)
   const read = rest ? readCodex(rest) : null
-  const items = read ? settleList(carryOver(read, before), brief.mine, entryNames(deps.db)) : null
-  return { ...base, status: 'complete', error: null, answer: answer || (items ? 'Here is the list with those changes.' : done.text.trim()), items }
+  const settled = read ? settleList(carryOver(read, before), brief.mine, entryNames(deps.db)) : null
+  // A list the same as before changes nothing: no preview, and the outcome line says why (chat-truth R6).
+  const items = settled && codexJson(settled) !== codexJson(before) ? settled : null
+  const reason = rest && !items ? (read ? NO_CHANGE.sameList : NO_CHANGE.notList) : null
+  return { ...base, status: 'complete', error: null, answer: answer || (items ? 'Here is the list with those changes.' : rest ? '' : done.text.trim()), items, reason }
 }
 
 export async function redoCodexItem(deps: StoryDeps, input: CodexRedoRequest, brief: StoryBrief): Promise<CodexRedoReply> {
@@ -456,7 +467,8 @@ export async function recipeChat(deps: StoryDeps, input: RecipeChatRequest): Pro
   const changed = rest ? parseRecipe(rest).parts : {}
   const real = Object.fromEntries(Object.entries(changed).filter(([k, v]) => v && v !== parts[k as keyof RecipeParts])) as Partial<RecipeParts>
   const has = Object.keys(real).length > 0
-  return { ...base, status: 'complete', error: null, answer: answer || (has ? 'Here are those changes.' : done.text.trim()), parts: has ? real : null }
+  const reason = rest && !has ? (Object.values(changed).some(Boolean) ? NO_CHANGE.sameParts : NO_CHANGE.notParts) : null
+  return { ...base, status: 'complete', error: null, answer: answer || (has ? 'Here are those changes.' : rest ? '' : done.text.trim()), parts: has ? real : null, reason }
 }
 
 export async function redoRecipePart(deps: StoryDeps, input: RecipePartRedoRequest): Promise<RecipePartRedoReply> {

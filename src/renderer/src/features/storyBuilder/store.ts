@@ -327,7 +327,7 @@ export function talkCodex(storyId: ID, message: string): Promise<void> {
     const r = await api.storyCodexChat({ taskId, storyId, items, history, message })
     if (r.status === 'stopped') return null
     if (r.status === 'error') throw new Error(r.error ?? 'That didn’t work. Please try again.')
-    return { answer: r.answer, revision: r.items }
+    return { answer: r.answer, revision: r.items, reason: r.reason ?? null }
   })
 }
 

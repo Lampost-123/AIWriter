@@ -7,6 +7,7 @@ import { create } from 'zustand'
 import type { ChatTurn } from '@shared/contracts/storyBuilder'
 import type { ID } from '@shared/types'
 import { api, onEvent } from '@/lib/api'
+import { claimsChange, NO_CHANGE, settleTalk } from './talkTruth'
 
 export interface TalkTurn extends ChatTurn {
   /**
@@ -16,6 +17,15 @@ export interface TalkTurn extends ChatTurn {
   outcome?: 'offered' | 'applied' | 'declined' | 'revised'
   /** What the revision changed, a few words each ("Scene: The Health Check"), shown under the answer. */
   changes?: string[]
+  /**
+   * The answer's outcome was recorded when it came (chat-truth R1): it shows the outcome line. An answer without it has
+   * no line rather than a wrong one.
+   */
+  recorded?: boolean
+  /** Why nothing changed, when a change was tried and didn't come through ("the parts it named aren't in the plan"). */
+  reason?: string
+  /** The request, when it was for what this talk can't change (the story's own chapters): offered to Ask instead. */
+  handOff?: string
 }
 
 export interface Talk {
@@ -44,6 +54,10 @@ export interface Answer {
   revision: unknown
   /** What the revision changed, for the chips under the answer. */
   changes?: string[]
+  /** Why nothing changed, when a change was tried (plain words after "Nothing was changed: "). */
+  reason?: string | null
+  /** The request, when it was for what this talk can't change: offered to Ask instead (the outcome line says so). */
+  handOff?: string | null
 }
 
 /** What the AI is told about each of its own answers: whether a change came with it, so it never thinks one did when not. */
@@ -106,13 +120,22 @@ export async function say(
       put(scope, { running: null })
       return
     }
-    const answer = out.answer.replace(COPIED, '').trim() || (out.revision ? 'Here it is with those changes.' : '…')
+    const said = out.answer.replace(COPIED, '').trim()
+    const changed = !!out.revision
+    // A claim of a change with none sent says why in the outcome line; the words are put right by the shared check.
+    const reason = changed ? null : (out.reason ?? (claimsChange(said) ? NO_CHANGE.notSent : null))
+    const answer = settleTalk(said, changed) || (changed ? 'Here it is with those changes.' : reason ? 'That didn’t come through. Please ask again.' : '…')
+    const turn: TalkTurn = {
+      role: 'assistant',
+      text: answer,
+      recorded: true,
+      ...(changed ? { outcome: 'offered' as const, ...(out.changes?.length ? { changes: out.changes } : {}) } : {}),
+      ...(reason ? { reason } : {}),
+      ...(!changed && out.handOff ? { handOff: out.handOff } : {})
+    }
     put(scope, {
       running: null,
-      turns: [
-        ...talkOf(scope).turns,
-        { role: 'assistant', text: answer, ...(out.revision ? { outcome: 'offered' as const, ...(out.changes?.length ? { changes: out.changes } : {}) } : {}) }
-      ],
+      turns: [...talkOf(scope).turns, turn],
       preview: out.revision ?? null
     })
   } catch (e) {

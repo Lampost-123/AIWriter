@@ -129,6 +129,8 @@ export interface CodexChatRequest {
 export interface CodexChatReply extends Ended {
   answer: string
   items: CodexItem[] | null
+  /** Why no list came when the AI sent one that couldn't be used, after "Nothing was changed: " (chat-truth R6). */
+  reason?: string | null
 }
 
 export interface CodexRedoRequest {
@@ -196,6 +198,8 @@ export interface RecipeChatRequest {
 export interface RecipeChatReply extends Ended {
   answer: string
   parts: Partial<RecipeParts> | null
+  /** Why no parts came when the AI sent some that couldn't be used, after "Nothing was changed: " (chat-truth R6). */
+  reason?: string | null
 }
 
 export interface RecipePartRedoRequest {

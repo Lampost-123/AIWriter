@@ -613,7 +613,7 @@ export async function startFakeProvider(options = {}) {
     memory ??= repairReply(system, firstUser)
     memory ??= recipeReply(system, messages, model)
     // The Story builder, answered by story.mjs.
-    memory ??= storyReply(system, messages)
+    memory ??= storyReply(system, messages, model)
     // The scene and chapter critic, answered by critique.mjs.
     memory ??= critiqueReply(system, firstUser, model)
     // Write the whole chapter's plan (asked at its last request, without tools) and its fixes, answered by chapter.mjs.

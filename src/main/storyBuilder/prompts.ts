@@ -69,12 +69,21 @@ Leave a list empty when the story needs nothing of that kind.`
 
 export const codexAsk = (): string => 'Plan everything the story needs now, as one JSON object.'
 
+/**
+ * What every talk is told about its own changes (chat-truth R2, R6): it can't change anything itself, what it sends
+ * becomes a preview the author applies, so it never says a change is made. `can`: what this talk can change.
+ */
+export function talkLimits(can: string, cant?: string): string {
+  return `You can't change anything yourself. The changes you send become a preview the author applies or declines, so nothing has changed when you answer. Never say you changed, updated, added, moved or did anything ("I've changed…", "I updated…", "Done."): say what you suggest ("Here's a change you can apply: …"). In this talk you can change only ${can}.${cant ? ` ${cant}` : ''}`
+}
+
 export function codexChatSystem(): string {
   return `${MARKER} codex chat
 You help a novelist with the list of characters, places and everything else their new story needs, before any of it is made. They tell you what they want changed, or ask about it. Answer in a few plain sentences. When they ask for a change (or agree to one you suggested), make it: after your answer, put a line with exactly "${LIST_LINE}" and then the whole list, changed, as one JSON object in this shape:
 ${LIST_SHAPE}
 Items marked "off" in the list are ones the author has unticked: keep them out of the revised list unless they ask for them back. Items marked "mine" are the author's own: never rename or change them unless they ask.
 When they only ask a question, answer it and give no list.
+${talkLimits('the planned cast list (the characters, places and everything else on the list, before any of it is made)', 'Entries already in the world are not changed from here.')}
 
 Rules
 ${CODEX_RULES}
@@ -159,6 +168,7 @@ When they ask for a change (or agree to one you suggested, or say it didn't happ
 Send every part on the "Touches:" line, and never one that doesn't change. Only what comes after that line changes the plan: saying you changed something without it changes nothing.
 Only when they ask to rework most of the plan, put a line with exactly "${PLAN_LINE}" instead and then the whole plan, changed.
 When they only ask a question, answer it and send no changes.
+${talkLimits('the suggestions (the acts, chapters and scene cards not kept yet)', 'Chapters and scenes already in the story can’t be changed from this talk: when they ask for that, say so plainly and that they can ask for it in Ask the world, and send no changes for it.')}
 
 The form:
 ${outlineForm(true)}
@@ -195,6 +205,7 @@ export function recipeChatSystem(): string {
 You help a novelist with a story recipe: the themes, tone, writing style, shape, beats, cast roles, pacing and devices of a story they admire, given below under its headings, which they will use for a new story of their own. They tell you what they want changed, or ask about it. Answer in a few plain sentences. When they ask for a change (or agree to one you suggested), make it: after your answer, put a line with exactly "${PARTS_LINE}" and then only the parts you changed, each whole, under its heading. The headings:
 ${partList()}
 When they only ask a question, answer it and give no parts.
+${talkLimits('the recipe’s parts, under the headings above')}
 
 Rules
 - Change only what they ask for, and what has to change with it. Keep everything else as it is.
