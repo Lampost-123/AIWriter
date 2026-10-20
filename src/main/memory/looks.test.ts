@@ -98,3 +98,56 @@ describe('typical clothing, never what is worn for the moment (live test, 2026-1
     expect(usualLook('hair', 'wet from the rain')).toBe('wet from the rain')
   })
 })
+
+describe('typical clothing the story sets from now on (memory review, 2026-10-20)', () => {
+  it('keeps what someone wears from now on, though it is said as "nothing but"', () => {
+    // Told in Ch 3, Sc 2 to wear only a green jumper: the change's note says it lasts.
+    expect(usualLook('clothing', 'nothing but the green jumper', 'told to wear only the green jumper from now on')).toBe('the green jumper')
+    // The words that it lasts say when, not what is worn: kept without them.
+    expect(usualLook('clothing', 'none but the green jumper, from now on')).toBe('the green jumper')
+    expect(usualLook('clothing', 'only the green jumper (from now on)')).toBe('only the green jumper')
+    expect(passingLook('clothing', 'nothing but the green jumper, from now on')).toBe(false)
+    expect(passingLook('clothing', 'only ever the green jumper')).toBe(false)
+    // Undressed for now stays undressed for now: no lasting words.
+    expect(usualLook('clothing', 'nothing but the silver locket')).toBe('')
+    expect(usualLook('clothing', 'nothing but the silver locket', 'undressed for bed')).toBe('')
+    // "Always" or "ever" in a love scene's note is no rule (review, 2026-10-20).
+    expect(usualLook('clothing', 'nothing but her stockings', 'undressed for him for the first time ever')).toBe('')
+    expect(usualLook('clothing', 'nothing but his shirt', 'always wanted this')).toBe('')
+    expect(usualLook('clothing', 'nothing but stockings, more naked than ever')).toBe('')
+  })
+
+  it('never reads bare-headed, or a borrowed piece, as undressed for now; bare-chested is for now', () => {
+    expect(passingLook('clothing', 'bare-headed, green jumper')).toBe(false)
+    expect(usualLook('clothing', 'bare-headed, green jumper')).toBe('green jumper')
+    for (const v of ['bare-chested', 'bare-legged', 'stripped to the waist', 'stripped-to-the-waist', 'bare-chested, jeans unbuttoned'])
+      expect(usualLook('clothing', v), v).toBe('')
+    // A usual piece described so stays (review round 2).
+    expect(usualLook('clothing', 'a bare-shouldered silk gown, silver locket')).toBe('a bare-shouldered silk gown, silver locket')
+  })
+
+  it('never keeps as usual an order about clothes that holds only somewhere or on a cue (memory review, 2026-10-20)', () => {
+    expect(usualLook('clothing', 'no jacket', 'told to wear no jacket whenever she is at home')).toBe('')
+    expect(usualLook('clothing', 'no jacket at home, by order')).toBe('no jacket at home, by order')
+    expect(usualLook('clothing', 'no jacket at home', 'Ana told her to go without one')).toBe('')
+    // Usual clothes said with where they are worn are still usual, and so is what a change merely mentions (review).
+    expect(usualLook('clothing', 'a long coat when outdoors')).toBe('a long coat when outdoors')
+    expect(usualLook('clothing', 'grey work uniform', 'now wears the uniform she has to wear while at work')).toBe('grey work uniform')
+    expect(usualLook('clothing', 'silver ring, grey dress', 'is to marry Tom when spring comes; wears his ring')).toBe('silver ring, grey dress')
+    expect(usualLook('clothing', 'blue wool coat', 'bought a blue coat when told it would snow')).toBe('blue wool coat')
+    // An order with no place or cue is what she wears from now on.
+    expect(usualLook('clothing', 'only the green jumper', 'told to wear only the green jumper from now on')).toBe('only the green jumper')
+  })
+
+  it('reads "for good" as lasting only where it ends a clause: never "for good luck"', () => {
+    expect(usualLook('clothing', 'red ribbon in her hair for good luck, grey dress')).toBe('red ribbon in her hair for good luck, grey dress')
+    expect(usualLook('clothing', 'light linen dress for good weather')).toBe('light linen dress for good weather')
+    expect(usualLook('clothing', 'nothing but a sheet for good measure')).toBe('')
+    expect(usualLook('clothing', 'nothing but the grey habit, for good')).toBe('the grey habit')
+    expect(usualLook('clothing', 'the borrowed green jumper')).toBe('the borrowed green jumper')
+    expect(usualLook('clothing', 'grey shawl, a jumper she was lent')).toBe('grey shawl, a jumper she was lent')
+    // Still undressed: "bare" said alone, and "bare - and shivering".
+    expect(passingLook('clothing', 'bare')).toBe(true)
+    expect(passingLook('clothing', 'bare - shivering by the fire')).toBe(true)
+  })
+})

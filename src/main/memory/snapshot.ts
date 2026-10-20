@@ -7,6 +7,7 @@
 import type { ID, KnowHow } from '@shared/types'
 import { howWords } from '@shared/knowWords'
 import { dateLabel, elapsedBetween, elapsedWords, type StoryDate } from './calendar'
+import { LASTING } from './looks'
 
 /** Raised when what a snapshot holds, or how it is worked out, changes: every kept snapshot is worked out again. */
 export const SNAPSHOT_VERSION = 1
@@ -137,11 +138,18 @@ export function endLines(s: ChapterSnapshot, nameOf: NameOf): string[] {
 }
 
 /**
- * A few of the chapter's facts for its line in the writer's timeline, where a 60-word summary may have lost them: who
+ * A few of the chapter's facts for its line in the writer's timeline, where a 60-word summary may have lost them: what
+ * happened to people in it (half of `most` at most; memory review, 2026-10-20: a Ch 3 order forgotten by Ch 5), who
  * learned what (or came to believe wrongly), then plot threads paid off and set up. At most `most`.
  */
 export function timelineFacts(s: ChapterSnapshot, nameOf: NameOf, most = 2): string[] {
   const out: string[] = []
+  // What lasts first ("told to wear only the green jumper from now on"), then in the order it happened.
+  const lasting = (c: ChapterSnapshot['changed'][number]): number => (LASTING.test(c.note) ? 0 : 1)
+  for (const c of [...s.changed].sort((a, b) => lasting(a) - lasting(b))) {
+    const who = namesOf(c.with ? [c.who, c.with] : [c.who], nameOf, 2)
+    if (who && clean(c.note) && out.length < Math.ceil(most / 2)) out.push(`${who}: ${clip(c.note, 100)}`)
+  }
   for (const l of s.learned) {
     const who = namesOf(l.who, nameOf, 2)
     if (who) out.push(`${who} ${l.wrong ? 'came to believe wrongly' : 'learned'}: ${clip(l.fact, 100)}`)

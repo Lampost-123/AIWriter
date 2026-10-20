@@ -87,10 +87,23 @@ describe('how things stand at the end of a chapter, from the record', () => {
 })
 
 describe('an older chapter’s line in the writer’s timeline', () => {
-  it('gains who learned what first, then threads paid off and set up, at most as many as asked', () => {
-    expect(timelineFacts(snapshot(), nameOf)).toEqual(['Tobin and Ash learned: Mara is the heir', 'Ivo learned: the ferry runs at dawn'])
-    expect(timelineFacts(snapshot({ learned: [] }), nameOf, 3)).toEqual(['paid off: The ferryman’s debt', 'set up: Who sent the letter?'])
-    expect(timelineFacts(snapshot({ learned: [], threads: [] }), nameOf)).toEqual([])
+  it('gains what happened to people (half at most), then who learned what, then threads paid off and set up, at most as many as asked', () => {
+    expect(timelineFacts(snapshot(), nameOf)).toEqual(['Mara: lost her knife in the river', 'Tobin and Ash learned: Mara is the heir'])
+    expect(timelineFacts(snapshot(), nameOf, 4)).toEqual([
+      'Mara: lost her knife in the river',
+      'Edric: died in his chair',
+      'Tobin and Ash learned: Mara is the heir',
+      'Ivo learned: the ferry runs at dawn'
+    ])
+    // What lasts comes first, wherever it is in the chapter.
+    const told = { who: 'mara', note: 'told to wear only the grey shawl from now on', sc: 3 }
+    expect(timelineFacts(snapshot({ changed: [...snapshot().changed, told] }), nameOf)[0]).toBe('Mara: told to wear only the grey shawl from now on')
+    expect(timelineFacts(snapshot({ changed: [{ who: 'mara', with: 'tobin', note: 'rivals', sc: 2 }], learned: [] }), nameOf, 2)).toEqual([
+      'Mara and Tobin: rivals',
+      'paid off: The ferryman’s debt'
+    ])
+    expect(timelineFacts(snapshot({ changed: [], learned: [] }), nameOf, 3)).toEqual(['paid off: The ferryman’s debt', 'set up: Who sent the letter?'])
+    expect(timelineFacts(snapshot({ changed: [], learned: [], threads: [] }), nameOf)).toEqual([])
   })
 })
 

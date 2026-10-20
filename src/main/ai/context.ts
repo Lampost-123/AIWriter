@@ -103,7 +103,7 @@ import type { VoiceMark } from '../style/voiceMarks'
 import { OPEN_THREADS_BLOCK, OPEN_THREADS_TITLE, openThreadsAt, openThreadsMost, openThreadsShort, openThreadsText } from './openThreads'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { deathOf } from './deaths'
-import { MUST_TITLE, mustLines, mustStayTrue, mustText, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
+import { MUST_TITLE, mustLines, mustStayTrue, mustText, placesHere, shortPlace, stageFor, stageInScene, type StageReach, type StageScope } from './mustStay'
 import { withoutMentioned } from '../storyIndex/there'
 import { CONTRACT_BLOCK, contractSays, contractText, SAID, sceneContract, type ContractInput, type SceneContract } from './contract'
 import { BRIEF_BLOCK, briefShortens, briefText, hasEarlierBooks, type ContinuityBrief } from './brief'
@@ -124,6 +124,7 @@ import { sameDay, sameMoment, type SceneCalendar } from '../memory/calendar'
 import { eventVsDate } from '../worldViews/eventPlace'
 import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
 import { withoutRepeats, wordRuns } from './repeats'
+import { usualLook } from '../memory/looks'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -495,23 +496,30 @@ export const DETAILS_LABEL = 'Details to show now and then, not all at once'
 /**
  * A character's field groups for the writer (step 4: "a quiet split", so a cheap model stops mentioning eye colour in
  * every scene): Basics and the distinguishing marks as facts to keep to, the rest of Looks as details to show. Other
- * kinds, and the other groups, as they are.
+ * kinds, and the other groups, as they are. `facts`: Looks fields to keep to as well (what the story set someone to wear).
  */
-function splitGroups(kind: Entry['kind']): FieldGroup[] {
+function splitGroups(kind: Entry['kind'], facts: ReadonlySet<string> = new Set()): FieldGroup[] {
   const groups = FIELD_GROUPS[kind] ?? []
   if (kind !== 'character') return groups
   const basics = groups.find((g) => g.id === 'basics')
   const looks = groups.find((g) => g.id === 'looks')
   if (!basics || !looks) return groups
-  const marks = looks.fields.filter((f) => f.key === 'marks')
+  const kept = (key: string): boolean => key === 'marks' || facts.has(key)
   return groups.map((g) =>
     g === basics
-      ? { ...g, label: FACTS_LABEL, fields: [...g.fields, ...marks] }
+      ? { ...g, label: FACTS_LABEL, fields: [...g.fields, ...looks.fields.filter((f) => kept(f.key))] }
       : g === looks
-        ? { ...g, label: DETAILS_LABEL, fields: g.fields.filter((f) => f.key !== 'marks') }
+        ? { ...g, label: DETAILS_LABEL, fields: g.fields.filter((f) => !kept(f.key)) }
         : g
   )
 }
+
+/**
+ * A character's Typical clothing the story changed (memory review, 2026-10-20: "only the green jumper, from now on"
+ * since Ch 3, Sc 2) is a fact to keep to, not a detail to show now and then.
+ */
+const lastingLooks = (e: Entry): ReadonlySet<string> =>
+  new Set(e.kind === 'character' && (e as Partial<EntryState>).changedWhere?.clothing && usualLook('clothing', e.fields?.clothing) ? ['clothing'] : [])
 
 /**
  * Every filled kind-specific field, grouped under the labels from src/shared/fields.ts. Never private notes.
@@ -520,7 +528,7 @@ function splitGroups(kind: Entry['kind']): FieldGroup[] {
  * writer.
  */
 export function fieldSections(e: Entry, onlyGroups?: string[], short = false, onlyKeys?: ReadonlySet<string>, split = false): string[] {
-  const groups = split ? splitGroups(e.kind) : (FIELD_GROUPS[e.kind] ?? [])
+  const groups = split ? splitGroups(e.kind, lastingLooks(e)) : (FIELD_GROUPS[e.kind] ?? [])
   const out: string[] = []
   for (const g of groups) {
     if (onlyGroups && !onlyGroups.includes(g.id)) continue
@@ -1387,6 +1395,7 @@ export function stageScope(
     cast,
     words: [...card.beats, card.notes, card.goal, card.conflict, card.outcome, card.mood, ...words].map(clean).filter(Boolean).join('\n'),
     previousSceneId: memory.previous && !memory.previous.otherStory ? memory.previous.sceneId : null,
+    today: new Set(calendar?.today ?? []),
     dead: memory.entries.filter((e) => e.kind === 'character' && deathOf(e)).flatMap((e) => [e.name, ...(e.aliases ?? [])])
   }
 }
@@ -1866,6 +1875,8 @@ function buildBriefing(
       .map(clean)
       .filter(Boolean)
       .join('\n'),
+    // Where the scene happens, for an order that holds somewhere ("whenever she is at home").
+    where: placesHere([...input.memory.entries, ...input.memory.elsewhere.map((x) => x.entry)], card.locationId),
     // The stage block right above says where things stand at this same moment: the list doesn't say it again.
     stageShown: !!full,
     happened: happenedOf(input.memory.entries),

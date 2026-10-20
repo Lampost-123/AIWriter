@@ -2,7 +2,15 @@
 // memory fix 9). The writer's briefing, the checks and the entry page say it the same way: "since Ch 2, Sc 3; heard it
 // from Ash", "from the start; saw it". Pure.
 
-import type { ID, Learned } from './types'
+import type { ID, Learned, SaidKind } from './types'
+
+/** What each kind of thing said is called: the memory's log, the entry page and the writer's briefing. */
+export const SAID_KIND_WORDS: Record<SaidKind, string> = {
+  promise: 'A promise',
+  threat: 'A threat',
+  secret: 'A secret told',
+  rule: 'An order or rule'
+}
 
 /** "saw it", "heard it from Ash", "was told", "overheard Ash", "read it", "guessed it", "said it"; '' when not known. */
 export function howWords(l: Pick<Learned, 'how' | 'from'> | null | undefined, nameOf: (id: ID) => string | null | undefined): string {
