@@ -46,6 +46,11 @@ export interface OutlineRequest {
   /** The premise as it is in the helper's box (the story's own, unless Adam changed it there). */
   premise: string
   size: OutlineSize
+  /**
+   * The Plan hub (2026-10-20): what Adam wants, in his own words (and, for part of a new story, which part: "only the
+   * first act for now"). It goes to the AI as his direction, last of all, and shows in What the AI saw.
+   */
+  direction?: string
 }
 
 /**
@@ -78,6 +83,20 @@ export interface OutlineStageRequest {
   chapterId?: ID | null
   /** scene: the scene to plan. */
   sceneId?: ID | null
+  /**
+   * The Plan hub (2026-10-20): what Adam wants to happen, in his own words, and the plot threads he asked to bring back.
+   * It goes to the AI as his direction, last of all, and shows in What the AI saw.
+   */
+  direction?: string
+  /**
+   * scenes, in a chapter in the story: the last scene written in it. The new scenes carry on right after it (the end of
+   * its words goes with the request), so they follow what was written rather than the chapter's end.
+   */
+  afterSceneId?: ID | null
+  /** scenes: exactly this many (the hub's "the next scene" asks for 1); left out, as many as the chapter needs. */
+  count?: number
+  /** chapters, in an act in the story: the chapter being written, which they come after; left out, the act's end. */
+  afterChapterId?: ID | null
 }
 
 export interface SceneIdeasRequest {

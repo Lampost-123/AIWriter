@@ -1,6 +1,6 @@
 // Plain waits (the calm overhaul): each step before a draft's first word is named, and the line keeps calm.
 import { describe, expect, it } from 'vitest'
-import { calmStep, CALM_MS, draftWaitWords } from './waitWords'
+import { calmStep, CALM_MS, draftWaitWords, lookupWords } from './waitWords'
 
 describe('what a draft says before its first word', () => {
   it('names each step', () => {
@@ -14,6 +14,18 @@ describe('what a draft says before its first word', () => {
     expect(draftWaitWords({ step: 'lookups', count: 3 }, null, 's1').words).toBe('Looking up 3 things…')
     expect(draftWaitWords({ step: 'lookups', count: 1 }, null, 's1').words).toBe('Looking up 1 thing…')
     expect(draftWaitWords({ step: 'writing' }, null, 's1').words).toBe('Writing…')
+  })
+
+it('says what the plan looks up, in plain words (the Plan hub’s fold-in, 2026-10-20)', () => {
+    expect(draftWaitWords({ step: 'lookups', count: 2, about: ['state_of', 'who_knows'] }, null, 's1').words).toBe(
+      'Planning the scene: looking up where everyone is and who knows what…'
+    )
+    expect(draftWaitWords({ step: 'lookups', count: 2, about: ['state_of', 'last_seen'] }, null, 's1').words).toBe('Planning the scene: looking up where everyone is…')
+    // In the scene header's small room, the count as before.
+    expect(draftWaitWords({ step: 'lookups', count: 2, about: ['state_of'] }, null, 's1').short).toBe('Looking up 2 things…')
+    // A look-up it has no words for leaves the count.
+    expect(draftWaitWords({ step: 'lookups', count: 1, about: ['something_new'] }, null, 's1').words).toBe('Looking up 1 thing…')
+    expect(lookupWords(['what_happened', 'timeline', 'open_threads'])).toBe('what happened before and when things happened')
   })
 
   it('says when the plan waits for Adam (Show me the plan first)', () => {

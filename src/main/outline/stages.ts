@@ -18,6 +18,7 @@ import {
   castText,
   chapterAroundText,
   earlierText,
+  isPlainSceneTitle,
   placeText,
   planText,
   storyText,
@@ -25,11 +26,13 @@ import {
   type BlockDraft,
   type CastLine,
   type FittedBriefing,
+  type PlanAct,
+  type PlanChapter,
   type ThreadLine
 } from './briefing'
 import { ideasFacts, outlineFacts } from './context'
 import { checkReplyRoom, fitBriefing, OUTLINE_TEMPERATURE, type JobDeps } from './jobs'
-import { STAGE_LIMITS, stageAsk, stageStart, stageSystem, type StageLevel } from './prompts'
+import { DIRECTION_RULE, DIRECTION_TITLE, STAGE_LIMITS, stageAsk, stageStart, stageSystem, type StageLevel } from './prompts'
 
 const LEVELS: StageLevel[] = ['acts', 'chapters', 'scenes', 'scene']
 
@@ -88,12 +91,57 @@ const messagesOf = (system: string, fitted: FittedBriefing): ChatMessage[] => [
   { role: 'user', content: fitted.text }
 ]
 
-/** What "What the AI saw" says was asked. */
-function directionOf(level: StageLevel, title: string): string {
+/** What "What the AI saw" says was asked: with Adam's own words (the Plan hub), those words. */
+function directionOf(level: StageLevel, title: string, own = ''): string {
+  if (own) return own
   if (level === 'acts') return 'Outline in stages: suggest the acts'
   if (level === 'chapters') return title ? `Outline in stages: plan the chapters of “${title}”` : 'Outline in stages: suggest the chapters'
   if (level === 'scenes') return `Outline in stages: plan the scenes of “${title || 'the chapter'}”`
   return title ? `Plan the scene “${title}”` : 'Plan this scene'
+}
+
+/** Adam's own words for what happens next (the Plan hub), as sent: one block, just before what is asked. */
+export function directionBlock(direction: string): BlockDraft[] {
+  const words = direction.trim()
+  return words ? [{ id: 'direction', title: DIRECTION_TITLE, priority: 0, forms: [words] }] : []
+}
+
+/** "Ch 4, Sc 2" for a scene of the plan, counting chapters from the story's first and scenes from the chapter's. */
+export function sceneLabelIn(plan: PlanAct[], sceneId: ID): string {
+  const chapters = plan.flatMap((a) => a.chapters)
+  for (let c = 0; c < chapters.length; c++) {
+    const s = chapters[c].scenes.findIndex((x) => x.id === sceneId)
+    if (s >= 0) return `Ch ${c + 1}, Sc ${s + 1}`
+  }
+  return ''
+}
+
+/**
+ * The Plan hub's "carry on from the last scene written" (2026-10-20): the scene in the chapter being planned that the new
+ * scenes come after, in words for the ask ("“The ferry” (Ch 4, Sc 2), the last scene written"), and the end of its words.
+ */
+function afterScene(db: JobDeps['db'], plan: PlanAct[], chapter: PlanChapter, sceneId: ID | null | undefined): { words: string; tail: string } | null {
+  const sc = sceneId ? chapter.scenes.find((s) => s.id === sceneId) : undefined
+  if (!sc) return null
+  const label = sceneLabelIn(plan, sc.id)
+  const named = isPlainSceneTitle(sc.title) ? 'the scene' : `“${sc.title.replace(/\s+/g, ' ').trim()}”`
+  let text = ''
+  try {
+    text = repo.getScene(db, sc.id).text
+  } catch {
+    // Gone since: the ask still names it.
+  }
+  return { words: `${named}${label ? ` (${label})` : ''}, the last scene written`, tail: text.trim() }
+}
+
+/** The chapter the new chapters come after, in words ("“The Ford” (Ch 4), the chapter being written"). */
+function afterChapter(plan: PlanAct[], chapterId: ID | null | undefined): string {
+  if (!chapterId) return ''
+  const chapters = plan.flatMap((a) => a.chapters)
+  const at = chapters.findIndex((c) => c.id === chapterId)
+  if (at < 0) return ''
+  const title = chapters[at].title.replace(/\s+/g, ' ').trim()
+  return `${title ? `“${title}” ` : ''}(Ch ${at + 1}), the chapter being written`
 }
 
 /**
@@ -111,10 +159,16 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
   const plan = clip(input.plan, 60_000).trim()
   const target = clip(input.target, 20_000).trim()
   const acts = count(input.acts, 0, STAGE_LIMITS.acts) ?? 3
+  // The Plan hub (2026-10-20): Adam's own words for what happens next, and the threads he asked to bring back.
+  const own = clip(input.direction, 4000).trim()
   // A chapter in the story already: it is read from the story (its scenes so far, with the chapters either side).
   const keptChapter = level === 'scenes' && input.chapterId ? facts.plan.flatMap((a) => a.chapters).find((c) => c.id === input.chapterId) : undefined
   const keptAct = level === 'chapters' && input.actId ? facts.plan.find((a) => a.id === input.actId) : undefined
   const title = headingTitle(target) || keptChapter?.title || keptAct?.title || ''
+  // The hub's "carry on from the last scene written": the scenes come right after it, told how it ends.
+  const after = keptChapter ? afterScene(deps.db, facts.plan, keptChapter, input.afterSceneId) : null
+  const afterChapterWords = keptAct ? afterChapter(facts.plan, input.afterChapterId) : ''
+  const exactly = level === 'scenes' ? count(input.count, 1, STAGE_LIMITS.scenes) : null
 
   let n: number
   let ask: string
@@ -126,16 +180,22 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
     const inAct = !!target || !!keptAct
     n = count(input.chapters, 1, inAct ? STAGE_LIMITS.actChapters : STAGE_LIMITS.chapters) ?? 3
     ask = inAct
-      ? stageAsk('chapters', { chapters: n, title, kept: !!keptAct, latestWhen: facts.latestWhen })
+      ? stageAsk('chapters', { chapters: n, title, kept: !!keptAct, latestWhen: facts.latestWhen, after: afterChapterWords })
       : stageAsk('chapters', { chapters: n, start: stageStart({ chapters: facts.chapterCount, lastAct: facts.lastAct, newActs: false }), latestWhen: facts.latestWhen })
   } else {
-    n = STAGE_LIMITS.scenes
-    ask = stageAsk('scenes', { title, kept: !!keptChapter, latestWhen: facts.latestWhen })
+    n = exactly ?? STAGE_LIMITS.scenes
+    ask = stageAsk('scenes', { title, kept: !!keptChapter, latestWhen: facts.latestWhen, after: after?.words, count: exactly ?? undefined })
   }
-  const reply = stageReplyTokens(level, n)
+  const reply = level === 'scenes' && exactly ? 300 + exactly * 170 : stageReplyTokens(level, n)
   checkReplyRoom(deps.model, reply, 'That is', 'Pick a model that writes longer answers in Settings › Models.')
-  const system = stageSystem(level, { withActs: level !== 'chapters' || !!target || !!keptAct, extra: extra.rules, withPremise: extra.withPremise })
+  const rules = [
+    ...(extra.rules ?? []),
+    ...(own ? [DIRECTION_RULE] : []),
+    ...(exactly ? [`Exactly ${exactly === 1 ? 'one scene' : `${exactly} scenes`}, no more.`] : [])
+  ]
+  const system = stageSystem(level, { withActs: level !== 'chapters' || !!target || !!keptAct, extra: rules, withPremise: extra.withPremise })
   const most = extra.castLimit ?? 40
+  const tail = (o: { min: number; target: number; max: number }): string => (after?.tail ? sceneTail(after.tail, o) : '')
   const drafts: BlockDraft[] = [
     ...(extra.lead ?? []),
     { id: 'story', title: 'The story', priority: 1, forms: [storyText(facts.story)] },
@@ -148,6 +208,17 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
             title: 'The chapter to plan, as the story has it',
             priority: 1,
             forms: [0, 1, 2].map((l) => chapterAroundText(facts.plan, keptChapter.id, facts.story.title, l))
+          }
+        ]
+      : []),
+    // The last scene written, which the new scenes carry on from (the Plan hub).
+    ...(after?.tail
+      ? [
+          {
+            id: 'previous',
+            title: 'How the last scene written ends',
+            priority: 2,
+            forms: [tail({ min: 250, target: 320, max: 420 }), tail({ min: 90, target: 120, max: 160 })]
           }
         ]
       : []),
@@ -167,6 +238,7 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
     },
     { id: 'cast', title: 'Characters and places', priority: 5, forms: castForms(facts.cast, most), entryIds: facts.cast.map((c) => c.id) },
     ...(extra.more ?? []),
+    ...directionBlock(own),
     { id: 'ask', title: 'What to suggest', priority: 0, forms: [ask] }
   ]
   const fitted = fitBriefing(
@@ -185,7 +257,7 @@ export function startStageJob(deps: JobDeps, input: OutlineStageRequest, extra: 
     messages: messagesOf(system, fitted),
     reply,
     temperature: OUTLINE_TEMPERATURE,
-    direction: directionOf(level, title),
+    direction: directionOf(level, title, own),
     blocks: fitted.blocks,
     entries: sentEntries(fitted.blocks, [...facts.cast, ...facts.threads]),
     emit: deps.emit,

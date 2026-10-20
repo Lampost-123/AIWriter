@@ -16,6 +16,11 @@ export interface DraftStep {
   step: DraftStepKind
   /** Look-ups: how many things are being looked up. */
   count?: number
+  /**
+   * Look-ups: what is being looked up, by the look-up's name (state_of, who_knows, what_happened…), so the window can say
+   * it in plain words ("Planning the scene: looking up where everyone is…", the Plan hub's fold-in, 2026-10-20).
+   */
+  about?: string[]
 }
 
 /** A scene whose words, as they are now, the memory model turned down (main keeper/refusals.ts). */

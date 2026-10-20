@@ -34,6 +34,9 @@
 //          scenes    The chapter "Suggest the scenes of the chapter “…”" names gets as many scenes as its place in the
 //                    chapter list says: "Rain on the Narrows" 2, "The Ferryman's Price" 3, "Lanterns at Low Tide" 4, and
 //                    so on round (no fixed count); titles from its place ("Arrival at the docks"...), Whens on its day.
+//                    The Plan hub's "Suggest exactly N scenes of the chapter “…”" gives exactly N.
+// update   The Plan hub's "Update the plan": one card for each "Scene N of M" given, its title kept, "When: Day 4,
+//          morning", a summary "Put right to follow what was written: …" and three beats.
 //          scene     One card: "### Scene: The visitor at the gate", a When, a summary, the first character listed as
 //                    point of view and the first place as location, and four beats.
 // ideas   Three directions, "## 1. The door left open", "## 2. A debt called in", "## 3. The
@@ -379,8 +382,28 @@ function chapterPlanReply(user) {
   ].join('\n')
 }
 
+/**
+ * The Plan hub's "Update the plan" ("[AIWRITE-OUTLINE v1] update"): one card for each "Scene N of M" given, in order,
+ * keeping its title, set on Day 4 (after the sample world's last written day), its summary saying it was put right.
+ */
+function updateReply(user) {
+  const titles = [...user.matchAll(/Scene \d+ of \d+: [^\n]*\n### Scene: ([^\n]+)/g)].map((m) => m[1].trim())
+  return titles
+    .map((title) =>
+      [
+        `### Scene: ${title}`,
+        'When: Day 4, morning',
+        `Summary: Put right to follow what was written: ${title} now comes after it.`,
+        '- They pick up where the last scene left off',
+        '- What changed is said plainly',
+        '- It leads on to what comes next'
+      ].join('\n')
+    )
+    .join('\n\n')
+}
+
 /** Each act's share of the chapters, the first acts taking any left over. */
-const shares = (acts, chapters) => Array.from({ length: acts }, (_, i) => Math.floor(chapters / acts) + (i < chapters % acts ? 1 : 0))
+const shares =(acts, chapters) => Array.from({ length: acts }, (_, i) => Math.floor(chapters / acts) + (i < chapters % acts ? 1 : 0))
 
 /** A stage of the outline in stages (see "stage" above). */
 function stageReply(level, system, user) {
@@ -412,10 +435,12 @@ function stageReply(level, system, user) {
     return premise + tidy(carded)
   }
   if (level === 'scenes') {
-    const title = user.match(/Suggest the scenes of the chapter “([^”]+)”/)?.[1] ?? ''
+    const title = user.match(/Suggest (?:the scenes|exactly \d+ scenes?) of the chapter “([^”]+)”/)?.[1] ?? ''
     const k = Math.max(0, CHAPTERS.findIndex((t) => title.startsWith(t)))
     const place = PLACES[k % PLACES.length]
-    const count = 2 + (k % 3)
+    // The Plan hub: "Suggest exactly 1 scene" (the next scene) gives that many; else as many as its place says.
+    const exactly = Number(user.match(/Suggest exactly (\d+) scenes?/)?.[1] ?? 0)
+    const count = exactly || 2 + (k % 3)
     const items = Array.from({ length: count }, (_, s) => {
       const [opener, summary, beats] = SCENES[s % SCENES.length]
       return { kind: 'scene', title: `${opener} ${place}`, when: `Day ${k + 1}, ${TIMES[s % TIMES.length]}`, summary: summary.replace('{place}', place), beats }
@@ -450,6 +475,7 @@ export function outlineReply(system, messages, _model) {
   if (job === 'fill') return fillReply(user)
   if (job === 'plan') return chapterPlanReply(user)
   if (job === 'stage') return stageReply(system.slice(MARKER.length).trim().split(/\s/)[1], system, user)
+  if (job === 'update') return updateReply(user)
   if (job === 'outline') {
     const items = withCards(plan(sizeOf(user), firstThread(user), user), user)
     return user.includes('[[fake: messy]]') ? messy(items) : tidy(items)

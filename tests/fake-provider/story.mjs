@@ -7,8 +7,9 @@
 //   codex redo   the same item, its "about" starting "Redone:" (with the note when there is one).
 //   outline      "Premise: …" when asked for one, then 2 chapters of 2 scenes (an act around them when acts are asked
 //                for), naming Ada Lorne and Gull Harbour; the first scene sets up "Who wrecks the ships", the last pays it off.
-//   plan chat    a question is answered with no plan; anything else renames the plan's first chapter "The Betrayal",
-//                sent as a change by its tag ("=== Changes ===").
+//   plan chat    a question is answered with no plan; a message naming one of the plan's scenes changes that scene (its
+//                summary becomes the message, "When: Day 4, dusk"); anything else renames the plan's first chapter "The
+//                Betrayal", sent as a change by its tag ("=== Changes ===").
 //   plan redo    the act, chapter or scene asked for, titled "A Different Night" (a chapter or act with one scene).
 //   recipe chat  a question is answered with no parts; anything else changes the Tone to "Dark and tense".
 //   recipe redo  "A new take on this part."
@@ -109,6 +110,22 @@ export function storyReply(system, messages) {
   if (system.includes(`${MARKER} outline`)) return outline(first, /new acts?\b/.test(first), system.includes('Premise: <'))
   if (system.includes(`${MARKER} plan chat`)) {
     if (asking) return 'The second chapter is where Ada catches the wrecker.'
+    // A message naming one of the scenes changes that scene: what happens in it becomes the message (the Plan hub).
+    const scene = [...givenPlan(first).matchAll(/### Scene: ([^\n]*?) (\[#[acs0-9]+\])/g)].find((m) => last.toLowerCase().includes(m[1].trim().toLowerCase()))
+    if (scene) {
+      const [, title, sceneTag] = scene
+      return [
+        `I changed “${title.trim()}” as you asked.`,
+        '=== Changes ===',
+        `Touches: ${sceneTag.slice(1, -1)}`,
+        `### Scene: ${title.trim()} ${sceneTag}`,
+        'When: Day 4, dusk',
+        `Summary: ${last.trim().replace(/\s+/g, ' ')}`,
+        '- They cross in the fog',
+        '- Someone watches from the far bank',
+        '- It ends on what waits there'
+      ].join('\n')
+    }
     const tag = /## Chapter: [^\n]*?(\[#[acs0-9]+\])/.exec(givenPlan(first))?.[1]
     if (tag) return `I made the first chapter a betrayal.\n=== Changes ===\nTouches: ${tag.slice(1, -1)}\n## Chapter: The Betrayal ${tag}`
     const plan = givenPlan(first) || outline('', false, false)
