@@ -315,7 +315,12 @@ export function targetOf(verb: string, after: string): ClaimTarget | null {
   if (/^(renamed|retitled)$/.test(v) || /\b(title|titles|retitled)\b/.test(clause)) return 'title'
   if (/^(added|created)$/.test(v) && /\b(new|an? (character|place|group|item|entry|lore|event|chapter|scene))\b/.test(clause)) return 'new'
   if (/\b(entry|entries|memory|codex|field|fields|profile|aliases?|description|eye colou?r)\b|['’]s (eyes|hair|age|eye|colour|color|role|pronouns)\b/.test(clause)) return 'entry'
-  if (/\bchapter(?:['’]s)?\s+(?:card|plan|goal|length|target|outline|summary)s?\b|\b(?:length|word) target\b/.test(clause)) return 'chapterCard'
+  // A chapter's own card, plan, goal or length ("chapter 3's goal", "the length of Ch 3"), never a scene in it.
+  if (
+    /\b(?:chapter|ch)\.?(?:\s*\d+)?(?:['’]s)?\s+(?:card|plan|goal|length|target|outline|summary)s?\b|\b(?:length|word) target\b/.test(clause) ||
+    /\b(?:card|plan|goal|length|target|word count)s? (?:of|for) (?:the )?(?:chapter|ch)\b(?!\.?\s*\d+\s*,?\s*(?:scene|sc)\b)/.test(clause)
+  )
+    return 'chapterCard'
   if (/\b(?:plot )?threads?\b/.test(clause)) return 'thread'
   if (/\b(cards?|goal|mood|pov|point of view|conflict|outcome)\b/.test(clause)) return 'card'
   if (/\b(beats?|beat list)\b/.test(clause)) return 'beats'

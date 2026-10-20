@@ -181,3 +181,26 @@ describe('ACTFIRST: an edit reads, then proposes; ::options only for ideas, ::ne
     expect(contractReminder('edit')).toMatch(/Ideas go in ::options/)
   })
 })
+
+describe('what the chat can change of a chapter (chat-truth R5)', () => {
+  afterEach(() => {
+    delete process.env.AIWRITE_EXP_CHAT_STORYTOOLS
+  })
+  it('says a chapter plan is its goal, length and card, which it can change; what it can’t, and where that is done', () => {
+    for (const contract of ['on', 'off']) {
+      process.env.AIWRITE_EXP_CHAT_CONTRACT = contract
+      const text = askInstructions(style)
+      expect(text, contract).toMatch(/"chapter plan" is the chapter's goal, its length and its chapter card: you can change those/)
+      expect(text, contract).toMatch(/can't move, reorder or delete scenes/)
+      expect(text, contract).toMatch(/I can't do that from here/)
+      expect(text, contract).toMatch(/dragging them in the binder or on the Plan hub/)
+      expect(text, contract).toMatch(/Write the chapter's own plan .* on its plan page before it writes/)
+    }
+  })
+  it('with the story tools off, it still says what it can’t do, but offers no chapter plan changes', () => {
+    process.env.AIWRITE_EXP_CHAT_STORYTOOLS = 'off'
+    const text = askInstructions(style)
+    expect(text).not.toMatch(/you can change those/)
+    expect(text).toMatch(/I can't do that from here/)
+  })
+})

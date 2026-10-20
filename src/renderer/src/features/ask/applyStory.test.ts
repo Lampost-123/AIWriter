@@ -18,6 +18,8 @@ const main = vi.hoisted(() => ({
   issue: { id: 'i1', sceneId: 'sc1', status: 'open', quote: 'carried the lantern', fix: 'carried a torch' } as Record<string, unknown>,
   entry: { id: 'e1', name: 'Ilse', summary: 'Keeps the tally.', description: '', fields: {} as Record<string, string> },
   chapterCard: null as unknown as ChapterCard,
+  goal: 'Get to the ford.',
+  outlineBumps: 0,
   cards: new Map<string, SceneCard>(),
   shown: [] as unknown[],
   app: {
@@ -25,7 +27,9 @@ const main = vi.hoisted(() => ({
     sceneId: 'sc1' as string | null,
     storyId: 's1' as string | null,
     selectScene: (_id: string) => undefined,
-    bumpOutline: () => undefined,
+    bumpOutline: () => {
+      main.outlineBumps++
+    },
     bumpEntries: () => undefined,
     bumpBriefing: () => undefined,
     bumpMemory: () => undefined
@@ -60,6 +64,12 @@ vi.mock('@/lib/api', () => ({
       if (patch.summary !== undefined) main.entry.summary = patch.summary
     },
     getChapterCard: async () => ({ ...main.chapterCard }),
+    getOutline: async () => ({ chapters: [{ id: 'ch1', title: 'Low Water', goal: main.goal }], scenes: [] }),
+    updateChapter: async (id: string, patch: { goal?: string }) => {
+      main.calls.push(`goal ${id} ${patch.goal}`)
+      if (patch.goal !== undefined) main.goal = patch.goal
+      return { id, title: 'Low Water', goal: main.goal }
+    },
     updateChapterCard: async (id: string, card: ChapterCard) => {
       main.calls.push(`chapter ${id} ${card.mood}`)
       main.chapterCard = card
@@ -139,6 +149,8 @@ beforeEach(() => {
   main.issue = { id: 'i1', sceneId: 'sc1', status: 'open', quote: 'carried the lantern', fix: 'carried a torch' }
   main.entry.summary = 'Keeps the tally.'
   main.chapterCard = { ...emptyChapterCard(), mood: 'Grey' }
+  main.goal = 'Get to the ford.'
+  main.outlineBumps = 0
   main.cards.clear()
   setEditorBridge(null)
 })
@@ -199,6 +211,54 @@ describe('a chapter card change', () => {
     await undoChanges(undos)
     expect(main.calls).toEqual(['chapter ch1 Tense', 'restore ch1 Grey 1'])
     expect(main.shown).toEqual(['Tense', 'Grey'])
+  })
+
+  const plan = (o: Record<string, unknown> = {}) =>
+    proposal({
+      kind: 'chapterCard',
+      chapterId: 'ch1',
+      chapterLabel: 'Ch 1',
+      patch: { totalWords: 4000 },
+      goal: 'Reach the ford before the tide.',
+      before: { totalWords: null, goal: 'Get to the ford.' },
+      lines: [],
+      scenes: 0,
+      ...o
+    })
+
+  it('sets the chapter’s goal and its length; the Plan hub re-reads both; Undo puts both back (R5)', async () => {
+    const { done, undos } = await applyAndKeep('g1', [plan()], { storyId: 's1' })
+    expect(done).toBe(1)
+    expect(main.goal).toBe('Reach the ford before the tide.')
+    expect(main.chapterCard.totalWords).toBe(4000)
+    expect(main.chapterCard.mood).toBe('Grey')
+    // The goal's page reads the outline; the length's re-reads the card (notifyChapterCard).
+    expect(main.outlineBumps).toBe(1)
+    await undoChanges(undos)
+    expect(main.goal).toBe('Get to the ford.')
+    expect(main.chapterCard.totalWords).toBeUndefined()
+    expect(main.outlineBumps).toBe(2)
+    expect(main.calls).toEqual(['chapter ch1 Grey', 'goal ch1 Reach the ford before the tide.', 'restore ch1 Grey 1', 'goal ch1 Get to the ford.'])
+  })
+
+  it('a goal alone leaves the card alone', async () => {
+    const { undos } = await applyAndKeep('g1', [plan({ patch: {}, before: { goal: 'Get to the ford.' } })], { storyId: 's1' })
+    expect(main.calls).toEqual(['goal ch1 Reach the ford before the tide.'])
+    await undoChanges(undos)
+    expect(main.calls).toEqual(['goal ch1 Reach the ford before the tide.', 'goal ch1 Get to the ford.'])
+  })
+
+  it('a goal or length changed since: turned down with what it says now, then applied on a second Apply', async () => {
+    main.goal = 'Find the ferryman.'
+    main.chapterCard = { ...main.chapterCard, totalWords: 3000 }
+    const first = await applyAndKeep('g1', [plan()], { storyId: 's1' })
+    expect(first.failedOf['1']).toBe(
+      'This chapter has changed since. Here’s what it says now: Length of the chapter: 3,000 words; What the chapter achieves: “Find the ferryman.” Apply again to use the chat’s change.'
+    )
+    expect(main.calls).toEqual([])
+    expect((await applyAndKeep('g1', [plan()], { storyId: 's1' })).done).toBe(1)
+    expect(main.goal).toBe('Reach the ford before the tide.')
+    expect(main.chapterCard.totalWords).toBe(4000)
   })
 })
 

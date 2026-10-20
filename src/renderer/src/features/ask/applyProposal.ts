@@ -175,8 +175,12 @@ const PART_LABELS: Record<string, string> = {
   when: CARRY_LABELS.when,
   mood: CARRY_LABELS.mood,
   targetWords: CARRY_LABELS.length,
-  notes: CARRY_LABELS.notes
+  notes: CARRY_LABELS.notes,
+  totalWords: 'Length of the chapter'
 }
+
+/** A chapter's parts by the Plan hub's names (its goal is "What the chapter achieves" there, not a scene's Goal). */
+const CHAPTER_LABELS: Record<string, string> = { ...PART_LABELS, goal: 'What the chapter achieves' }
 const ID_PARTS = new Set(['povId', 'presentIds', 'locationId'])
 
 /** A part's value as compared: words trimmed, blank list items left out, nothing and empty alike. */
@@ -191,6 +195,7 @@ function sameValue(a: unknown, b: unknown): boolean {
 /** A part as the card says it now, in words (an entry by its name). */
 async function partNow(key: string, v: unknown): Promise<string> {
   const quoted = (s: string): string => (s.trim() ? `“${s.trim()}”` : '(empty)')
+  if (key === 'totalWords') return typeof v === 'number' ? `${v.toLocaleString('en-GB')} words` : 'not set'
   if (ID_PARTS.has(key)) {
     const ids = (Array.isArray(v) ? v : v ? [v] : []).filter((x): x is ID => typeof x === 'string')
     const names = await Promise.all(ids.map((id) => api.getEntry(id).then((e) => e.name, () => '')))
@@ -207,7 +212,13 @@ const toldChanged = new Set<string>()
  * Whether a change's parts still read as when the chat proposed it. When they don't, Apply is turned down once with
  * what they say now; a second Apply on the same thing goes through (Adam has seen it). Null: go ahead.
  */
-async function changedSince(p: Proposal, what: 'card' | 'title', now: Record<string, unknown>, before: Record<string, unknown> | undefined): Promise<Refused | null> {
+async function changedSince(
+  p: Proposal,
+  what: 'card' | 'title' | 'chapter',
+  now: Record<string, unknown>,
+  before: Record<string, unknown> | undefined,
+  labels: Record<string, string> = PART_LABELS
+): Promise<Refused | null> {
   if (!before) return null
   const moved = Object.keys(before).filter((k) => !sameValue(now[k], before[k]))
   if (!moved.length) return null
@@ -217,7 +228,7 @@ async function changedSince(p: Proposal, what: 'card' | 'title', now: Record<str
   const said =
     what === 'title'
       ? await partNow('title', now.title)
-      : (await Promise.all(moved.map(async (k) => `${PART_LABELS[k] ?? k}: ${await partNow(k, now[k])}`))).join('; ')
+      : (await Promise.all(moved.map(async (k) => `${labels[k] ?? k}: ${await partNow(k, now[k])}`))).join('; ')
   // Words that end a sentence inside their quotes need no full stop after them.
   const sep = /[.!?]”$/.test(said) ? '' : '.'
   return { ok: false, why: `This ${what} has changed since. Here’s what it says now: ${said}${sep} Apply again to use the chat’s change.` }
@@ -439,20 +450,48 @@ export async function startIssueFix(
   return { ok: true, landed: pageLanded(p.sceneId, id) }
 }
 
-/** A chapter card's parts, written into the scenes that follow it; Undo puts the card and those scenes back. */
-async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>): Promise<Kept | Refused> {
+/** A chapter's goal as it is now (from its story's outline), or why it can't be read. */
+async function chapterGoalNow(chapterId: ID, place: ApplyPlace): Promise<string | Refused> {
+  const storyId = place.storyId !== undefined ? place.storyId : useApp.getState().storyId
+  const chapter = storyId ? (await api.getOutline(storyId)).chapters.find((c) => c.id === chapterId) : undefined
+  return chapter ? chapter.goal : { ok: false, why: 'That chapter isn’t in the story any more (it may have been deleted).' }
+}
+
+/**
+ * A chapter's plan (chat-truth R5): its card's parts, written into the scenes that follow it, its length (the card's
+ * totalWords) and its goal (on the chapter itself, as the Plan hub's goal box writes it). Undo puts the card, those
+ * scenes and the goal back. The Plan hub's chapter page re-reads the card on notifyChapterCard, the goal on bumpOutline.
+ */
+async function applyChapterCard(p: Extract<Proposal, { kind: 'chapterCard' }>, place: ApplyPlace): Promise<Kept | Refused> {
   const before = await api.getChapterCard(p.chapterId)
-  const changed = await changedSince(p, 'card', before as unknown as Record<string, unknown>, p.before)
+  const setsGoal = p.goal !== undefined
+  const goalNow = setsGoal || p.before?.goal !== undefined ? await chapterGoalNow(p.chapterId, place) : ''
+  if (typeof goalNow !== 'string') return goalNow
+  const now = { ...(before as unknown as Record<string, unknown>), goal: goalNow }
+  const plan = setsGoal || 'totalWords' in p.patch
+  const changed = await changedSince(p, plan ? 'chapter' : 'card', now, p.before, CHAPTER_LABELS)
   if (changed) return changed
-  const saved = await api.updateChapterCard(p.chapterId, { ...before, ...p.patch })
-  chapterCardShown(p.chapterId, saved.card)
-  notifyChapterCard()
+  const card = Object.keys(p.patch).length ? await api.updateChapterCard(p.chapterId, { ...before, ...p.patch }) : null
+  if (card) {
+    chapterCardShown(p.chapterId, card.card)
+    notifyChapterCard()
+  }
+  if (setsGoal) {
+    await api.updateChapter(p.chapterId, { goal: p.goal })
+    useApp.getState().bumpOutline()
+  }
   return {
     ok: true,
     undo: async () => {
-      await api.restoreChapterCard(p.chapterId, before, saved.updated)
-      chapterCardShown(p.chapterId, before)
-      notifyChapterCard()
+      if (card) {
+        await api.restoreChapterCard(p.chapterId, before, card.updated)
+        chapterCardShown(p.chapterId, before)
+        notifyChapterCard()
+      }
+      if (setsGoal) {
+        await api.updateChapter(p.chapterId, { goal: goalNow })
+        useApp.getState().bumpOutline()
+      }
     }
   }
 }
@@ -581,7 +620,7 @@ export async function applyProposal(p: Proposal, place: ApplyPlace = {}): Promis
         if (!p.fix) return { ok: false, why: 'This fix is started from its own card.' }
         return await applyIssueText(p, place)
       case 'chapterCard':
-        return await kept(applyChapterCard(p))
+        return await kept(applyChapterCard(p, place))
       case 'thread':
         return await kept(applyThread(p, place))
       case 'draft':

@@ -214,8 +214,13 @@ export type Proposal = { id: string; status: ProposalStatus; why: string } & (
       patch: Partial<ChapterCard>
       lines: PartChange[]
       scenes: number
-      /** The parts it changes as the card had them when proposed: Apply turns down a card changed since (once). */
-      before?: Partial<ChapterCard>
+      /**
+       * The chapter's goal as it would be (chat-truth R5): written to the chapter itself (updateChapter), not its card.
+       * The chapter's length is `patch.totalWords`. Left out: the goal stays.
+       */
+      goal?: string
+      /** The parts it changes (and the goal) as they were when proposed: Apply turns down a chapter changed since (once). */
+      before?: Partial<Omit<ChapterCard, 'totalWords'>> & { goal?: string; totalWords?: number | null }
     }
   | {
       /**

@@ -124,12 +124,28 @@ const OWN_LOOKUPS = "the style guide, and a scene's open issues."
 export const LOOKUPS_LINE =
   " For what is so now (who wears or carries what, where someone or something is, who knows what), the story index's look-ups answer at once, at no cost."
 
+/** Both intros' line on what the chat can't delete. */
+const CANT_DELETE = /^- You can't delete scenes, chapters or entries.*$/m
+
+/**
+ * What the chat can and can't change of a chapter (chat-truth R5): in Adam's words a "chapter plan" is the chapter's
+ * goal, length and card, which a chapter_card change sets (STORYTOOLS); moving scenes and Write the chapter's own
+ * plan are done elsewhere, and the chat says where.
+ */
+export function chapterLimitsLine(storyTools: boolean): string {
+  const can = storyTools
+    ? `The writer's "chapter plan" is the chapter's goal, its length and its chapter card: you can change those (propose a chapter_card change). `
+    : ''
+  return `- ${can}You can't move, reorder or delete scenes, and you can't change Write the chapter's own plan. Asked for those, say "I can't do that from here" and where it's done: scenes are moved by dragging them in the binder or on the Plan hub; Write the chapter's own plan is changed on its plan page before it writes.`
+}
+
 /**
  * An intro with the story index's look-ups said (LOOKUPS) and the list of instruction packs after it (PACKS): in the
  * instructions, which stay the same from question to question, so a provider's prompt cache keeps them.
  */
 const withAgentTools = (intro: string): string => {
-  const looked = chatExp('LOOKUPS') ? intro.replace(OWN_LOOKUPS, `${OWN_LOOKUPS}${LOOKUPS_LINE}`) : intro
+  const limits = intro.replace(CANT_DELETE, (line) => `${line}\n${chapterLimitsLine(chatExp('STORYTOOLS'))}`)
+  const looked = chatExp('LOOKUPS') ? limits.replace(OWN_LOOKUPS, `${OWN_LOOKUPS}${LOOKUPS_LINE}`) : limits
   return chatExp('PACKS') ? `${looked}\n\n${packList(ASK_PACKS)}` : looked
 }
 

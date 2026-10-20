@@ -119,6 +119,16 @@ describe('target matching: a claim must match what was proposed, not just its ki
     expect(claimsUnmade('I’ve rewritten the beats.', [{ kind: 'beats' }])).toBe(false)
     expect(claimsUnmade('I’ve rewritten the beats.', [{ kind: 'card' }])).toBe(false)
   })
+  it('a chapter’s goal or length is a chapter card change, backed only by one for that chapter (R5)', () => {
+    const t = (s: string) => changeClaims(s)[0]?.target ?? null
+    for (const s of ['I’ve updated chapter 3’s goal.', 'I’ve set the length of chapter 3 to 4,000 words.', 'I’ve changed the goal for Ch 3.', 'I’ve updated the chapter goal.'])
+      expect(t(s), s).toBe('chapterCard')
+    const ch = (n: number) => ({ kind: 'chapterCard', id: '1', chapterLabel: `Ch ${n} “Low Water”` }) as never
+    const scene = { kind: 'card', id: '1', sceneLabel: 'Ch 3, Sc 1' } as never
+    expect(unbackedClaims('I’ve updated chapter 3’s goal.', [ch(3)])).toHaveLength(0)
+    expect(unbackedClaims('I’ve updated chapter 3’s goal.', [ch(2)])).toHaveLength(1)
+    expect(unbackedClaims('I’ve updated chapter 3’s goal.', [scene])).toHaveLength(1)
+  })
 })
 
 describe('settleAnswer: nothing is ever said as made, backed or not', () => {

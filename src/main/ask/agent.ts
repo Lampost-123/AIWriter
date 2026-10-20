@@ -10,7 +10,7 @@ import type { AskIntent } from '@shared/askIntent'
 import { changeTarget, claimWords, settleAnswer, unbackedClaims, writerReason, type ChangeTarget, type Claim } from '@shared/askTruth'
 import { effectiveStyle } from '@shared/style'
 import { ENTRY_KINDS, FIELD_GROUPS, KIND_LABELS } from '@shared/fields'
-import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
+import type { ChatMessage, EntryKind, EntryState, ID, Outline, Pin, SceneCard, ToolCall, ToolSpec, WritingPrefs } from '@shared/types'
 import { argSummary, changesSummary, counted, shortReason, toolKind, type ToolActivity, type ToolKind, type ToolStatus } from '@shared/toolActivity'
 import type { SearchHit } from '@shared/contracts/search'
 import type { AppearanceHow } from '@shared/contracts/entryViews'
@@ -2730,7 +2730,10 @@ export class EditorAgent {
         if (beats) patch.beats = beats
         if (!Object.keys(patch).length) throw new Mistake('Give at least one part of the card to change.')
         const label = sceneLabelIn(this.outline(), id)
-        return [`Proposing a change to the card of ${label}`, this.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, why: text('why') })]
+        // As each part was, for Apply's changed-since check.
+        const card = repo.getScene(this.db, id).card
+        const before = Object.fromEntries(Object.keys(patch).map((k) => [k, card[k as keyof SceneCard]])) as CardProposal
+        return [`Proposing a change to the card of ${label}`, this.propose({ kind: 'card', sceneId: id, sceneLabel: label, patch, before, why: text('why') })]
       }
       case 'propose_entry_change': {
         const seen = this.entry(a.name)

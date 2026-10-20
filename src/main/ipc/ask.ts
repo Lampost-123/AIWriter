@@ -268,7 +268,7 @@ export const askHandlers: Handlers<keyof AskApi> = {
     ),
   setProposalStatus: (generationId, proposalId, status) => {
     const db = world.db()
-    if (status !== 'pending' && status !== 'applied' && status !== 'declined') throw new UserError('Something went wrong. Try again.')
+    if (status !== 'pending' && status !== 'started' && status !== 'applied' && status !== 'declined') throw new UserError('Something went wrong. Try again.')
     const all = proposalsOf(db, generationId)
     if (!all.some((p) => p.id === proposalId)) return
     saveProposals(

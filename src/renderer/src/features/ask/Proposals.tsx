@@ -72,7 +72,8 @@ function headOf(p: Proposal): string {
     case 'issueFix':
       return p.how === 'memory' && p.memory ? `Memory fix · ${p.memory.name}` : `Issue fix${p.sceneLabel ? ` · ${p.sceneLabel}` : ''}`
     case 'chapterCard':
-      return `Chapter card · ${p.chapterLabel}`
+      // A goal or a length is the chapter's plan, as Adam calls it (chat-truth R5).
+      return `${p.goal !== undefined || 'totalWords' in p.patch ? 'Chapter plan' : 'Chapter card'} · ${p.chapterLabel}`
     case 'thread':
       return `${p.threadId ? 'Plot thread' : 'New plot thread'} · ${p.name}`
     case 'replaceAll':
@@ -485,7 +486,11 @@ function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: stri
             <Change key={l.label} {...l} />
           ))}
           <div className="mt-0.5 text-[12px] text-muted" data-chapter-scenes={p.scenes}>
-            {p.scenes ? `Updates ${p.scenes} ${p.scenes === 1 ? 'scene that follows' : 'scenes that follow'} this chapter card` : 'No scene follows these parts yet'}
+            {p.scenes
+              ? `Updates ${p.scenes} ${p.scenes === 1 ? 'scene that follows' : 'scenes that follow'} this chapter card`
+              : Object.keys(p.patch).some((k) => k !== 'totalWords')
+                ? 'No scene follows these parts yet'
+                : 'Only the chapter changes: its scene cards stay as they are'}
           </div>
         </div>
       )
