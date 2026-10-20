@@ -18,6 +18,7 @@ import { changesNote, freshUpdate, keeperState, pointsToSettings, readingNote } 
 import { rereadProgress } from './reread'
 import { fillProgress } from './storyFill'
 import type { MemoryStatus } from '@shared/types'
+import { modelSuffix, useModelName } from '@/features/progress/useModelName'
 
 /** How long "Memory updated" stays (longer while the pointer or keyboard is on it). */
 const UPDATED_FOR = 30_000
@@ -54,6 +55,7 @@ const slotButton =
  * and the trouble, at its own width (nothing cut short).
  */
 export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.Element {
+  const memoryName = useModelName('memory')
   const status = useApp((s) => s.memoryStatus)
   const worldId = useApp((s) => s.world?.id ?? null)
   const navigate = useApp((s) => s.navigate)
@@ -150,7 +152,7 @@ export function KeeperStatus({ quiet = false }: { quiet?: boolean }): React.JSX.
         <button
           type="button"
           className={cn(slotButton, 'text-faint hover:text-muted')}
-          title={status.reading ? readingNote(status) : undefined}
+          title={status.reading ? `${readingNote(status)}${modelSuffix(memoryName)}` : undefined}
           onClick={openWhatChanged}
         >
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
@@ -225,6 +227,7 @@ function RefusedNote({ note, onSettings }: { note: NonNullable<MemoryStatus['ref
 
 /** "Fill in the whole story" (the story index): how far it has got, with Stop. */
 function FillNote({ progress, onMemory }: { progress: NonNullable<MemoryStatus['filling']>; onMemory: () => void }): React.JSX.Element {
+  const memoryName = useModelName('memory')
   const [open, setOpen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const stop = async (): Promise<void> => {
@@ -244,7 +247,7 @@ function FillNote({ progress, onMemory }: { progress: NonNullable<MemoryStatus['
     <P.Root open={open} onOpenChange={setOpen}>
       <P.Trigger
         className={cn(slotButton, 'text-faint hover:text-muted data-[state=open]:bg-surface-2')}
-        title="The memory is filling in the story. Click to see how far it has got, or stop it."
+        title={`The memory is filling in the story.${modelSuffix(memoryName)} Click to see how far it has got, or stop it.`}
         data-fill-note
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
@@ -278,6 +281,7 @@ function FillNote({ progress, onMemory }: { progress: NonNullable<MemoryStatus['
 
 /** A re-read Adam asked for (World Memory Overhaul B8): how far it has got, with Stop. */
 function RereadNote({ progress, onWhatChanged }: { progress: NonNullable<MemoryStatus['rereading']>; onWhatChanged: () => void }): React.JSX.Element {
+  const memoryName = useModelName('memory')
   const [open, setOpen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const stop = async (): Promise<void> => {
@@ -296,7 +300,7 @@ function RereadNote({ progress, onWhatChanged }: { progress: NonNullable<MemoryS
     <P.Root open={open} onOpenChange={setOpen}>
       <P.Trigger
         className={cn(slotButton, 'text-faint hover:text-muted data-[state=open]:bg-surface-2')}
-        title="The memory is reading again. Click to see how far it has got, or stop it."
+        title={`The memory is reading again.${modelSuffix(memoryName)} Click to see how far it has got, or stop it.`}
       >
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint animate-pulse" aria-hidden />
         <span className="truncate">{rereadProgress(progress)}</span>

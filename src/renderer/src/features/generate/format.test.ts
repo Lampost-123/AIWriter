@@ -53,6 +53,9 @@ describe('format', () => {
     // Since 0.6.35 the writer writes Balanced at 1.0: a Continue record, which keeps only its temperature, reads so.
     expect(creativityOf({ temperature: 1 })).toBe('Balanced')
     expect(creativityOf({ temperature: 0.85 })).toBe('Balanced')
+    // Adam's own Writing temperature is said as sent, never mistaken for a preset's (1.0 would read as Balanced).
+    expect(creativityOf({ temperature: 1, ownTemperature: true })).toBe('Temperature 1')
+    expect(creativityOf({ temperature: 1.5, creativity: 'steady', ownTemperature: true })).toBe('Steady')
   })
 
   it('estimates a draft cost only when prices are known', () => {

@@ -31,6 +31,7 @@ import {
   type Failure
 } from './errors'
 import { UserError } from '../util'
+import { MODEL_FALLBACKS } from '@shared/modelJobs'
 
 export type ModelJob = 'writer' | 'chat' | 'speech' | 'world' | 'check' | 'recipe' | 'chapter' | 'director'
 
@@ -64,16 +65,7 @@ export const MODEL_NAMES: Record<Job, string> = {
 }
 
 /** Where each job's model comes from while Adam hasn't picked one of its own, nearest first. */
-const FALLBACKS: Record<ModelJob, Job[]> = {
-  writer: ['writer'],
-  chat: ['chat', 'writer'],
-  speech: ['speech', 'memory', 'writer'],
-  world: ['world', 'builder', 'writer'],
-  check: ['check', 'memory', 'writer'],
-  recipe: ['recipe', 'memory', 'writer'],
-  chapter: ['chapter', 'chat', 'writer'],
-  director: ['director', 'memory', 'writer']
-}
+const FALLBACKS: Record<ModelJob, Job[]> = MODEL_FALLBACKS
 
 /** The job's model, or a plain-words UserError saying what to set up in Settings › Models. */
 export function jobModel(job: ModelJob, src: ModelSources): JobModel {

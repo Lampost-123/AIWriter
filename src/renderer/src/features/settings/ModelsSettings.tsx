@@ -25,6 +25,7 @@ import { AutomaticAiSettings } from './AutomaticAiSettings'
 import { useNewLook } from '@/features/look/look'
 import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
+import { WritingTemperature } from './WritingTemperature'
 
 export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
 
@@ -207,6 +208,7 @@ export function ModelsSettings(): React.JSX.Element {
       ) : null}
       </div>
       <DefaultCreativity />
+      <WritingTemperature providers={providers} />
       {/* Before writing and straight after: the plan, the scene's contract and brief, then the check of the new words. */}
       <AutomaticAiSettings />
       <PlanSettings />

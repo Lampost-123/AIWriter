@@ -175,6 +175,9 @@ test('Whole chapter with AI: Cancel at the plan changes nothing; once writing, i
     await status(win).getByRole('button').first().click()
     await win.getByTestId('chapter-writer-stop').click()
     await expect(win.getByText('Stopped writing Chapter 1. The words so far are kept; Undo puts the chapter back.')).toBeVisible({ timeout: 30_000 })
+    // The progress card, left open, says it stopped and what was kept; closed, the top bar's pill goes.
+    await expect(win.locator('[data-progress-ended="stopped"]')).toBeVisible()
+    await win.locator('[data-progress-card="chapter"]').press('Escape')
     await expect(status(win)).toBeHidden()
     expect((await invoke(win, 'getChapterWriterReport', chapterId))?.status).toBe('stopped')
   } finally {

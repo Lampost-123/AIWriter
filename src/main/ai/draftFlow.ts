@@ -7,6 +7,7 @@ import type { ContextPreview, DraftOptions, ID, ModelChoice, ThinkingLevel } fro
 import { UserError } from '../util'
 import * as world from '../world'
 import { getSettings, getWritingPrefs } from '../settings'
+import { cleanWritingTemperature } from '@shared/temperature'
 import * as providers from './providers'
 import type { ChatTarget } from './client'
 import {
@@ -149,6 +150,8 @@ export interface DraftBriefing {
   choice: ModelChoice
   target: ChatTarget & { id: ID }
   thinking: ThinkingLevel
+  /** Writing temperature (Settings › Models): Adam's own, for the draft's request; null or left out: Auto. */
+  writingTemperature?: number | null
   /** The version of each entry actually sent, for "What the AI saw". */
   entryVersions: Map<ID, string>
   /**
@@ -222,6 +225,7 @@ export async function draftBriefing(
     choice,
     target,
     thinking,
+    writingTemperature: cleanWritingTemperature(getSettings().writingTemperature),
     entryVersions: sentEntryVersions(made.input.memory, made.preview.blocks),
     contract: made.prepared.contract ?? null
   }

@@ -13,6 +13,7 @@ import { showIssues } from '@/features/issues/issuesStore'
 import { useCalmLine } from '@/features/waits/useDraftWait'
 import { keyboardDriven } from '@/features/look/motion'
 import { runCheck, useCheckPrefs, type CheckScope } from './runCheck'
+import { modelSuffix, useModelName } from '@/features/progress/useModelName'
 
 const item = 'flex flex-col rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-surface-2 data-[disabled]:opacity-45'
 
@@ -26,6 +27,9 @@ export function CheckButton(): React.JSX.Element | null {
   const craft = useCheckPrefs((s) => s.craft)
   const setCraft = useCheckPrefs((s) => s.setCraft)
   const words = useCalmLine(useRunWords(run, true))
+  // The model at work, named on the hover: the check model, or the writer model while the critic reads.
+  const checkModel = useModelName('check')
+  const criticModel = useModelName('writer')
   if (!hasWorld || !storyId) return null
   const busy = !!run || reading
   const busyWords = run ? words : 'The critic is reading…'
@@ -36,7 +40,7 @@ export function CheckButton(): React.JSX.Element | null {
       <M.Trigger
         data-check-button
         aria-label={busy ? `Check: ${busyWords}` : 'Check this scene, chapter or story'}
-        title={busy ? busyWords : 'Check this scene, chapter or story for slips and questions'}
+        title={busy ? `${busyWords}${modelSuffix(run ? checkModel : criticModel)}` : 'Check this scene, chapter or story for slips and questions'}
         className={cn(
           'flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium text-muted outline-none transition-colors duration-150 hover:bg-surface-2 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:bg-surface-2 data-[state=open]:text-fg',
           // The desk: the same paper button as Scene details beside it.

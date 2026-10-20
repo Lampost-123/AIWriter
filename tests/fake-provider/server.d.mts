@@ -20,6 +20,8 @@ export interface FakeProvider {
   port: number
   url: string
   lastRequest(): { body: Record<string, unknown> & { messages: { role: string; content: string }[] }; headers: Record<string, string | string[] | undefined> } | null
+  /** Every chat request's body, oldest first (the last 500). */
+  allRequests(): (Record<string, unknown> & { model: string; messages: { role: string; content: string }[] })[]
   requestCounts(): Record<string, number>
   reset(): void
   close(): Promise<void>

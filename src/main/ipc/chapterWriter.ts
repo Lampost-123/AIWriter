@@ -6,6 +6,7 @@ import type { ChapterPlanAnswer, ChapterWriterApi } from '@shared/contracts/chap
 import type { DraftOptions, ID } from '@shared/types'
 import { ALL_CHECKS } from '@shared/contracts/checks'
 import { AUTO_LENGTH, CREATIVITY_PRESETS, cardLength, writerTemperature } from '@shared/defaults'
+import { writingTemperatureFor } from '@shared/temperature'
 import * as world from '../world'
 import * as repo from '../db/repo'
 import * as providers from '../ai/providers'
@@ -27,6 +28,7 @@ import { newId, UserError } from '../util'
 import { coreHandlers } from './core'
 import { isStartingDraft } from './ai'
 import { ChapterRun, chapterScenes, ownTitle, type RunDeps } from '../chapterWriter/run'
+import { draftEvents } from '../chapterWriter/progress'
 import { activeRun, setActiveRun } from '../chapterWriter/active'
 import { loadBefore, loadReport, saveReport, titleToPutBack } from '../chapterWriter/store'
 import type { Page } from '../chapterWriter/page'
@@ -94,6 +96,7 @@ const priceOf = (choice: { promptPrice: number | null; completionPrice: number |
 /** What a scene's part of the chapter plan is called in the writer's briefing. */
 const PART_BLOCK = { id: 'chapter-plan', title: 'This scene’s part of the chapter plan (keep to it)' }
 
+
 function deps(runId: ID): RunDeps {
   const db = world.db()
   if (!watching) {
@@ -120,13 +123,16 @@ function deps(runId: ID): RunDeps {
       return contracts.get(sceneId) ?? null
     }
   }
-  // The targeted fixes write as the writer does: its model and Thinking, at its temperature (Generate's).
+  // The targeted fixes write as the writer does: its model and Thinking, at its temperature (Generate's, or Adam's own
+  // Writing temperature from Settings › Models, within what the model takes).
   const creativity = getSettings().creativity
   const preset = CREATIVITY_PRESETS[creativity] ?? CREATIVITY_PRESETS.balanced
+  const fixer = jobModel('writer', sources())
+  const fixTemp = writingTemperatureFor(writerTemperature(creativity), getSettings().writingTemperature, fixer.target, fixer.choice.modelId)
   return {
     db,
     agentModel: jobModel('chapter', sources()),
-    writer: { model: jobModel('writer', sources()), temperature: writerTemperature(creativity), topP: preset.top_p, minP: preset.min_p },
+    writer: { model: fixer, temperature: fixTemp.temperature, topP: preset.top_p, minP: preset.min_p },
     prefs: getWritingPrefs(),
     // The run's calls go quietly: it says how it goes itself (chapterWriter:progress).
     taskEmit: () => undefined,
@@ -218,10 +224,12 @@ function deps(runId: ID): RunDeps {
         provider: b.target,
         model: b.choice,
         thinking: b.thinking,
+        writingTemperature: b.writingTemperature,
         intensity: b.input.style.intensity,
         entryVersions: b.entryVersions,
-        // The run puts the words in the scene itself; the window hears it from chapterWriter:sceneChanged.
-        emit: () => undefined,
+        // The run puts the words in the scene itself; the window hears it from chapterWriter:sceneChanged. Its words so
+        // far and its retries go to the progress card.
+        emit: draftEvents(o),
         ...providerNotes(b.target.id)
       })
       const end = await withStop(o.signal, () => void stopDraft(started.generationId), () => started.done)
@@ -229,6 +237,8 @@ function deps(runId: ID): RunDeps {
       return { ...end, note: b.note ?? null }
     },
     catchUp: (sceneId, signal) => catchUpBeforeDraft(db, sceneId, CATCH_UP_MS, signal),
+    // About how long each draft is, for the progress card: as the estimate reckons it.
+    target: (sceneId) => sceneLengthFor(db, sceneId, getWritingPrefs()),
     save: (sceneId, page, label) => {
       const now = repo.getScene(db, sceneId)
       if ((now.text ?? '').trim()) currentHistory()?.take({ sceneId, kind: 'ai', label, doc: now.doc, text: now.text })

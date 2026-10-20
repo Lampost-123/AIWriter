@@ -382,6 +382,45 @@ describe('a flagged passage', () => {
 })
 
 describe('writing a whole chapter', () => {
+  it('says how it goes for the progress card: what it is doing, each scene with its words, its retries, and when writing began', { timeout: 30_000 }, async () => {
+    const { db, chapterId, s1, s2 } = world()
+    const progress: ChapterWriterProgress[] = []
+    const d = deps(db, { progress })
+    d.target = (id) => (id === s1 ? 1500 : null)
+    const draft = d.draft
+    d.draft = async (sceneId, o) => {
+      // The writer's words come in, and once a request is tried again.
+      o.onRetry?.('Fake is busy')
+      o.onRetry?.(null)
+      o.onWords?.(12)
+      return draft(sceneId, o)
+    }
+    const run = new ChapterRun(d, 'run-card', chapterId)
+    run.prepare()
+    const report = await run.run()
+    expect(report.status).toBe('done')
+    // Every event says what it is doing and lists the scenes; the plan first, with nothing written.
+    expect(progress.every((p) => !!p.doing && p.scenes?.length === 2 && typeof p.startedMs === 'number')).toBe(true)
+    expect(progress[0].doing).toBe('plan')
+    expect(progress[0].scenes?.map((s) => s.state)).toEqual(['waiting', 'waiting'])
+    expect(progress[0].scenes?.map((s) => s.target)).toEqual([1500, null])
+    expect(progress[0].writingMs).toBeNull()
+    // Writing Sc 1: it is being written, Sc 2 waits; its live words, then a retry said and cleared.
+    const first = progress.find((p) => p.doing === 'draft' && p.sceneId === s1)!
+    expect(first.scenes?.map((s) => s.state)).toEqual(['writing', 'waiting'])
+    expect(typeof first.writingMs).toBe('number')
+    expect(progress.some((p) => p.retrying === 'Fake is busy')).toBe(true)
+    // Writing Sc 2: Sc 1 is written, with its words counted.
+    const second = progress.find((p) => p.doing === 'draft' && p.sceneId === s2)!
+    expect(second.scenes?.[0]).toMatchObject({ state: 'written', words: 33 })
+    expect(second.scenes?.[1].state).toBe('writing')
+    // Then the checks of each scene and the critic, each said as itself.
+    expect(progress.some((p) => p.doing === 'check' && p.sceneId === s1)).toBe(true)
+    expect(progress.some((p) => p.doing === 'critic')).toBe(true)
+    const last = progress.at(-1)!
+    expect(last.scenes?.every((s) => s.state === 'written' && s.words > 0)).toBe(true)
+  })
+
   it('plans the chapter first, writes each scene to its part, checks it, fixes only what was flagged, and ends clean', { timeout: 30_000 }, async () => {
     const { db, storyId, chapterId, s1, s2 } = world()
     repo.updateStory(db, storyId, { style: { proseStyle: 'Spare and wry, with salt in it.', samplePassage: 'The estuary kept its own hours.' } })

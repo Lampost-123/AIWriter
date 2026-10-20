@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3'
 import type { AppEvents } from '@shared/api'
 import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, ID, ModelChoice, ThinkingLevel } from '@shared/types'
 import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
+import { writingTemperatureFor } from '@shared/temperature'
 import * as gens from '../db/generations'
 import { newId, now, UserError } from '../util'
 import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
@@ -123,6 +124,11 @@ export interface DraftRequest {
   /** How much the writer model is asked to think (Settings › Models). */
   thinking?: ThinkingLevel
   /**
+   * Writing temperature (Settings › Models): Adam's own temperature, sent in place of the creativity's (which still sets
+   * top_p and min_p). Null or left out: Auto.
+   */
+  writingTemperature?: number | null
+  /**
    * The content levels of the style guide in effect. Set above their second step, a draft the model refuses
    * (or its content filter cuts short) says some models won't write at that level, and to pick another.
    */
@@ -191,9 +197,12 @@ export function startDraftJob(req: DraftRequest): { generationId: ID; done: Prom
   const sent = startParams(req)
   // min_p is sent only to OpenRouter (ai/client.ts), so only then is it noted.
   const minP = req.provider.kind === 'openrouter' ? preset.min_p : null
+  // Writing temperature (Settings › Models): Adam's own, within what the model takes, in place of the creativity's.
+  const temp = writingTemperatureFor(writerTemperature(req.options.creativity), req.writingTemperature, req.provider, req.model.modelId)
   const params: GenerationParams = withSent(
     {
-      temperature: writerTemperature(req.options.creativity),
+      temperature: temp.temperature,
+      ...(temp.own ? { ownTemperature: true } : {}),
       top_p: preset.top_p,
       ...(minP != null ? { min_p: minP } : {}),
       max_tokens: reply.limit,
