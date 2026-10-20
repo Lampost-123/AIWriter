@@ -20,8 +20,10 @@ import type {
   SceneFillParts,
   SceneFillRequest
 } from '@shared/contracts/outline'
+import { CHAPTER_PLAN_SCENES } from '@shared/contracts/outline'
 import { emptySceneCard } from '@shared/defaults'
-import type { ChatMessage, EntryState, ID, SceneCard } from '@shared/types'
+import { chapterTarget } from '@shared/lengths'
+import type { ChatMessage, EntryState, ID, SceneCard, WritingPrefs } from '@shared/types'
 import { oneLine } from '@shared/text'
 import { sceneTail, storySoFarText } from '../ai/context'
 import { MODEL_NAMES } from '../ai/jobModel'
@@ -57,6 +59,18 @@ export const QUESTION_REPLY = 400
 export const FILL_REPLY = 1200
 /** Room for a chapter's goal and up to six scene cards. */
 export const CHAPTER_REPLY = 1800
+/** Room for each scene card past six, when Adam asks for more (about 250 tokens a card). */
+export const CHAPTER_REPLY_PER_SCENE = 250
+
+/** Room for a chapter's plan with this many scenes asked for (null: as many as it needs, up to six). */
+export const chapterReply = (scenes: number | null): number => (scenes && scenes > 6 ? CHAPTER_REPLY + (scenes - 6) * CHAPTER_REPLY_PER_SCENE : CHAPTER_REPLY)
+
+/** The number of scenes asked for, tidied: a whole number within CHAPTER_PLAN_SCENES, else null (as many as it needs). */
+export function planSceneCount(v: unknown): number | null {
+  if (v == null || v === '') return null
+  const n = Math.round(Number(v))
+  return Number.isFinite(n) && n >= CHAPTER_PLAN_SCENES.min && n <= CHAPTER_PLAN_SCENES.max ? n : null
+}
 export const QUESTION_TEMPERATURE = 0.7
 export const FILL_TEMPERATURE = 0.6
 export const CHAPTER_TEMPERATURE = 0.8
@@ -466,7 +480,31 @@ export async function fillSceneCard(deps: JobDeps, input: SceneFillRequest): Pro
   return { ...out, status: 'complete', fill }
 }
 
-export function chapterPlanSystem(): string {
+/** The rule line saying how many scenes to suggest. */
+function sceneCountRule(scenes: number | null): string {
+  const after = 'They come after the scenes the chapter already has, carry on from them and never repeat them.'
+  if (!scenes) return `- Suggest 2 to 6 scenes, as many as the chapter needs. ${after}`
+  return `- Suggest exactly ${scenes === 1 ? '1 scene' : `${scenes} scenes`}: the author asked for ${scenes === 1 ? 'one' : 'that many'}, no more and no fewer. ${after}`
+}
+
+/**
+ * What the request says about the chapter's size: how many scenes, and its length in words (the chapter card's target)
+ * with about how long each scene is (the target shared out evenly, as the scenes' Auto lengths share it: lengths.ts).
+ */
+export function chapterSizeAsk(o: { scenes: number | null; words: number | null; existing: number }): string {
+  const lines: string[] = []
+  if (o.scenes) lines.push(`Suggest exactly ${o.scenes === 1 ? '1 scene' : `${o.scenes} scenes`}.`)
+  if (o.words) {
+    const n = o.words.toLocaleString('en-GB')
+    if (o.scenes) {
+      const each = Math.max(50, Math.round(o.words / (o.existing + o.scenes) / 50) * 50)
+      lines.push(`The whole chapter is to be about ${n} words long, so each scene is about ${each.toLocaleString('en-GB')} words: plan what fills that.`)
+    } else lines.push(`The whole chapter is to be about ${n} words long: suggest as many scenes as that needs (a scene is usually 1,000 to 3,000 words).`)
+  }
+  return lines.join(' ')
+}
+
+export function chapterPlanSystem(scenes: number | null = null): string {
   return `${MARKER} plan chapter
 You help a novelist plan one chapter. From their answers to a short interview, the chapter as it is and the outline around it, you suggest the chapter's goal and the scenes it still needs. You plan; you never write the story itself.
 
@@ -486,7 +524,7 @@ Pays off: <the plot threads this scene resolves, by name, separated by semicolon
 
 Rules:
 - The author's answers come first: keep to them. Then what the chapter, the outline and the story so far say. Never contradict any of them.
-- Suggest 2 to 6 scenes, as many as the chapter needs. They come after the scenes the chapter already has, carry on from them and never repeat them.
+${sceneCountRule(scenes)}
 - Each scene has 3 to 6 beats, in order, each a short line.
 - Each scene has a When, carrying on from the scenes before ("Day 2, evening"). If the story's scenes give their time another way (a date or a year), use that way instead.
 ${CHAPTER_CARD_RULES}
@@ -497,21 +535,33 @@ ${CHAPTER_CARD_RULES}
 }
 
 /** Asks for the chapter's goal and scene cards; it streams as task events. Throws (plain words) only before it starts. */
-export function startChapterPlan(deps: JobDeps, input: ChapterPlanRequest): { generationId: ID } {
+export function startChapterPlan(
+  deps: JobDeps,
+  input: ChapterPlanRequest,
+  prefs: Pick<WritingPrefs, 'chapterLength'> = { chapterLength: null }
+): { generationId: ID } {
   const chapterId = String(input?.chapterId ?? '')
   const answers = cleanAnswers(input?.answers)
-  const system = chapterPlanSystem()
-  const ask = answers.length
-    ? 'Suggest the chapter’s goal and its scenes now, from the interview.'
-    : 'Suggest the chapter’s goal and its scenes now, from the chapter and the outline around it.'
+  // How many scenes and how long (Plan this chapter, 2026-10-20): the count asked for, the length from the chapter's card.
+  const scenes = planSceneCount(input?.scenes)
+  // The chapter's target: its card's, else the default in Settings › Writing (as its scenes' lengths go by: lengths.ts).
+  const words = chapterTarget(repo.getChapterCard(deps.db, chapterId), prefs)
+  const reply = chapterReply(scenes)
+  const system = chapterPlanSystem(scenes)
+  const size = chapterSizeAsk({ scenes, words, existing: repo.sceneIds(deps.db, chapterId).length })
+  const ask = `${
+    answers.length
+      ? 'Suggest the chapter’s goal and its scenes now, from the interview.'
+      : 'Suggest the chapter’s goal and its scenes now, from the chapter and the outline around it.'
+  }${size ? ` ${size}` : ''}`
   // Said before asking, in plain words, as the outline helper says it (2026-10-17).
-  checkReplyRoom(deps.model, CHAPTER_REPLY, 'A chapter’s plan is', 'Pick a model that writes longer answers in Settings › Models.')
+  checkReplyRoom(deps.model, reply, 'A chapter’s plan is', 'Pick a model that writes longer answers in Settings › Models.')
   const { drafts, lines } = chapterBlocks(deps.db, chapterId, answers, ask)
   const fitted = fitBriefing(
     drafts,
     system,
     deps.model,
-    CHAPTER_REPLY,
+    reply,
     `This chapter and the story around it are more than the ${MODEL_NAMES.chat} can read at once to plan it. Pick a model that can read more in Settings › Models.`
   )
   return startTask({
@@ -521,7 +571,7 @@ export function startChapterPlan(deps: JobDeps, input: ChapterPlanRequest): { ge
     sceneId: '',
     model: deps.model,
     messages: messagesOf(system, fitted),
-    reply: CHAPTER_REPLY,
+    reply,
     temperature: CHAPTER_TEMPERATURE,
     direction: answers.length ? 'Interview me: plan this chapter from my answers' : 'Plan this chapter',
     blocks: fitted.blocks,

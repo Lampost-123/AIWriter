@@ -2,13 +2,16 @@
 // features/outline/ChapterPlanner.tsx): the chapter's goal (saved to the chapter as Adam types), Interview me (a few short
 // questions about what the chapter and the plan around it don't say yet) or Just suggest scenes, then the chapter's
 // scene cards as suggestions in its own session (helperStore.suggestChapter), each kept into the chapter, changed or
-// discarded, with Undo. A goal the AI gives goes to the chapter only while it has none. Once scenes are kept, Write this
-// chapter is a click away.
+// discarded, with Undo. A goal the AI gives goes to the chapter only while it has none. How many scenes (Auto or a
+// number) and the chapter's length (Auto or a number of words, its chapter card's target, so Write this chapter and every
+// draft go by it) are set here too (2026-10-20). Once scenes are kept, Write this chapter is a click away.
 
 import { useEffect, useId, useMemo, useState } from 'react'
-import type { ID } from '@shared/types'
+import type { ChapterCard, ID } from '@shared/types'
+import { CHAPTER_PLAN_SCENES } from '@shared/contracts/outline'
+import { CHAPTER_TARGET_LIMITS, chapterShare } from '@shared/lengths'
 import { Check, MessageCircleQuestion, PenLine, Sparkles, Square, X } from '@/components/ui/icons'
-import { Button, Notice } from '@/components/ui'
+import { Button, Notice, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { ProblemNotice } from '@/features/builder/parts'
@@ -16,7 +19,20 @@ import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
 import { StoryBuildLine } from '@/features/worldBuilder/StoryBuildLine'
-import { chapterHelperKey, checkKept, dismissProblem, keepSuggestions, stopOutline, treeOf, useOutlineHelper } from '@/features/outline/helperStore'
+import {
+  chapterHelperKey,
+  chapterSceneCount,
+  checkKept,
+  dismissProblem,
+  keepSuggestions,
+  setChapterSceneCount,
+  stopOutline,
+  treeOf,
+  useOutlineHelper
+} from '@/features/outline/helperStore'
+import { WordTargetInput } from '@/features/inspector/WordTargetInput'
+import { usePrefs } from '@/features/style/prefsStore'
+import { announceChapterCard, chapterCardShown } from '@/features/chapterCard/chapterCardEvents'
 import { EarlierSuggestions } from '@/features/outline/EarlierSuggestions'
 import { PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from '@/features/outline/planInterviewStore'
@@ -116,6 +132,8 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
         />
       </div>
 
+      <ChapterSize storyId={storyId} chapter={chapter} />
+
       <PlanInterview target={target} />
 
       {running ? (
@@ -186,5 +204,102 @@ export function ChapterPlanPanel({ storyId, chapter }: { storyId: ID; chapter: L
       <StoryBuildLine storyId={storyId} />
       <EarlierSuggestions storyId={storyId} chapterId={chapter.id} className="mt-2 pt-3" />
     </section>
+  )
+}
+
+/** "Auto", or 1 to 12 scenes. */
+const COUNT_OPTIONS = [
+  { value: 'auto', label: 'Auto' },
+  ...Array.from({ length: CHAPTER_PLAN_SCENES.max - CHAPTER_PLAN_SCENES.min + 1 }, (_, i) => {
+    const n = CHAPTER_PLAN_SCENES.min + i
+    return { value: String(n), label: plural(n, 'scene') }
+  })
+]
+
+/**
+ * How many scenes to suggest (Auto: as many as the chapter needs) and the chapter's length in words (Auto: the default in
+ * Settings › Writing, else the AI picks). The length is the chapter card's target, saved as Adam types, so Write this
+ * chapter and every draft in it go by it: its scenes on Auto share it out.
+ */
+function ChapterSize({ storyId, chapter }: { storyId: ID; chapter: LineChapter }): React.JSX.Element {
+  const id = useId()
+  const worldId = useApp((s) => s.world?.id)
+  const count = useOutlineHelper((st) => chapterSceneCount(st.sessions[chapterHelperKey(worldId, storyId, chapter.id)]))
+  const running = useOutlineHelper((st) => st.sessions[chapterHelperKey(worldId, storyId, chapter.id)]?.run?.status === 'running')
+  const fallback = usePrefs((s) => s.prefs?.chapterLength ?? null)
+  // The chapter card's target; undefined until it is read.
+  const [words, setWords] = useState<number | null | undefined>(undefined)
+  const cardsRev = useApp((s) => s.chapterCardsRev)
+  useEffect(() => {
+    let live = true
+    api
+      .getChapterCard(chapter.id)
+      .then((c) => live && setWords(c.totalWords ?? null))
+      .catch(() => live && setWords(null))
+    return () => {
+      live = false
+    }
+  }, [chapter.id, cardsRev])
+  const autosave = useAutosave<number | null>(
+    async (n) => {
+      // The card as it is now, with only its target changed.
+      const before = await api.getChapterCard(chapter.id)
+      const next: ChapterCard = { ...before }
+      if (n == null) delete next.totalWords
+      else next.totalWords = n
+      const saved = await api.updateChapterCard(chapter.id, next)
+      chapterCardShown(chapter.id, saved.card)
+      announceChapterCard(chapter.id, before, saved)
+    },
+    { what: 'the chapter’s length' }
+  )
+  const target = words ?? fallback
+  const scenesAfter = chapter.scenes.length + (count ?? 0)
+  const each = target != null && count ? chapterShare(target, Array.from({ length: Math.max(0, scenesAfter - 1) }, () => null)) : null
+  const hint =
+    target == null
+      ? 'Auto: the AI picks how long each scene is.'
+      : each != null
+        ? `About ${(Math.round(each / 50) * 50).toLocaleString('en-GB')} words a scene${words == null ? ', from your default in Settings › Writing' : ''}.`
+        : words == null
+          ? `Auto: ${target.toLocaleString('en-GB')} words, your default in Settings › Writing.`
+          : 'Its scenes share this out, and Write this chapter goes by it.'
+  return (
+    <div className="build-panel-row" data-chapter-size>
+      <div className="build-field">
+        <label htmlFor={`${id}-count`} className="hub-label">
+          How many scenes
+        </label>
+        <Select
+          id={`${id}-count`}
+          value={count ? String(count) : 'auto'}
+          onChange={(v) => setChapterSceneCount(storyId, chapter.id, v && v !== 'auto' ? Number(v) : null)}
+          options={COUNT_OPTIONS}
+          className={running ? 'pointer-events-none w-[128px] opacity-60' : 'w-[128px]'}
+        />
+      </div>
+      <div className="build-field">
+        <div className="flex items-end justify-between gap-2">
+          <label htmlFor={`${id}-words`} className="hub-label">
+            Length of the chapter
+          </label>
+          <SaveNote status={autosave.status} error={autosave.error} />
+        </div>
+        <WordTargetInput
+          id={`${id}-words`}
+          value={words ?? null}
+          limits={CHAPTER_TARGET_LIMITS}
+          placeholder={fallback != null ? fallback.toLocaleString('en-GB') : 'Auto'}
+          describedBy={`${id}-size-hint`}
+          onChange={(n) => {
+            setWords(n)
+            autosave.schedule(n)
+          }}
+        />
+      </div>
+      <p id={`${id}-size-hint`} className="hub-go-s basis-full" data-size-hint>
+        {words === undefined ? ' ' : hint}
+      </p>
+    </div>
   )
 }

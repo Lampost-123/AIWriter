@@ -253,7 +253,16 @@ export interface ChapterPlanRequest {
   taskId: ID
   chapterId: ID
   answers: PlanAnswer[]
+  /**
+   * How many scenes to suggest (Plan this chapter's "How many scenes", 2026-10-20): exactly this many, within
+   * CHAPTER_PLAN_SCENES. Left out or null: as many as the chapter needs. The chapter's length is its card's target
+   * (ChapterCard.totalWords), read by the main process.
+   */
+  scenes?: number | null
 }
+
+/** How many scenes Plan this chapter may be asked for. */
+export const CHAPTER_PLAN_SCENES = { min: 1, max: 12 } as const
 
 export interface OutlineApi {
   // ----- Acts in the binder -----

@@ -82,7 +82,7 @@ for (const [name, env] of [
         await expect(area(win)).toHaveAttribute('data-plan-hub', 'writing')
         await shot(win, `${name}-${tag}-line`)
         const row = area(win).locator(`[data-chapter="${ch3}"]`).first()
-        if (!(await row.isVisible())) await area(win).locator('[data-row="planned"]').getByRole('button').click()
+        if (!(await row.isVisible())) await area(win).locator('[data-row="planned"]').getByRole('button', { name: /^(Pick up from here|Open the plan)$/ }).click()
         if (!(await area(win).locator(`[data-chapter-plan="${ch3}"]`).isVisible())) await row.locator(`[data-plan-chapter="${ch3}"]`).click()
         await expect(area(win).locator(`[data-chapter-plan="${ch3}"]`)).toBeVisible()
         await shot(win, `${name}-${tag}-plan-chapter`)

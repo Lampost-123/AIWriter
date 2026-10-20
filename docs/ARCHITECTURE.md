@@ -5062,6 +5062,26 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   each scene's draft, the memory's read, its plan before writing, its check and about one fix, and the critic once, at
   the writer's, memory's and check models' prices (`RunDeps.estimate`, sent with the review stage as
   `ChapterWriterProgress.estimate`). The fake provider answers the new parts (`tests/fake-provider/chapter.mjs`).
+- **From a plan to a written chapter** (Adam, 2026-10-20: "Start writing" did nothing he could see, there was no way to say
+  how many scenes or how long a chapter's plan is, and he could only write one scene at a time):
+  - *A batch all decided* (`LineSuggestions.tsx` `BatchHead`) offers **Write this chapter** (primary; "Write Ch N" when
+    the scenes kept span chapters) for the chapter of the first scene kept, opening its row's Write this chapter
+    (`openWriteChapter`, the view's `chapterId` with `open: 'write'`), and **Write the first scene** (`writeScene`: the
+    scene on the writing page, its draft started). "Start writing" only opened an empty page. A chapter with words already
+    gets no Write this chapter here (`hubLogic.chapterToWrite`): writing it whole would write its written scenes again.
+  - *The planned stretch's row* has **Write Ch N** for its first chapter with scenes (not while a chapter is being
+    written), and a planned chapter's own Write this chapter stands out (`.hub-row-btn.is-strong`).
+  - *Plan this chapter* has **How many scenes** (Auto, or 1 to 12: `CHAPTER_PLAN_SCENES`; the chapter session's
+    `size.scenes`, `helperStore.setChapterSceneCount`) and **Length of the chapter** (Auto, or words: the chapter card's
+    `totalWords`, saved as typed, so its scenes on Auto share it out and Write this chapter's drafts go by it;
+    `shared/lengths.ts`). The count reaches the request (`ChapterPlanRequest.scenes`; `interview.ts` `chapterPlanSystem`
+    "Suggest exactly N scenes", `chapterSizeAsk` with the length and about how long each scene is, from the card's target
+    or Settings › Writing's default; `chapterReply` gives room for more than six); a reply with more is cut to that many
+    (`HelperRun.most`, `treeOf`), so the extra are never shown or kept. Write this chapter's estimate counts each scene at
+    the length its draft will aim for (`gather.ts` `sceneLengthFor`).
+  - The chapter writer does not move on to the next chapter by itself: each chapter is written from its own row.
+  - Tests: `main/outline/interview.test.ts`, `outline/helperStore.test.ts`, `planHub/hubLogic.test.ts`
+    (`chapterToWrite`), `tests/e2e/chapterFlow.spec.ts` (pictures to `CHAPTERFLOW_SHOTS`).
 - **Tests**: `features/planHub/buildLogic.test.ts` (the statuses, the default section, the routes, the rows to open, the
   threads' order and Plan its payoff's words, the step, the estimate's words, Kept true, the review's heads),
   `main/chapterWriter/chapterWriter.test.ts` (the three parts and endings read, an old plan as before, Kept true, the

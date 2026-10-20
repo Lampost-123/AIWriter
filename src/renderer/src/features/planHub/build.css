@@ -280,6 +280,11 @@
 .hub-row-kids.is-panel {
   padding-left: 22px;
 }
+/* Write this chapter in a chapter's row: where the AI writes the whole chapter, so it stands out from the quiet tools. */
+.hub-row-btn.is-strong {
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 40%, transparent);
+}
 .hub-row-btn.is-on {
   color: var(--accent);
   background: var(--accent-soft);

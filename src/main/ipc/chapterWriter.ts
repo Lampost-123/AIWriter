@@ -15,7 +15,7 @@ import { jobModel } from '../ai/jobModel'
 import { contractNow, draftBriefing, providerNotes, writerModel } from '../ai/draftFlow'
 import { isDrafting, startDraftJob, stopDraft } from '../ai/drafts'
 import { stopTask } from '../ai/tasks'
-import { catchUpBeforeDraft } from '../ai/gather'
+import { catchUpBeforeDraft, sceneLengthFor } from '../ai/gather'
 import { currentKeeper } from '../keeper'
 import { currentHistory } from '../history'
 import { checkScene } from '../checks/run'
@@ -155,9 +155,10 @@ function deps(runId: ID): RunDeps {
           return null
         }
       })()
-      const cards = repo.sceneCards(db, sceneIds)
+      // Each scene's length as its draft will aim for it: its card's, else its share of the chapter's target (lengths.ts).
+      const prefs = getWritingPrefs()
       return chapterEstimate({
-        scenes: sceneIds.map((id) => ({ words: cardLength(cards.get(id)) ?? AUTO_LENGTH.typical })),
+        scenes: sceneIds.map((id) => ({ words: sceneLengthFor(db, id, prefs) ?? AUTO_LENGTH.typical })),
         writer: priceOf(writer.choice),
         memory: priceOf('error' in memory ? null : memory.choice),
         check: priceOf(check),

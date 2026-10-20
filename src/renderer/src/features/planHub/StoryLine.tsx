@@ -23,7 +23,8 @@ import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
 import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type LineChapter, type LineRow, type LineScene } from './hubLogic'
 import { writeStep } from './buildLogic'
 import { addScenesTo, fillCardsIn, openPanel, planChaptersIn, toggleChapter, toggleRow, type HubState } from './hubStore'
-import { BatchHead, LineSuggestions, shownNodes, WaitingRows } from './LineSuggestions'
+import { BatchHead, LineSuggestions, openWriteChapter, shownNodes, WaitingRows } from './LineSuggestions'
+import { Button } from '@/components/ui'
 import { ChapterPlanPanel } from './ChapterPlanPanel'
 import { WritePanel } from './WritePanel'
 import { SceneRow } from './SceneRow'
@@ -139,7 +140,8 @@ function ChapterTools({ storyId, chapter, hub }: { storyId: ID; chapter: LineCha
       {chapter.scenes.length ? (
         <button
           type="button"
-          className={cn('hub-row-btn', open === 'write' && 'is-on', progress && 'is-busy')}
+          // A planned chapter (no words yet) is where the AI writes the whole chapter: it stands out there.
+          className={cn('hub-row-btn', chapter.words === 0 && 'is-strong', open === 'write' && 'is-on', progress && 'is-busy')}
           aria-expanded={open === 'write'}
           onClick={() => toggle('write')}
           data-write-chapter-btn={chapter.id}
@@ -168,6 +170,7 @@ function ChapterPanelFor({ storyId, chapter, hub }: { storyId: ID; chapter: Line
 export function StoryLine(p: StoryLineProps): React.JSX.Element {
   const { storyId, rows, run, tree, hub, mode, emptyCards } = p
   const busy = runBusy(run)
+  const writing = useChapterWriter((s) => !!s.progress)
   // A batch with everything decided folds to its head: what it kept is in the rows, where it now is in the story.
   const nodes = run ? shownNodes(run, tree) : []
   const settled = !!run && !busy && nodes.length > 0 && totalOf(countNodes(nodes, run.decisions, 'open')) === 0
@@ -191,7 +194,7 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
 
   const batch = run ? (
     <li className="hub-line-batch" data-batch={run.place?.at ?? 'end'} data-settled={settled || undefined} key="batch">
-      <BatchHead storyId={storyId} session={p.session} run={run} tree={tree} starter={p.starter} backLabel={p.back} />
+      <BatchHead storyId={storyId} session={p.session} run={run} tree={tree} starter={p.starter} backLabel={p.back} outline={p.outline} />
       {settled ? null : nodes.length ? (
         <div role="region" aria-label="Suggestions">
           <LineSuggestions storyId={storyId} run={run} tree={tree} labels={p.labels} />
@@ -341,10 +344,24 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
       if (!chapters.length) continue
       const range =
         chapters.length === row.chapters.length ? row.range : chapters.length === 1 ? `Ch ${chapters[0].no}` : `Ch ${chapters[0].no} to Ch ${chapters[chapters.length - 1].no}`
+      // The next chapter planned with scenes: the AI can write it whole from here (its plan first, then every scene).
+      const nextUp = writing ? null : chapters.find((c) => c.scenes.length > 0)
       items.push(
         <li key={row.key} className="hub-row is-planned is-dashed" data-row="planned">
           <span className="hub-row-mark is-planned" aria-hidden />
           <span className="hub-row-words">{range} · planned, not written</span>
+          {nextUp ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<PenLine size={13} />}
+              onClick={() => openWriteChapter(storyId, nextUp.id)}
+              data-write-next-chapter={nextUp.id}
+              title={`Write ${chapterName(nextUp)} with AI: its plan first, for you to read, then every scene`}
+            >
+              Write Ch {nextUp.no}
+            </Button>
+          ) : null}
           <button
             type="button"
             className="hub-row-btn"

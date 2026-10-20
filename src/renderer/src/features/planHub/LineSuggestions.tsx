@@ -6,8 +6,8 @@
 // is doing or what came, Keep all, What the AI saw. Earlier batches show the same rows under "Earlier suggestions".
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Chapter, ID } from '@shared/types'
-import { Check, ChevronRight, Square } from '@/components/ui/icons'
+import type { Chapter, ID, Outline } from '@shared/types'
+import { Check, ChevronRight, PenLine, Square } from '@/components/ui/icons'
 import { Button, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
@@ -16,6 +16,8 @@ import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { FreshText } from '@/features/planning/FreshText'
 import { HubStatus } from './HubStatus'
 import { keepInLine } from './hubStore'
+import { chapterToWrite } from './hubLogic'
+import { writeScene } from './SceneRow'
 import { flyCard, landingOf, landingSoon } from '@/features/planning/fly'
 import { ProblemNotice } from '@/features/builder/parts'
 import {
@@ -279,7 +281,8 @@ export function BatchHead({
   run,
   tree,
   starter,
-  backLabel
+  backLabel,
+  outline
 }: {
   storyId: ID
   session: HelperSession
@@ -287,6 +290,8 @@ export function BatchHead({
   tree: TreeNode[]
   starter: Chapter | null
   backLabel: { view: View; label: string }
+  /** The story as it is now: which chapter the scenes kept are in, for Write this chapter. */
+  outline: Outline
 }): React.JSX.Element {
   const busy = runBusy(run)
   const nodes = shownNodes(run, tree)
@@ -300,6 +305,7 @@ export function BatchHead({
     : null
   const starterTitle = starter?.title.trim() || 'Chapter 1'
   const firstKept = ended ? firstKeptScene(run, nodes) : null
+  const write = firstKept ? chapterToWrite(outline, keptScenes(run, nodes)) : null
   return (
     <div className="hub-batch-head" data-batch-head>
       {busy ? (
@@ -338,10 +344,29 @@ export function BatchHead({
               Remove the empty “{starterTitle}”
             </Button>
           ) : null}
-          {/* All decided with a scene kept: no dead end, the first one is a click away. */}
+          {/* All decided with a scene kept: no dead end. The AI writes the whole chapter they are in (its plan first, then
+              every scene), or the first scene now, on the writing page (2026-10-20: "Start writing" only opened an empty page). */}
+          {!open && firstKept && write ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<PenLine size={13} />}
+              onClick={() => openWriteChapter(storyId, write.id)}
+              title={`Write the whole of Ch ${write.no} with AI: its plan first, for you to read, then every scene`}
+              data-write-kept-chapter={write.id}
+            >
+              {write.all ? 'Write this chapter' : `Write Ch ${write.no}`}
+            </Button>
+          ) : null}
           {!open && firstKept ? (
-            <Button size="sm" variant="primary" onClick={() => useApp.getState().selectScene(firstKept, storyId)} title="Open the first scene kept, to write it">
-              Start writing
+            <Button
+              size="sm"
+              variant={write ? 'secondary' : 'primary'}
+              onClick={() => writeScene(storyId, firstKept)}
+              title="Open the first scene kept on the writing page, and draft it from its card"
+              data-write-first-scene
+            >
+              Write the first scene
             </Button>
           ) : null}
           {open > 0 ? (
@@ -371,6 +396,26 @@ export function BatchHead({
       ) : null}
     </div>
   )
+}
+
+/** Every scene the batch kept, in its order. */
+function keptScenes(run: HelperRun, nodes: TreeNode[]): ID[] {
+  const out: ID[] = []
+  const walk = (list: TreeNode[]): void =>
+    list.forEach((n) => {
+      const d = run.decisions[n.key]
+      if (n.kind === 'scene' && d?.status === 'kept') out.push(d.id)
+      walk(n.children)
+    })
+  walk(nodes)
+  return out
+}
+
+/** Write this chapter, open in its row of the story line (the way back from Build with AI stays as it was). */
+export function openWriteChapter(storyId: ID, chapterId: ID): void {
+  const app = useApp.getState()
+  const back = app.view.kind === 'planHub' ? app.view.back : undefined
+  app.navigate({ kind: 'planHub', storyId, section: 'line', chapterId, open: 'write', ...(back ? { back } : {}) })
 }
 
 /** The first scene the batch kept, in its order (null for none). */

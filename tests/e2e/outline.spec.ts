@@ -9,7 +9,7 @@
 //     it; Undo takes them out again), then keeps all that's left. What he kept is in the binder under
 //     its acts, in order, each scene's card filled in. The first Keep takes the place of the empty
 //     Chapter 1 and Scene 1 the story was made with, and its Undo puts them back; What the AI saw and
-//     back; Start writing. A kept scene
+//     back; Write Ch 1 and Write the first scene offered. A kept scene
 //     deleted while the helper isn't showing waits for a decision again when it opens. Asked again, it
 //     carries on from what the story has.
 //  2. A suggestion can be stopped part way, and leaving the page doesn't lose it; what arrived can be
@@ -280,8 +280,15 @@ test('the outline helper suggests acts, chapters and scene cards from the premis
     await expect(batchHead(win)).toContainText('All decided · 8 kept')
     await expect(hub(win).locator('[data-planned-chapters]')).toContainText('Ch 1 · Rain on the Narrows')
 
-    // ----- Start writing: the first scene kept, its card filled in, offers no ideas -----
-    await batchHead(win).getByRole('button', { name: 'Start writing' }).click()
+    // ----- All decided: Write Ch 1 (the AI writes the chapter of the first scene kept whole, its plan first; the scenes kept
+    // span chapters, so it is named) or Write the first scene, its card filled in, which offers no ideas (2026-10-20:
+    // "Start writing" only opened the scene) -----
+    // (Both start the AI writing, which the rest of this walk-through doesn't want: tests/e2e/chapterFlow.spec.ts clicks
+    // them. Here the first scene is opened from the binder, on the writing page.)
+    await expect(batchHead(win).getByRole('button', { name: 'Write Ch 1', exact: true })).toBeVisible()
+    await expect(batchHead(win).getByRole('button', { name: 'Write the first scene' })).toBeVisible()
+    await openWrite(win)
+    await sceneRow(win, 'Arrival in the rain').click()
     await expect(sceneTitle(win, 'Arrival in the rain')).toBeVisible()
     await win.getByRole('tab', { name: 'Scene card' }).click()
     await expect(sceneCard(win).getByRole('textbox', { name: 'Beats', exact: true })).toHaveValue('Mara lands in the rain')

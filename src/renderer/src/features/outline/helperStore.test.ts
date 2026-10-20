@@ -19,7 +19,9 @@ const main = vi.hoisted(() => ({
   stages: [] as Record<string, unknown>[],
   /** Keeps make pages for new names (and so start the story's build). */
   newPages: false,
-  builds: 0
+  builds: 0,
+  /** The chapter plans asked for (Plan this chapter). */
+  chapterPlans: [] as Record<string, unknown>[]
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -41,6 +43,10 @@ vi.mock('@/lib/api', () => ({
     getOutline: async () => ({ acts: [], chapters: [...main.present].map((id) => ({ id })), scenes: [] }),
     outlineBlank: async () => true,
     stopTask: async () => undefined,
+    startChapterPlan: async (input: Record<string, unknown>) => {
+      main.chapterPlans.push(input)
+      return { generationId: `gc-${main.chapterPlans.length}` }
+    },
     startOutlineStage: async (input: Record<string, unknown>) => {
       main.stages.push(input)
       return { generationId: `gs-${main.stages.length}` }
@@ -89,6 +95,10 @@ import {
   saveEdit,
   settledRun,
   BUILD_NOTE,
+  chapterHelperKey,
+  chapterSceneCount,
+  setChapterSceneCount,
+  suggestChapter,
   suggestOutlineWith,
   treeOf,
   useOutlineHelper
@@ -144,6 +154,37 @@ beforeEach(() => {
   main.stages = []
   main.newPages = false
   main.builds = 0
+  main.chapterPlans = []
+})
+
+describe('Plan this chapter: how many scenes (2026-10-20)', () => {
+  const REPLY = ['Goal: Mara finds the sender.', '', '### Scene: One', '- a', '', '### Scene: Two', '- b', '', '### Scene: Three', '- c'].join('\n')
+  const chapterSession = () => useOutlineHelper.getState().sessions[chapterHelperKey('w', 's', 'c1')]
+  const plan = async (): Promise<void> => {
+    await suggestChapter('s', 'c1', 'The Letter', [])
+    const taskId = chapterSession()!.run!.taskId
+    main.listeners.get('task:done')!({ job: 'outline', taskId, text: REPLY, generationId: 'gc', status: 'complete', cutOff: false })
+  }
+
+  it('asks for the number picked, and shows and keeps no more than that when the AI gives more', async () => {
+    setChapterSceneCount('s', 'c1', 2)
+    expect(chapterSceneCount(chapterSession())).toBe(2)
+    await plan()
+    expect(main.chapterPlans[0]).toMatchObject({ chapterId: 'c1', scenes: 2 })
+    const run = chapterSession()!.run!
+    expect(treeOf(run)[0].children.map((n) => n.title)).toEqual(['One', 'Two'])
+    await keepSuggestions('s', 'all', 'c1')
+    expect(main.kept[0].filter((i) => i.kind === 'scene').map((i) => i.title)).toEqual(['One', 'Two'])
+  })
+
+  it('on Auto asks for as many as the chapter needs and shows them all', async () => {
+    setChapterSceneCount('s', 'c1', 3)
+    setChapterSceneCount('s', 'c1', null)
+    expect(chapterSceneCount(chapterSession())).toBeNull()
+    await plan()
+    expect(main.chapterPlans[0].scenes).toBeUndefined()
+    expect(treeOf(chapterSession()!.run!)[0].children).toHaveLength(3)
+  })
 })
 
 describe('Suggest again', () => {
