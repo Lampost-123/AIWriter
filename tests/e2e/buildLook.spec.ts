@@ -80,9 +80,10 @@ for (const [name, env] of [
         // Mid-story: the story line, with Plan this chapter open on Ch 3.
         await openArea(win, name === 'desk-dark')
         await expect(area(win)).toHaveAttribute('data-plan-hub', 'writing')
+        // (It opens at the tab last chosen for the story: the story line.)
+        await area(win).locator('[data-nav="line"]').click()
         await shot(win, `${name}-${tag}-line`)
         const row = area(win).locator(`[data-chapter="${ch3}"]`).first()
-        if (!(await row.isVisible())) await area(win).locator('[data-row="planned"]').getByRole('button', { name: /^(Pick up from here|Open the plan)$/ }).click()
         // Zoomed in: Ch 3's own page, then one of its scenes'.
         await row.locator(`[data-chapter-zoom="${ch3}"]`).click()
         await expect(area(win).locator(`[data-chapter-plan="${ch3}"]`)).toBeVisible()

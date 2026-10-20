@@ -105,11 +105,10 @@ test('a plan all decided: Write this chapter and Write the first scene do what t
 
     // ----- Plan this chapter: how many scenes and how long -----
     await openBuild(win)
-    const planned = line(win).locator('[data-row="planned"]')
-    // The next chapter planned with scenes can be written whole from the planned stretch's row.
-    await expect(planned.locator(`[data-write-next-chapter="${ch3}"]`)).toHaveText('Write Ch 3')
+    // The planned chapters are listed straight in the line (no row around them), each with its own one next step.
+    await expect(line(win).locator('[data-row="planned"]')).toHaveCount(0)
+    await expect(line(win).locator(`[data-planned-chapters] [data-chapter="${ch3}"]`)).toBeVisible()
     await shot(win, 'planned-row-write')
-    await planned.getByRole('button', { name: 'Pick up from here' }).click()
 
     // ----- Ch 3's own page: Add scenes, kept; the batch offers Write this chapter, open on the page at the start -----
     await line(win).locator(`[data-chapter-zoom="${ch3}"]`).click()

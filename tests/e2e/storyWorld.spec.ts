@@ -31,6 +31,7 @@ test('keeping an outline gives the story its cast and places before anything is 
     await binder(win).locator('[data-story-menu]').click()
     await win.getByRole('menuitem', { name: 'Build with AI' }).click()
     await expect(main(win).locator('[data-plan-hub]')).toBeVisible()
+    await main(win).locator('[data-plan-hub] [data-nav="line"]').click()
     await choose(win, 'Acts', '2 acts')
     await choose(win, 'Chapters', '3 chapters')
     await choose(win, 'Scenes in each chapter', '3 scenes in each')
