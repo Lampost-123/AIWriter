@@ -5519,7 +5519,8 @@ chat" and "The chat never claims a change it didn't make" above.
 - **Apply tells the truth** (`features/ask/applyProposal.ts`, `applyDraft.ts`). `ProposalStatus` has `'started'`: a
   draft or in-page fix shows Started until it lands, then Applied, or goes back to waiting with the reason; one that
   leaves the page before it is accepted (another scene or story opened; `changeAlive` in `edits/session.ts`) goes back
-  to waiting ("It went from the page before you accepted it…"); a started change saved when the app closed reads back
+  to waiting ("It went from the page before you accepted it…"), while one accepted or turned down just before the
+  scene changed reads as applied or turned down (`changeEnded`, the last 50); a started change saved when the app closed reads back
   as waiting. Undo puts back only the parts the chat changed, and only those still saying the chat's words ("Mood or
   tone was changed since, so Undo left it as it is"); a goal and length written together are put back together if the
   second write fails. An apply with no reason says "That change couldn't be made."
