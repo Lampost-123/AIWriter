@@ -5478,24 +5478,35 @@ Adam: in Ch 3, Sc 2 Mary was told to wear only a green jumper, and Ch 4 and 5 fo
 memory (`docs/STORY_MEMORY_PIPELINE.md`: what is kept, and what the writer sees) found these, each fixed and tested. No
 migration.
 
-- **Clothes put on scenes ago are still on** (`ai/mustStay.ts` `stageInScene`). A piece whose words were older than the
-  scene before was dropped even at the same moment or later the same day (since 0.6.35); now only a later day drops it,
-  and later the same day only what is still on carries, as before (`carriesPiece`).
+- **Clothes put on scenes ago, earlier the same day, are still on** (`ai/mustStay.ts` `stageInScene`). A piece whose
+  words were older than the scene before was dropped even at the same moment or later the same day (since 0.6.35). Now a
+  piece whose words are from a scene on the same story day is kept (`StageScope.today`, from `SceneCalendar.today`: the
+  scenes before in the story going back while the calendar says they are on the same day, stopping at one it can't tell:
+  `memory/storyCalendar.ts` `sceneCalendar`), and later the same day only what is still on carries (`carriesPiece`). The
+  stage carries pieces on whatever the day, so a hat from days before still never comes back; with cards whose When
+  can't be read as days, nothing changes from before.
 - **What someone wears from now on** (`keeper/prompts.ts`): a change that sets a field for good ("to wear only X from now
   on") gives its new value, as one that ends it does (5,979 characters, under the 6,000 its tests hold it to). The
-  clothing filters (`memory/looks.ts`) keep it: "nothing but X" (or "none but X") with words that it lasts, in the value
-  or the change's note ("from now on", "henceforth", "for good", "always"…), is X (`NOTHING_BUT`, `USUAL`; the keeper and
-  reading the memory both pass the note); "bare-headed" is no undress; "borrowed" and "lent" are no longer pieces worn
-  just for the moment. "Nothing but the silver locket" with no such words is still undressed for now.
+  clothing filters (`memory/looks.ts`) keep it: "nothing but X" (or "none but X") with words that it lasts in the value
+  or the change's note is X (`NOTHING_BUT`, `LASTING`: "from now on", "from then on", "henceforth", "for good" ending a
+  clause, never "for good luck"; not "always" or "ever", which turn up in a love scene's note); the keeper and reading
+  the memory both pass the note. Those words are then left out of the value kept (they say when, not what is worn).
+  "Bare-headed" is no undress, though a piece that is only a bare-word ("bare-chested") or "stripped to the waist" is
+  worn for the moment (`BARE_PIECE`, `MOMENT_PIECE`); "borrowed" and "lent" no longer are. "Nothing but the silver
+  locket" with no such words is still undressed for now.
 - **Told to the writer.** What must stay true says "Mary usually wears: … (since Ch 3, Sc 2)" for a Typical clothing the
   story changed (rank `usual`, after marks; the short form keeps it), while the stage tells nothing of what they have on;
   never for one set at the start or a passing undress. In a profile it is a fact to keep to, not a detail to show now and
   then (`ai/context.ts` `lastingLooks`). The planner and the continuity brief are told it still holds on a later day
   (`plan/plan.ts` `STAND_NOTE.later`, `plan/brief.ts` `BRIEF_ASK.keep`).
 - **Orders and bans said** are a "said" kind of their own, `rule` ("Ana’s order or rule to Mara …": `retrieval/said.ts`,
-  `shared/types.ts` `SaidKind`; read back by `db/memory.ts` through `isSaidKind`). They were thrown away before.
+  `shared/types.ts` `SaidKind`; read back by `db/memory.ts` through `isSaidKind`). They were thrown away before. What each
+  kind is called is said once, `SAID_KIND_WORDS` in `shared/knowWords.ts` (the memory's log, the entry page, the briefing).
 - **An older chapter's line** in the story so far also says what happened to people in it (the chapter record's changes,
-  half of `RECORD_FACTS`, now 4: `memory/snapshot.ts` `timelineFacts`), since its 60-word opening says only how it ended.
+  those that last first, half of `RECORD_FACTS`, now 4: `memory/snapshot.ts` `timelineFacts`; "Mara and Tobin: rivals"
+  for a tie), since its 60-word opening says only how it ended.
+- **A book written before this** keeps what the old reading left out: a scene is read again only when its words change.
+  "Re-read this scene" (the scene's menu in the binder) reads it with the new rules.
 - Test: `keeper/lastingLooks.test.ts` reads an order with the fake model and builds the briefing of a scene in the next
   chapter three days later.
 - Not done: a second event with the name of an earlier one (a second "The storm") still joins it
