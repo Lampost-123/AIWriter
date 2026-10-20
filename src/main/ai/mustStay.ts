@@ -56,6 +56,8 @@ export const MUST_SHORT = 6
 export const MUST_KEY = 5
 /** Its smallest form, for a model with very little room (it is never left out): the first few of those, said briefly. */
 export const MUST_SMALLEST = 3
+/** The most lines saying what someone here is to follow (an order or suggestion given: memory review, 2026-10-20). */
+export const MUST_RULES = 3
 /** The most "does not know" lines among them. */
 export const MUST_GAPS = 3
 /**
@@ -174,6 +176,7 @@ export interface MustInput {
  */
 const RANK = {
   dead: 0,
+  rule: 0.5,
   condition: 1,
   elapsed: 1.5,
   slip: 1.8,
@@ -207,7 +210,7 @@ export type MustKind = Kind
  * alive, someone learning or thinking what is kept from them, an injury forgotten, someone acting on the truth of what
  * they believe wrongly (fix 9), and time passing unnoticed.
  */
-const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'belief', 'elapsed']
+const KEY_KINDS: Kind[] = ['dead', 'gap', 'condition', 'rule', 'belief', 'elapsed']
 
 /** Fields whose current value is a fact to keep to when a change set it during the story (a haircut in Ch 5). */
 const FACT_FIELDS = (FIELD_GROUPS.character ?? []).filter((g) => g.id === 'basics' || g.id === 'looks').flatMap((g) => g.fields)
@@ -639,6 +642,27 @@ export function mustLines(o: MustInput): MustLine[] {
   // Carrying on with no one on the scene card: everyone the stage has in the scene.
   if (!people.length && o.reach === 'here') o.stand?.characters.forEach((c, i) => stageLines(c, i))
 
+  // What someone here is to follow (memory review, 2026-10-20): an order or suggestion given however long ago and not yet
+  // lifted, newest first, a key kind so it is never crowded out.
+  const ruled = o.facts
+    .filter((f) => f.rule && clean(f.fact))
+    .sort((a, b) => (b.at ?? -1) - (a.at ?? -1))
+  let rules = 0
+  for (const f of ruled) {
+    const r = f.rule
+    if (!r) continue
+    for (const id of r.bound) {
+      const who = people.findIndex((e) => e.id === id && living.has(id))
+      if (who < 0 || rules >= MUST_RULES) continue
+      const by = clean(r.byName) ? ` (given by ${clean(r.byName)})` : ''
+      add('rule', who, `${people[who].name} is to follow: ${clean(f.fact).replace(/\.$/, '')}${by}`, shortPlace(r.where, o.storyTitle), false, [id], {
+        words: f.fact,
+        who: [people[who].name]
+      })
+      rules++
+    }
+  }
+
   // What someone in the scene gave away, lost or got, however long ago (memory/items.ts): only how it is now, the items
   // the scene names first. "Wren: no longer has the brass compass (gave it to Mother Agate; since Ch 2, Sc 7)".
   const whoOf = new Map(people.map((e, i) => [e.id, i] as const).filter(([id]) => living.has(id)))
@@ -784,7 +808,9 @@ export function mustLines(o: MustInput): MustLine[] {
   // kind by kind. The short form keeps them too.
   const keyRank = (l: (typeof once)[number]): number => KEY_KINDS.findIndex((k) => RANK[k] === l.rank)
   const keyed = once.filter((l) => keyRank(l) >= 0).sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)
-  const key = KEY_KINDS.map((_, i) => keyed.find((l) => keyRank(l) === i)).filter((l): l is (typeof once)[number] => !!l)
+  const key = KEY_KINDS.map((_, i) => keyed.find((l) => keyRank(l) === i))
+    .filter((l): l is (typeof once)[number] => !!l)
+    .slice(0, MUST_KEY)
   for (const l of keyed) if (key.length < MUST_KEY && !key.includes(l)) key.push(l)
   if (o.smallest) key.splice(MUST_SMALLEST)
   key.sort((a, b) => keyRank(a) - keyRank(b) || a.who - b.who)

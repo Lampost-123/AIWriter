@@ -5502,6 +5502,19 @@ migration.
 - **Orders and bans said** are a "said" kind of their own, `rule` ("Ana’s order or rule to Mara …": `retrieval/said.ts`,
   `shared/types.ts` `SaidKind`; read back by `db/memory.ts` through `isSaidKind`). They were thrown away before. What each
   kind is called is said once, `SAID_KIND_WORDS` in `shared/knowWords.ts` (the memory's log, the entry page, the briefing).
+- **What someone is to follow.** A `rule` is any order, ban or suggestion someone must follow, spoken or told in the
+  narration; the reading asks for its fact to say who must do what and until when, its quote being the words that say it
+  (5,972 characters, shorter than before, so the smallest models still read paragraphs whole). Reading the memory (`memory/state.ts`) keeps who is bound by each on its fact, `FactState.rule`: those it was
+  said to that its fact names ("Mary must…", by name, other name, or a first name no other hearer has; not everyone in
+  the room who heard it), else all of them, the giver apart. It holds until a change of it ends ("end": "an order lifted
+  or over", so one "until morning" ends when the memory reads that morning; a count of scenes is no count of time),
+  though they may forget it (a fact no one knows any more stays while someone is bound). The scene's contract keeps to
+  it as well (`ai/contract.ts` `KEEP_ORDER`). What must stay true says "Mary is to follow: …
+  (given by Ana) (since Ch 3, Sc 2)" for those in the scene, a key kind (`rule`, `MUST_RULES` 3) in every form. The
+  keeper's request lists such facts first, saying who must follow them (`keeper/request.ts`), and "end" finds one for
+  someone bound who no longer knows it (`keeper/apply.ts` `endTarget`). Limits: those told must be there at the words
+  (one told by letter or over a telephone isn't bound), the giver must be a person, and nothing checks a draft against it
+  yet.
 - **An older chapter's line** in the story so far also says what happened to people in it (the chapter record's changes,
   those that last first, half of `RECORD_FACTS`, now 4: `memory/snapshot.ts` `timelineFacts`; "Mara and Tobin: rivals"
   for a tie), since its 60-word opening says only how it ended.

@@ -1098,6 +1098,24 @@ describe('what the scene before left, told only as far as it carries here (2026-
     expect(short).toContain('usually wears')
   })
 
+  it('says what someone here is to follow, an order or suggestion given however long ago, in every form', () => {
+    const m = mary('a grey coat')
+    const rule: FactState = {
+      factId: 'f-shoe',
+      fact: 'Mary must wear only one shoe until Dr Vale says "awake"',
+      knownBy: [m.id],
+      rule: { by: 'vale', byName: 'Dr Vale', bound: [m.id], where: 'The Lantern Inn, Ch 3, Sc 2' }
+    }
+    const line = 'Mary Dunn is to follow: Mary must wear only one shoe until Dr Vale says "awake" (given by Dr Vale) (since Ch 3, Sc 2)'
+    const at = (over: Partial<MustInput>): string => mustStayTrue(base({ stand: null, reach: 'later', people: [m], facts: [rule], storyTitle: 'The Lantern Inn', ...over })).join('\n')
+    expect(at({})).toContain(line)
+    expect(at({ short: true })).toContain(line)
+    expect(at({ smallest: true })).toContain('Mary Dunn is to follow')
+    // Never for someone not in the scene, nor once nobody is bound by it.
+    expect(at({ people: [entry('character', 'Ash Penrose')] })).not.toContain('to follow')
+    expect(at({ facts: [{ ...rule, rule: { ...rule.rule!, bound: [] } }] })).not.toContain('to follow')
+  })
+
   it('a Ch 4 scene days later is told the green jumper, in must stay true and as a fact in her profile', () => {
     const inp = after('Day 2, morning', 'Day 1, night')
     const m = mary()

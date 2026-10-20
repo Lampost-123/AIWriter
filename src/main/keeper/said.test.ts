@@ -56,7 +56,8 @@ const LINE = '“I swear I will come back for you before the snow,” Mara told 
 describe('what was said', () => {
   it('asks the memory model for promises, threats and secrets told, with the line itself', () => {
     expect(READING_SYSTEM).toContain('{"type": "said", "kind": "promise|threat|secret|rule"')
-    expect(READING_SYSTEM).toContain('the spoken line itself as the quote')
+    expect(READING_SYSTEM).toContain('the words saying it as the quote')
+    expect(READING_SYSTEM).toContain('"rule": an order or suggestion to follow, its fact saying who must do what, until when')
   })
 
   it('keeps one fact the speaker and each hearer know, with the exact words, and later scenes see it', async () => {

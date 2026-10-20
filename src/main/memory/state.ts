@@ -41,6 +41,8 @@ import type { Line, MemoryData, MemoryState, WorldShape } from './types'
 import { hostSpans, labeler } from './line'
 import { clothingAfter, passingLook, usualLook } from './looks'
 import { learnedHow } from './ledger'
+import { nameIn } from './items'
+import { soleFirstName } from '@shared/names'
 
 /** MemoryState, plus every entry that doesn't exist here, as of this point (for "not in the story yet" labels). */
 export interface MemoryStateAll extends MemoryState {
@@ -287,6 +289,11 @@ export function stateAt(
   }
   /** Facts some learning of which wasn't backed by who was there or by Adam (B5): no "does not know" for them. */
   const unbacked = new Set<ID>()
+  /**
+   * Orders and suggestions to follow ('rule' said; memory review, 2026-10-20), by fact: who gave it, who is bound by it,
+   * and where. Bound until the story ends it, though they may no longer remember it.
+   */
+  const rules = new Map<ID, { by: ID; bound: Set<ID>; where: string }>()
   /** Where the change being applied is, for since when (fix 9). */
   let learning: Pick<Learned, 'where' | 'sceneId'> = { where: '' }
   const learn = (
@@ -365,6 +372,8 @@ export function stateAt(
       }
       case 'knowledge':
         if (!c.payload.forgets) unlearn(c.entryId, c.payload.factId, !!c.payload.wrong)
+        // An order no longer true for one is lifted.
+        if (c.payload.said?.kind === 'rule') rules.delete(c.payload.factId)
         break
     }
   }
@@ -454,6 +463,11 @@ export function stateAt(
         break
       case 'knowledge': {
         const p = c.payload
+        if (p.said?.kind === 'rule' && !p.forgets && p.factId && e.id !== p.said.by) {
+          const r = rules.get(p.factId) ?? { by: p.said.by, bound: new Set<ID>(), where }
+          r.bound.add(e.id)
+          rules.set(p.factId, r)
+        }
         if (p.forgets) unlearn(e.id, p.factId, !!p.wrong)
         // Backed (B5): Adam's own, or the memory marked everyone who was there (something said always names who heard it).
         else
@@ -596,6 +610,26 @@ export function stateAt(
       const s = since.get(sinceKey(id, factId))
       if (s) b.since[id] = s
     }
+  }
+
+  // Each order still in force: on its fact, which stays though no one remembers it any more, until the memory ends it
+  // (its time up, or lifted: the reading is asked for both). Bound: those it was said to that its fact names ("Mary
+  // must…", by name, other name or a first name no one else here has; not everyone in the room who heard it), else all.
+  for (const [factId, r] of rules) {
+    const fact = factText.get(factId) ?? ''
+    const heard = [...r.bound].filter((id) => entries.has(id))
+    const heardNames = heard.map((id) => entries.get(id)?.name ?? '')
+    const named = heard.filter((id, i) => {
+      const e = entries.get(id)
+      if (!e) return false
+      const first = soleFirstName(e.name, heardNames.filter((_, j) => j !== i))
+      return [e.name, ...(e.aliases ?? []), first].some((n) => n.trim() && nameIn(fact, n))
+    })
+    const bound = named.length ? named : heard
+    if (!bound.length) continue
+    let f = facts.get(factId)
+    if (!f) facts.set(factId, (f = { factId, fact, knownBy: [], at: learnedAt.get(factId) ?? -1, backed: !unbacked.has(factId), since: {} }))
+    f.rule = { by: r.by, byName: entries.get(r.by)?.name ?? '', bound, where: r.where }
   }
 
   const threadStates: ThreadState[] = []

@@ -1441,6 +1441,12 @@ export interface FactState {
    * anything older.
    */
   since?: Record<ID, Learned>
+  /**
+   * An order or suggestion someone is to follow (a 'rule' said; memory review, 2026-10-20): who gave it, who is bound by
+   * it here (those it was said to, whether or not they still remember it, until the story ends it) and where it was given.
+   * Left out: not one.
+   */
+  rule?: { by: ID; byName: string; bound: ID[]; where: string }
 }
 
 /**

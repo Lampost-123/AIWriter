@@ -1779,7 +1779,7 @@ function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Cha
   const listed = /^K\d+$/.test(k) ? chunk.ids.known.get(k) : undefined
   const knownId =
     (listed && !chunk.ids.wrong.has(k) ? listed : undefined) ??
-    memory?.facts.find((f) => f.knownBy.includes(entry.id) && sameFact(f.fact, fact))?.factId
+    memory?.facts.find((f) => (f.knownBy.includes(entry.id) || f.rule?.bound.includes(entry.id)) && sameFact(f.fact, fact))?.factId
   // A belief they see through (the who-knows-what ledger, long story memory fix 9) ends the same way.
   const believedId =
     (listed && chunk.ids.wrong.has(k) ? listed : undefined) ??
@@ -1787,7 +1787,8 @@ function endTarget(run: Run, entry: Entry, fact: string, chunk: ChunkReply): Cha
   const holds = (id: ID, wrong: boolean): boolean =>
     wrong
       ? !!memory?.beliefs?.some((b) => b.factId === id && b.believedBy.includes(entry.id))
-      : !!memory?.facts.some((f) => f.factId === id && f.knownBy.includes(entry.id))
+      : // An order they are to follow ends though they no longer remember it (memory review, 2026-10-20).
+        !!memory?.facts.some((f) => f.factId === id && (f.knownBy.includes(entry.id) || f.rule?.bound.includes(entry.id)))
   const own = mem.changesForEntry(run.db, entry.id).filter((c) => c.entryId === entry.id && c.sceneId !== run.scene.sceneId)
   for (const [id, wrong] of [
     [knownId, false],
