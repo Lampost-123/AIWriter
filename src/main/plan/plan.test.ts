@@ -25,6 +25,7 @@ import {
   KEEP_PLAN_PROMPTS,
   latestSaysOtherwise,
   LOOKUP_RULE,
+  MOST_NAMED,
   keepsRoom,
   makePlan,
   PLAN_GO,
@@ -792,10 +793,36 @@ describe('what the planner reads', () => {
     expect(m.contract).toBeUndefined()
   })
 
+  it('names at most MOST_NAMED.others entries not in the briefing: those just named first, events last (2026-10-20)', () => {
+    const base = draftInput()
+    const events = Array.from({ length: 30 }, (_, i) => entry('event', `Aa event ${String(i + 1).padStart(2, '0')}`))
+    const places = Array.from({ length: 30 }, (_, i) => entry('place', `Place ${String(i + 1).padStart(2, '0')}`))
+    const barn = entry('place', 'Zed’s barn')
+    const input: ContextInput = {
+      ...base,
+      memory: {
+        ...base.memory,
+        entries: [...base.memory.entries, ...events, ...places, barn]
+      }
+    }
+    const m = materialOf(input, { core: { storyId: 'mill', asItBegins: true, people: [], known: {}, recent: ['Ch 2, Sc 1: Wren hid the key in Zed’s barn.'], threads: [], left: [], travel: [], present: [] } })
+    const names = m.others.filter((o) => !o.startsWith('(and '))
+    expect(names.length).toBe(MOST_NAMED.others)
+    expect(m.others[m.others.length - 1]).toMatch(/^\(and \d+ more: get_entry finds any by name\)$/)
+    expect(names).toContain('Zed’s barn (place)')
+    expect(names).toContain('Place 30 (place)')
+    expect(names.filter((n) => n.includes('(event)')).length).toBeLessThan(events.length)
+    // In name order, so the list reads the same from step to step.
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+  })
+
   it('may look things up first: the instructions say so, and the last line asks for the look-ups or the plan', () => {
     const m = { ...materialOf(draftInput()), lookups: true }
     const [system, user] = planMessages(m)
-    expect(system.content).toContain('look it up with the tools. Ask for everything you need at once: you get one round of look-ups.')
+    expect(system.content).toContain('look it up with the tools.')
+    expect(system.content).toContain('Ask for everything you need at once: you get one round of look-ups.')
+    // Told plainly that it has earlier scenes only in short, and can read their own words (2026-10-20).
+    expect(system.content).toContain('to read what an earlier scene said, word for word, use read_passage')
     expect(user.content.trimEnd().endsWith('Look up anything else the scene needs, all at once; or plan the scene now, as one JSON object.')).toBe(true)
     expect(planSystem(false, false, true).replace(`\n${LOOKUP_RULE}`, '')).toBe(planSystem())
   })
@@ -1047,6 +1074,64 @@ describe('making the plan', () => {
     const params = JSON.parse(row.params_json) as { steps: { tool: string }[]; requests: unknown[] }
     expect(params.steps.map((s) => s.tool)).toEqual(['find_in_story'])
     expect(params.requests).toHaveLength(2)
+  })
+
+  it('a brief line citing a scene it read in a look-up is kept; one citing a scene it never saw is left out (2026-10-20)', async () => {
+    let n = 0
+    const reply = JSON.stringify({
+      beats: ['Osric climbs up to the loft'],
+      relies: [],
+      brief: { keep: ['Osric counted the sacks twice (Ch 5, Sc 2).', 'Mara lost her ring in Ch 9, Sc 9.'] }
+    })
+    const sse = (delta: Record<string, unknown>, finish: string): Response =>
+      new Response(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\ndata: [DONE]\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' }
+      })
+    const f = (async () =>
+      ++n === 1
+        ? sse({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'find_in_story', arguments: '{"query": "the sacks"}' } }] }, 'tool_calls')
+        : sse({ content: reply }, 'stop')) as typeof fetch
+    const db = memoryWorld()
+    const sceneId = repo.getOutline(db, repo.listStories(db)[0].id).scenes[0].id
+    const w = world()
+    const plan = await makePlan({
+      db,
+      model,
+      sceneId,
+      material: {
+        ask: 'A whole scene, about 600 words.',
+        card: CARD,
+        must: '',
+        reach: 'here',
+        stand: '',
+        standTitle: 'Where things stand',
+        standNote: '',
+        before: null,
+        inBriefing: [],
+        others: [],
+        people: ['Wren', 'Osric Hale'],
+        secrets: [],
+        calls: CARD,
+        brief: { record: [], late: [], words: 750, tokens: 1_000 }
+      },
+      check: { stand: w.stand, entries: w.entries, inBriefing: w.inBriefing, hidden: w.hidden },
+      carryingOn: false,
+      lookups: {
+        db,
+        sceneId,
+        storyId: 'story',
+        asItBegins: true,
+        entries: w.entries,
+        people: ['Wren', 'Osric Hale'],
+        hidden: new Set(),
+        find: async () => [{ where: 'Ch 5, Sc 2', text: 'Osric counted the sacks twice, and said nothing of the tax.' }]
+      },
+      closed: () => false,
+      fetchImpl: f,
+      retryDelays: []
+    })
+    expect(n).toBe(2)
+    expect(plan?.brief).toEqual({ parts: { keep: ['Osric counted the sacks twice (Ch 5, Sc 2).'] } })
   })
 
   it('no plan when the memory model turns the scene down, and the top bar is told the draft went without one', async () => {

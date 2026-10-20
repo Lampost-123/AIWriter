@@ -115,15 +115,15 @@ const linesOf = (user, title) =>
 
 /**
  * Asked for a continuity brief (long story memory fix 14): each list from the part of what it was given that says it
- * (what must stay true, who knows what, the open plot threads, the story calendar), a line saying so when the book so far
- * was read whole, and a line citing a scene it was never given ("Ch 9, Sc 9": left out by the app).
+ * (what must stay true, who knows what, the open plot threads, the story calendar), a line saying so when it was given the
+ * scene before word for word (2026-10-20), and a line citing a scene it was never given ("Ch 9, Sc 9": left out by the app).
  */
 function briefOf(user) {
   const pov = povOf(user)
   return {
     matters: [
       pov ? `${pov} carries this scene, as the card says.` : 'The scene card says what matters here.',
-      ...(user.includes('## The book so far, word for word') ? ['The book so far was read whole for this brief.'] : [])
+      ...(user.includes('## The scene before, word for word') ? ['The scene before was read word for word for this brief.'] : [])
     ],
     keep: [...linesOf(user, 'Must stay true').slice(0, 3), 'Mara lost her ring in Ch 9, Sc 9.'],
     knows: linesOf(user, 'Who knows what, among everyone here').slice(0, 2),

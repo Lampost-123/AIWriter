@@ -148,8 +148,7 @@ function deps(runId: ID): RunDeps {
       try {
         // The scene's part of the chapter plan goes to the writer, and to the plan before writing, which builds the scene
         // plan on it with its own round of look-ups (spec "Write the chapter, reworked", 2026-10-19). No continuity brief
-        // (token audit, 2026-10-19): the chapter plan says what it would, and its planner would read up to 150,000 tokens
-        // of the book for every scene.
+        // (token audit, 2026-10-19): the chapter plan says what it would.
         b = await draftBriefing(sceneId, options, {
           extras: { extraBlocks },
           signal: o.signal,
