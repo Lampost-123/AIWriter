@@ -357,7 +357,9 @@ export async function openEvalApp(cfg: EvalConfig, opts: { network: boolean; big
         providerName = `file bridge (${cfg.bridgeDir}): a stand-in, not a real model`
         settings.updateSettings({ models: { writer: { providerId: p.id, modelId: model, label: model, ...big } } } as never)
       } else if (cfg.backend === 'deepseek') {
-        const p = providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl: DEEPSEEK.baseUrl, apiKey: cfg.apiKey! })
+        // CHAT_EVAL_DEEPSEEK_URL: the same models through another OpenAI-compatible address.
+        const baseUrl = process.env.CHAT_EVAL_DEEPSEEK_URL?.trim() || DEEPSEEK.baseUrl
+        const p = providers.saveProvider({ kind: 'custom', name: 'DeepSeek', baseUrl, apiKey: cfg.apiKey! })
         const id = cfg.model ?? DEEPSEEK.model
         spend.cap = cfg.maxUsd!
         spend.priceIn = DEEPSEEK.priceIn
