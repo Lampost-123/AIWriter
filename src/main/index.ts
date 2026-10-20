@@ -33,6 +33,9 @@ if (process.env.AIWRITE_FAKE_MIC === '1') {
 // count it as covered by his own windows and slow it down, so it is told not to.
 const BACKGROUND = process.env.AIWRITE_BACKGROUND === 'on'
 if (BACKGROUND) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+// The window opens filling the screen (maximized, the taskbar still showing: Adam, 2026-10-21). App tests keep the
+// 1440×900 window (AIWRITE_MAXIMIZED=off), so their pictures don't depend on the screen they run on.
+const MAXIMIZED = !BACKGROUND && process.env.AIWRITE_MAXIMIZED !== 'off'
 registerPortraitScheme()
 
 let mainWindow: BrowserWindow | null = null
@@ -121,6 +124,9 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  // Both ways of showing it (the interface's first frame, or the fallback) call show: it shows maximized, at once,
+  // rather than at 1440×900 and then growing.
+  if (MAXIMIZED) win.show = () => win.maximize()
   if (BACKGROUND) {
     // Where it would be (off-screen, Windows scales it wrongly), but unseen, clicked through, and shown without
     // taking focus wherever the app shows or focuses it. Screenshots are of the page, so they don't see this.

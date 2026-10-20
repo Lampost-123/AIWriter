@@ -5673,3 +5673,6 @@ A look-and-feel pass after a review of every room in Dark, Light and Sepia.
 - Looked at and kept: the rooms show their words only above 1200px (measured: at 1024px the words run into the world's
   name); Scene details stays both in the top bar and by the scene's head (the head's carries the issue count and works
   with the top bar hidden).
+- **The window opens maximized** (Adam, 2026-10-21): filling the screen with the taskbar still showing, every time it
+  starts (src/main/index.ts, `MAXIMIZED`: `show` maximizes, so it never shows at 1440×900 first). App tests keep the
+  1440×900 window (`AIWRITE_MAXIMIZED=off` in helpers.ts); the shell spec checks it opens maximized.

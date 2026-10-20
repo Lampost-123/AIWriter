@@ -85,6 +85,8 @@ export async function launchApp(opts: LaunchOptions = {}): Promise<LaunchedApp> 
       AIWRITE_ARRANGEMENT: process.env.AIWRITE_E2E_ARRANGEMENT ?? 'panels',
       AIWRITE_THEME: 'system',
       AIWRITE_BACKGROUND: background,
+      // The window as tests have always had it (1440×900), not filling the screen as Adam's does.
+      AIWRITE_MAXIMIZED: 'off',
       AIWRITE_PLAN: 'off',
       AIWRITE_TOUR: 'off',
       AIWRITE_CONTRACT: 'off',

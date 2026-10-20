@@ -23,6 +23,15 @@ async function quitApp(app: ElectronApplication): Promise<void> {
   await exited
 }
 
+test('the window opens filling the screen (maximized)', async ({ launch }) => {
+  // Run in the background (Adam's PC) the window is never really shown, so there is nothing to see filling the screen.
+  test.skip(process.env.AIWRITE_BACKGROUND !== 'off' && !process.env.CI, 'Run with AIWRITE_BACKGROUND=off to see the window')
+  const { app, win } = await launch({ env: { AIWRITE_MAXIMIZED: 'on' } })
+  await expect(win.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true)
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(true)
+})
+
 test('a world can be renamed from the world menu, and a world needs a name', async ({ launch }) => {
   const first = await launch()
   const { win } = first
