@@ -32,6 +32,7 @@ import {
   PLAN_HEAD,
   PLAN_MARKER,
   PLAN_MOST,
+  PLAN_PLAIN_BEATS,
   planForContinue,
   planMaterial,
   planMessages,
@@ -831,6 +832,15 @@ describe('what the planner reads', () => {
   it('told when the story means strong content, as every memory job is', () => {
     const m = { ...materialOf(draftInput()), contentNote: 'About this story: it is fiction for adult readers.' }
     expect(planMessages(m)[0].content.endsWith('\n\nAbout this story: it is fiction for adult readers.')).toBe(true)
+  })
+
+  it('told to word the beats plainly, only when the full content guidance applies', () => {
+    const plain = planMessages(materialOf(draftInput()))[0].content
+    expect(plain).not.toContain(PLAN_PLAIN_BEATS)
+    const full = planMessages({ ...materialOf(draftInput()), plainBeats: true })[0].content
+    expect(full).toContain(PLAN_PLAIN_BEATS)
+    expect(PLAN_PLAIN_BEATS).toContain('blunt words')
+    expect(PLAN_PLAIN_BEATS).toContain('"they make love"')
   })
 })
 

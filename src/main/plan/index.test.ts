@@ -74,7 +74,7 @@ vi.mock('./brief', () => ({
 import { memoryWorld } from '../../../tests/unit/helpers'
 import { keepStages, person, stage } from '../../../tests/unit/storyIndexWorld'
 import * as repo from '../db/repo'
-import { continueBeatsDone, fillQuickly, forgetScenePlans, planBeforeWriting, planForContinueOf, planWanted } from './index'
+import { continueBeatsDone, planContentFor, fillQuickly, forgetScenePlans, planBeforeWriting, planForContinueOf, planWanted } from './index'
 
 const was = { plan: process.env.AIWRITE_PLAN, brief: process.env.AIWRITE_BRIEF }
 beforeEach(() => {
@@ -311,5 +311,18 @@ describe('a look-up fills in a scene’s details only when that is quick (stand-
     const slow = (async (_db: unknown, _id: string, _m: unknown, o: { signal: AbortSignal }) =>
       new Promise((resolve) => o.signal.addEventListener('abort', () => resolve({ filled: false, asked: true })))) as never
     expect(await fillQuickly(w, story.id, s2, model, { closed: () => false, fill: slow, ms: 20 })).toBe(false)
+  })
+})
+
+describe('what the planner is told of the content', () => {
+  it('by genre with the level unset: the plain-beats rule and the content note', () => {
+    const e = planContentFor({ genres: ['erotica'], intensity: {} })
+    expect(e.plainBeats).toBe(true)
+    expect(e.contentNote).toContain('explicit sex')
+  })
+
+  it('a level picked below the top step wins: no rule', () => {
+    expect(planContentFor({ genres: ['erotica'], intensity: { romance: 3 } })).toEqual({ contentNote: expect.stringContaining('explicit sex') })
+    expect(planContentFor({ genres: ['fantasy'], intensity: {} })).toEqual({ contentNote: null })
   })
 })

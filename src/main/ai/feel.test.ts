@@ -7,7 +7,7 @@ import { stylePresetById, withPreset } from '@shared/stylePresets'
 import { effectiveStyle } from '@shared/style'
 import type { StyleGuide, WritingPrefs } from '@shared/types'
 import { getEncoding } from 'js-tiktoken'
-import { aiPhrasesText, asksForRichProse, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText, sexSceneText, writerInstructions } from './prompts'
+import { aiPhrasesText, asksForRichProse, avoidLine, contentText, feelLine, finalInstruction, genreText, instructionsText, sexSceneText, writerInstructions, fullContent } from './prompts'
 
 const prefs = (p: Partial<WritingPrefs> = {}): WritingPrefs => ({ spelling: 'UK', pov: 'Close third person', tense: 'Past tense', voiceNotes: '', avoidWords: [], ...p })
 const guide = (g: Partial<StyleGuide> = {}): StyleGuide => ({ ...defaultStyleGuide(), ...g })
@@ -107,6 +107,36 @@ describe('the genre and feel in the writer instructions', () => {
     expect(instructionsText(guide({ intensity: { romance: 3 } }))).not.toContain('Sex scenes')
   })
 
+  it('applies the full content guidance at the top level, or by genre when the level is left unset', () => {
+    expect(fullContent(guide({ intensity: { romance: 4 } }))).toBe(true)
+    expect(fullContent(guide({ genres: ['erotica'] }))).toBe(true)
+    expect(fullContent(guide({ genres: ['thriller', 'erotica'] }))).toBe(true)
+    // A level Adam picked wins over the genre.
+    expect(fullContent(guide({ genres: ['erotica'], intensity: { romance: 3 } }))).toBe(false)
+    expect(fullContent(guide({ genres: ['romance'] }))).toBe(false)
+    expect(fullContent(guide())).toBe(false)
+    expect(sexSceneText(guide({ genres: ['erotica'] }))).toMatch(/^Sex scenes\n/)
+    expect(sexSceneText(guide({ genres: ['erotica'], intensity: { romance: 2 } }))).toBe('')
+  })
+
+  it('lists the plain words to use and the vague ones to avoid, and asks for variety', () => {
+    const skill = sexSceneText(guide({ intensity: { romance: 4 } }))
+    for (const w of ['cock', 'dick', 'pussy', 'cunt', 'clit', 'tits', 'nipples', 'arse', 'fuck', 'lick', 'finger', 'ride', 'come', 'wet']) {
+      expect(skill).toMatch(new RegExp(`\\b${w}\\b`))
+    }
+    for (const w of ['manhood', 'member', 'length', 'shaft', 'hardness', 'core', 'entrance', 'folds', 'mound', 'nectar', 'down there']) {
+      expect(skill).toContain(w)
+    }
+    expect(skill).toContain('in the narration as well as the talk')
+    expect(skill).toMatch(/[Vv]ary/)
+  })
+
+  it('gives the content guidance to a chat that rewrites prose, when asked', () => {
+    const full = guide({ intensity: { romance: 4 } })
+    expect(instructionsText(full, { proseRules: false, contentCraft: true })).toContain('Sex scenes')
+    expect(instructionsText(guide(), { proseRules: false, contentCraft: true })).not.toContain('Sex scenes')
+  })
+
   it('says each content level plainly and lets the content limits win', () => {
     expect(contentText(guide())).toBe('')
     const text = contentText(guide({ intensity: { romance: 2 }, contentLimits: 'No harm to animals.' }))
@@ -185,6 +215,11 @@ describe('the closing reminder of the genre and tone', () => {
       hasDirection: false
     })
     expect(text).toContain('play every act on the page in blunt words and direct talk')
+    const byGenre = finalInstruction({ targetWords: 1000, style: guide({ genres: ['erotica'] }), hasBeats: true, hasPrevious: false, hasDirection: false })
+    expect(byGenre).toContain('play every act on the page in blunt words and direct talk')
+    expect(byGenre).toContain('name each body part and act with its blunt word')
+    const below = finalInstruction({ targetWords: 300, style: guide({ genres: ['erotica'] }), hasBeats: true, hasPrevious: true, hasDirection: false, addBelow: true })
+    expect(below).toContain('play every act on the page in blunt words and direct talk')
   })
 })
 

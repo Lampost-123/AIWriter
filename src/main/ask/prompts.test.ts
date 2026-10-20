@@ -181,3 +181,11 @@ describe('ACTFIRST: an edit reads, then proposes; ::options only for ideas, ::ne
     expect(contractReminder('edit')).toMatch(/Ideas go in ::options/)
   })
 })
+
+describe('the content guidance in the chat', () => {
+  it('the chat gets it when it applies, since its edits are prose', () => {
+    expect(askInstructions({ ...style, intensity: { romance: 4 } })).toContain('Sex scenes')
+    expect(askInstructions({ ...style, genres: ['erotica'] }, true)).toContain('Sex scenes')
+    expect(askInstructions(style)).not.toContain('Sex scenes')
+  })
+})
