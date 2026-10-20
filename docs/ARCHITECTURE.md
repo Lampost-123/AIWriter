@@ -33,6 +33,8 @@ src/main/        Electron main process
   storyIndex/    The story index (overhaul phase 1): who is where, with what, and what changed, scene by scene, as dated
                  facts built with no AI call; look-ups and free checks over it (SQL in db/storyIndex.ts)
   director/      Directed writing (an option): a draft written a stretch at a time, with a director's notes between
+  planHub/       The Plan hub's facts (where the writing has got to, open threads, where the plan has drifted) and its
+                 Update the plan / Fill in the empty cards requests (see "The Plan hub")
   retrieval/     Story memory step 5: sticky entries, what was said, and searching the story so far by
                  keyword and by meaning (its own file, search-index.db, and the search model in model/:
                  onnxruntime-node, or a TypeScript reader where that can't start)
@@ -51,7 +53,8 @@ src/renderer/src/
   lib/           api client, zustand store (navigation + open world), flush registry, editor bridge, theme
   components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects
   layout/        Top bar, resizable side panes, inspector, update banner
-  features/      binder, editor, inspector, world, style, settings, generate, welcome
+  features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (the one place to plan
+                 with AI) over outline (the suggestions' store and parts) and storyBuilder (the idea, cast and world)
 ```
 
 ## Rules
@@ -3858,7 +3861,7 @@ Story builder (View `storyBuilder`, `features/storyBuilder/`, contract `contract
    (`buildStoryCodex`) runs the World builder with `WorldBuildInput.plan` (no first look; `sortOut` still leaves what the
    world has) and a summary written from the brief, the style and one line per item (`buildSummary`). One Undo
    (`undoWorldBuild`) takes it back; the brief keeps the run (`built`).
-3. **Outline**: the outline helper's own page under the steps. When the brief has an idea (`hasIdea`), `startOutline`
+3. **Plan** (was Outline; since 2026-10-20 the Plan hub, see "The Plan hub"): the hub under the steps. When the brief has an idea (`hasIdea`), `startOutline`
    is the Story builder's request (`startStoryOutline`: the idea, style, recipe, story, plan so far, threads, cast and
    the world's events, marker `[AIWRITE-STORY v1] outline`), with a `Premise:` line first when the story has none (a
    card keeps it). Once the codex is built, a keep starts the World build only for pages it made (`setKeepBuild`).
@@ -3895,7 +3898,8 @@ Keep, Edit, Discard and Undo (by its task id: `KeepOptions.runId`) and "Put thes
 content levels, point of view, tense and prose style (and the tone, in the Story builder), with Undo; those marked
 `adult` sit under "For adult readers". Never rename an id.
 
-**Where it is:** the story menu, the Plan area and the command palette ("Story builder"); the board's blank story; the
+**Where it is:** the Plan area's "The idea, cast and world", the hub's header link of the same name and the command
+palette ("The idea, cast and world"); the board's blank story opens the Plan hub's start; the
 New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
@@ -4967,6 +4971,66 @@ checks are still governed by Automatic AI (`shared/automaticAi.ts`) and never go
   refused memory scene's buttons; a refused draft's Try with), and the specs that used the Critique tab and the old
   messages (`critique.spec.ts`, `issues.spec.ts`, `repair.spec.ts`, `contract.spec.ts`, `live-checks.spec.ts`,
   `ai.spec.ts`, `manuscript.spec.ts`).
+
+## The Plan hub: one place to plan with AI (Adam, 2026-10-20)
+
+Adam: "the one place to plan with AI", and "we should also be able to return after we have already written part of a
+story and plan the next part of it"; then, trying the outline helper on a story with chapters, "carrying on the outline
+of a story that already has chapters". The outline helper's page (`OutlineHelper.tsx`, deleted) is now the **Plan hub**
+(View `planHub { storyId, at?, back? }`, room Plan; `features/planHub/`, contract `contracts/planHub.ts`, main
+`src/main/planHub/` and `ipc/planHub.ts`). It is one page per story, the same on the desk and in the panels, built to the
+mid-story mock-up. Nothing goes into the story without a click.
+
+- **The header**: Plan, the story's title, what is written ("Written: Ch 1 to Ch 4, Sc 2 · 31,400 words",
+  `hubLogic.writtenLine`), and **The idea, cast and world** (the Story builder's first steps; Back comes here).
+- **Three ways it opens** (`hubLogic.hubMode`): *writing* (a scene has words), *planned* (chapters or scene cards, nothing
+  written) and *start* (a blank story). Mid-story the card is **What happens next?**: YOU ARE HERE, the last scene written
+  and its gist (the story index's, else its summary; no AI call), a box "Tell it in your own words, or leave it to the AI",
+  what to plan (`scopesFor`: the next scene, the rest of Ch N, the next chapter, the rest of Act N, more of the story),
+  **Threads waiting:** (open threads quietest first, ticked to be worked in), and **Plan it**. A new story's card is
+  **What is your story?**: one idea box, which *is* the Story builder's plot (`brief.plot`, showing the premise while there
+  is no plot; Story settings' premise points here instead of asking twice), the cast and world's state, and the size (In
+  stages or All at once, acts, chapters, scenes; "Let the AI choose" is `sizeForLength` of the brief's length).
+- **Adam's words reach the request.** `OutlineRequest.direction` and `OutlineStageRequest.direction` carry the box and the
+  ticked threads (`hubLogic.directionText`); the prompts put them under "What the author wants (make it happen)" with
+  `DIRECTION_RULE` (`outline/prompts.ts`, `stages.ts`, `outline/jobs.ts`, `storyBuilder/jobs.ts`), so What the AI saw
+  shows them. A stage request can be anchored: `afterSceneId` (the next scene, or the rest of a chapter, after its last
+  scene; told how the last scene written ends, and the latest When up to there, `latestUpTo`), `count` ("exactly 1
+  scene") and `afterChapterId` (chapters after this one, to the end of the act).
+- **The story line** (`StoryLine.tsx`, rows from `hubLogic.storyLine`): written acts or chapters folded with Open, the
+  chapter being written and its scenes, YOU ARE HERE, then what is planned but not written (Pick up from here opens it
+  chapter by chapter) and acts with no chapters (Plan its chapters). The AI's suggestions arrive **in their place**
+  (`LineSuggestions.tsx`; `HelperRun.place` `here | chapter | act | end`, `tree.anchorItems`; Keep lands there, after the
+  last written scene for the next scene), each with Keep, Change, Redo and Discard, its beats and card a click away, under
+  a batch head (what it is doing with Stop; then "N suggestions to keep, change or discard", Keep all, What the AI saw; a
+  settled batch folds to its head). Earlier batches stay under Earlier suggestions, as before.
+- **Carrying an outline on** (any chapter, written or planned, `ChapterActions`): **Add scenes to Ch N** (after its last
+  scene), **Plan its scenes** (a chapter with none), **Plan its chapters** (an act with none) and **Fill in N empty
+  cards** (scenes with a title and nothing else, `PlanHubFacts.emptyCards`): `startPlanUpdate` with `mode: 'fill'`
+  (`planHub/update.ts`, marker `[AIWRITE-OUTLINE v1] update fill`), shown as suggestions; Keep puts each on its card only
+  where the card is empty (`scenePlanLogic.planOnCard`), with Undo. A card Adam wrote is never overwritten.
+- **The story has moved on from the plan** (`planHub/facts.ts` `planDrift`): the free card check (`cardCheck`, no AI
+  call) of the planned scenes after the last one written, against the memory at the end of what is written. **Show me**
+  lights them in the story line; **Update the plan** (`startPlanUpdate`, marker `[AIWRITE-OUTLINE v1] update`, at most 6
+  cards) writes them again to follow what was written, shown first, kept or discarded as one (with Undo).
+- **Talk it over** beside the story line (`PlanTalk` with "Make this change"; it works with no suggestions open:
+  `applyRevision` makes a run) never claims a change it didn't make: a revision it can't apply says so and is declined.
+  Under it, the **Plan before writing** switch (the writing page's own), and the writing page now says what that plan is
+  doing ("Planning the scene: looking up where everyone is…", `draft:step` `about`, `waitWords.lookupWords`).
+- **Where it is:** the Plan area's first link "Plan with AI" (the desk's Plan room too), the rail, the story menu, the
+  binder's "Plan it with AI" / "Plan what happens next with AI", the board's blank story, the palette ("Plan with AI"), the
+  Story builder's Plan step (with Back to the Story builder) and Next scene ideas / Interview me with no scene open (the
+  hub at the next scene). `openPlanHub(storyId, { at, back })` (`features/outline/open.ts`); `openOutlineHelper` is its
+  alias. A chapter's plan page stays as it was. Back goes where Adam came from.
+- **State**: what Adam wrote, the threads ticked, the chosen part and the open rows are kept while the app runs
+  (`hubStore.ts`, one per story); the suggestions and a request still arriving are the outline helper's session, as before.
+- **Tests**: `features/planHub/hubLogic.test.ts`, `main/planHub/facts.test.ts`, `update.test.ts`, the hub requests in
+  `main/outline/stages.test.ts`, `tree.test.ts` (`anchorItems`), `helperStore.test.ts`; `tests/e2e/planHub.spec.ts` (desk
+  mid-story; panels mid-story and a new story's start; desk start and the Story builder's way in and back; carrying an
+  outline on: Add scenes to a written chapter, Fill in an empty card). The fake provider answers the hub's requests
+  (`tests/fake-provider/m4/outline.mjs`: `update`, `update fill`, exactly N scenes after a scene). Specs that used the
+  outline helper's page moved to the hub (`outline`, `outlineStages`, `chapterCards`, `storyWorld`, `storyBuilder`,
+  `ai-planning-desk`, `desk`, `newlook`).
 
 ## Milestone 1 scope
 
