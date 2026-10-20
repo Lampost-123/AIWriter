@@ -91,7 +91,12 @@ test('a draft is marked as it is written, and "Show speakers and tone" shows who
 
     // Never part of the text, and nothing on the page moved.
     expect(await prose(win).innerText()).toBe(words)
-    expect(await layout(win)).toEqual(before)
+    // (the gaps between paragraphs exactly; the page as a whole within a few pixels, as the bar above it settles on a
+    // slow machine: CI, 2026-10-20, 4 px)
+    const after = await layout(win)
+    expect(after.width).toBe(before.width)
+    expect(after.tops.map((t) => t - after.tops[0])).toEqual(before.tops.map((t) => t - before.tops[0]))
+    expect(Math.abs(after.tops[0] - before.tops[0])).toBeLessThanOrEqual(6)
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
     expect(JSON.stringify((await invoke(win, 'getScene', sceneId)).doc)).not.toContain('·')
