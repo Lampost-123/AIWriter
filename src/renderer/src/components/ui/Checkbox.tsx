@@ -60,9 +60,10 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(function Che
   )
   if (!label) return box
   return (
-    <label htmlFor={boxId} className={cn('inline-flex items-start gap-2', disabled ? 'opacity-50' : 'cursor-default', className)}>
+    <label htmlFor={boxId} className={cn('inline-flex cursor-default items-start gap-2', className)}>
       <span className="mt-[2px] flex">{box}</span>
-      <span className="min-w-0">
+      {/* Greyed out once, like the box (controls.ts DISABLED), not dimmed again by the label. */}
+      <span className={cn('min-w-0', disabled && 'opacity-50')}>
         <span className="block text-[13.5px] leading-5 text-fg">{label}</span>
         {hint ? <span className="block text-[12px] leading-relaxed text-muted">{hint}</span> : null}
       </span>

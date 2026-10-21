@@ -24,9 +24,10 @@
 }
 .st-find input:focus {
   background: var(--raise);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--accent) 60%, transparent),
-    0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  /* Every control's focus ring (components/ui/controls.ts). */
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .st-group {
   padding: 8px 10px 4px;
