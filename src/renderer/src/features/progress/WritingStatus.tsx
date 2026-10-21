@@ -50,7 +50,7 @@ export function WritingStatus(): React.JSX.Element | null {
           <span className="wp-dot" aria-hidden />
           <span className="wp-lead">The chapter plan is ready for you</span>
         </button>
-        <Button size="sm" variant="ghost" onClick={() => void stopChapterWriter()} title="Cancel the plan. Nothing in the chapter changes." data-plan-pill-cancel>
+        <Button size="sm" variant="ghost" onClick={() => void stopChapterWriter()} title="Cancel the plan. Nothing in the chapter changes.">
           Cancel
         </Button>
       </div>
