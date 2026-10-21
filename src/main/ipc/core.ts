@@ -1,6 +1,6 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
 import { join, relative, resolve } from 'node:path'
-import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { accessSync, constants, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import { mergeThreadLinks } from '@shared/threadLinks'
@@ -24,6 +24,17 @@ const recoveryDir = (): string => join(userDataDir(), 'recovery')
 const recoveryFile = (sceneId: unknown): string => {
   if (typeof sceneId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(sceneId)) throw new UserError('That scene could not be found. Reopen it and try again.')
   return join(recoveryDir(), `${sceneId}.json`)
+}
+
+/** The folder is there (made if need be) and AI Write may write in it. */
+function usableFolder(path: string): boolean {
+  if (!ensureLibraryFolder(path)) return false
+  try {
+    accessSync(path, constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** True when the path is one of these folders. */
@@ -101,8 +112,11 @@ export const coreHandlers: Handlers<CoreMethods> = {
     const opts = { title: 'Choose your AI Write library folder', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] }
     const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (res.canceled || !res.filePaths[0]) return null
+    // The folder is checked (and made) before the world closes, so a folder that can't be used leaves Adam where he was (review #10).
+    if (!usableFolder(res.filePaths[0])) {
+      throw new UserError("AI Write can't use that folder. It may be on a drive that's disconnected or read-only. Choose another folder.")
+    }
     world.closeWorld()
-    mkdirSync(res.filePaths[0], { recursive: true })
     updateSettings({ libraryPath: res.filePaths[0], lastWorldId: null, lastStoryId: null, lastSceneId: null })
     return res.filePaths[0]
   },

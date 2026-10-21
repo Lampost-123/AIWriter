@@ -7,24 +7,28 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 const openPath = vi.fn(async () => '')
+const showOpenDialog = vi.fn()
 vi.mock('electron', () => ({
   app: { getPath: () => tmpdir(), getVersion: () => '0.0.0' },
   BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => null },
-  dialog: { showOpenDialog: vi.fn() },
+  dialog: { showOpenDialog },
   shell: { openPath }
 }))
 
 const dir = mkdtempSync(join(tmpdir(), 'aiwrite-core-'))
 let coreHandlers: (typeof import('./core'))['coreHandlers']
 let settings: typeof import('../settings')
+let world: typeof import('../world')
 
 beforeAll(async () => {
   process.env.AIWRITE_DATA_DIR = dir
   coreHandlers = (await import('./core')).coreHandlers
   settings = await import('../settings')
+  world = await import('../world')
 })
 
 afterAll(() => {
+  world.closeWorld()
   delete process.env.AIWRITE_DATA_DIR
   rmSync(dir, { recursive: true, force: true })
 })
@@ -63,5 +67,26 @@ describe('Show folder', () => {
       await expect(coreHandlers.showInFolder(path)).rejects.toThrow(/only opens its library folder/)
     }
     expect(openPath).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('choosing a library folder', () => {
+  it('keeps the world open when the folder chosen can’t be used', async () => {
+    const library = join(dir, 'library-choose')
+    settings.updateSettings({ libraryPath: library })
+    const open = world.createWorld('Quay')
+    // A file where the folder should be: it can't be made into a folder.
+    const blocked = join(dir, 'not-a-folder')
+    writeFileSync(blocked, 'x')
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [join(blocked, 'library')] })
+    await expect(coreHandlers.chooseLibraryFolder()).rejects.toThrow(/can't use that folder/)
+    expect(world.maybeCurrentWorld()?.id).toBe(open.id)
+    expect(settings.getSettings().libraryPath).toBe(library)
+
+    const next = join(dir, 'library-next')
+    showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [next] })
+    expect(await coreHandlers.chooseLibraryFolder()).toBe(next)
+    expect(world.maybeCurrentWorld()).toBeNull()
+    expect(existsSync(next)).toBe(true)
   })
 })
