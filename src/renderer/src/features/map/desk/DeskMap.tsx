@@ -1,7 +1,7 @@
-// The desk's relationship map (UI overhaul): World room › Relationship map on the desk. The panels and Classic keep
-// features/map/RelationshipMap.tsx. It reads the same map from the main process (with the desk's extra detail: each
-// tie's history, what changed at a stop, the strip's titles, the point of view) and shows it on a wide sheet: a
-// timeline strip, the stage (MapStage), a legend, zoom and side cards. See deskMap.css for the look and motion.
+// The relationship map (UI overhaul): World room › Relationship map on the desk, and the map in the panels. It reads
+// the same map from the main process (with the desk's extra detail: each tie's history, what changed at a stop, the
+// strip's titles, the point of view) and shows it on a wide sheet: a timeline strip, the stage (MapStage), a legend,
+// zoom and side cards. See deskMap.css for the look and motion.
 import './deskMap.css'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
