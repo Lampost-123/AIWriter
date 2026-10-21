@@ -9,6 +9,8 @@ import {
   chapterShelf,
   checkLine,
   coverHue,
+  homeBookWidth,
+  homeNarrow,
   homeScale,
   homeTwoColumns,
   hueOfId,
@@ -238,5 +240,18 @@ describe('homeScale: the home grows with a big screen', () => {
     expect(homeScale(4000, 2100)).toBe(1.32)
     // A tall narrow room: the width decides.
     expect(homeScale(1700, 2000)).toBe(1.06)
+  })
+})
+
+describe('homeNarrow: a small window draws the home narrow', () => {
+  it('is narrow beside the spine in a 1024px window, and wide from a 1440px one', () => {
+    expect(homeNarrow(950)).toBe(true)
+    expect(homeNarrow(1100)).toBe(false)
+    // Not measured yet: drawn as usual, never narrow for a frame.
+    expect(homeNarrow(0)).toBe(false)
+  })
+  it('gives the book less width when narrow, so it never lies over the title', () => {
+    expect(homeBookWidth(true)).toBeLessThan(homeBookWidth(false))
+    expect(homeBookWidth(false)).toBe(220)
   })
 })

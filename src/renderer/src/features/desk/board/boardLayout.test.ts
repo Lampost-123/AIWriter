@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boardLayout, CARD_H, CARD_W, COL_GAP, dropTarget, HEAD_H, makeRoom, PAD_TOP, PAD_X, ROW_GAP } from './boardLayout'
+import { boardLayout, CARD_H, CARD_W, COL_GAP, dropTarget, HEAD_H, makeRoom, NEXT_W, PAD_TOP, PAD_X, ROW_GAP } from './boardLayout'
 
 // The sample world's shape: two chapters of two and three scenes.
 const columns = [
@@ -26,7 +26,9 @@ describe('the board’s cards', () => {
     expect(l.columns[0].ghost.y).toBe(PAD_TOP + HEAD_H + 2 * step)
     expect(l.columns[1].ghost.y).toBe(PAD_TOP + HEAD_H + 3 * step)
     expect(l.next.x).toBe(PAD_X + 2 * (CARD_W + COL_GAP))
-    expect(l.width).toBe(l.next.x + CARD_W + PAD_X)
+    expect(l.width).toBe(l.next.x + NEXT_W + PAD_X)
+    // Two chapters and the next one fit the board beside the full spine in a 1440px window (about 994px).
+    expect(l.width).toBeLessThanOrEqual(960)
     expect(l.height).toBeGreaterThan(l.columns[1].ghost.y + l.columns[1].ghost.h)
   })
 

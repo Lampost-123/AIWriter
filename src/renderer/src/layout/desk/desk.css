@@ -406,6 +406,18 @@
   color: var(--fg);
 }
 
+/* The world and the story beside the lamp (DeskTopBar's .desk-crumb). In a small window the world's name gives way
+   first, down to a few letters and "…": it shrinks so much more readily that the story's name keeps every letter until
+   the world's is that short. The story's name keeps enough to read, so neither runs under the rooms. */
+[data-arrangement='desk'] .desk-crumb > button:first-child {
+  flex: 0 100000 auto;
+  min-width: 76px;
+}
+[data-arrangement='desk'] .desk-crumb > div:has([data-story-home]) {
+  flex: 0 1 auto;
+  min-width: 124px;
+}
+
 /* The rooms: a sunken track, the room showing raised on paper. */
 [data-arrangement='desk'] .desk-rooms {
   background: color-mix(in oklab, var(--surface-3) 70%, transparent);
