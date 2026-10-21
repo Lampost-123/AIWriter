@@ -25,7 +25,7 @@ import { BeatMarks } from '@/features/beats/beatMarks'
 import { deskOn } from '@/features/look/look'
 import { ChapterHold } from '@/features/chapterWriter/hold'
 
-export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Generate.'
+export const EDITOR_PLACEHOLDER = 'Write here, or fill in the scene card and press Draft.'
 /** On the desk there is no Generate button: the AI dock below the page offers Draft the scene. */
 export const DESK_PLACEHOLDER = 'Start writing, or use Draft the scene below.'
 

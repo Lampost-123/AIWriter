@@ -139,7 +139,7 @@ describe('where Continue carries on', () => {
   it('needs words before the cursor', () => {
     const doc = docFromText(schema, '')
     expect(continuePlace(doc, 1)).toEqual({
-      problem: 'There’s nothing to carry on from yet. Write a line or two first, or press Generate to draft the scene.'
+      problem: 'There’s nothing to carry on from yet. Write a line or two first, or let the AI draft the scene.'
     })
     // At the very start of a scene with words, it says where to put the cursor instead.
     const scene = docFromText(schema, 'Mara pushed the door open.\n\nNobody looked up.')

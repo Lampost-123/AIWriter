@@ -176,7 +176,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
         {pageHasWords
           ? 'New draft keeps the text you have now as Draft\u00a01 and starts a copy, to try the scene another way.'
           : 'Drafts start once the scene has words: New draft then keeps the text as Draft\u00a01 and starts a copy, to try the scene another way.'}{' '}
-        Each time you press Generate, the AI's draft is listed here too, with what it cost and a link to see exactly what the AI was given.
+        Each time the AI drafts a scene, the draft is listed here too, with what it cost and a link to see exactly what the AI was given.
       </EmptyState>
     )
   }
@@ -204,7 +204,7 @@ export function GenerationsPanel({ sceneId }: { sceneId: ID }): React.JSX.Elemen
           />
         ) : (
           <p className="px-1.5 text-[12px] leading-relaxed text-faint">
-            Each time you press Generate, the draft is listed here with what it cost, and a link to see exactly what the AI was given.
+            Each time the AI drafts a scene, the draft is listed here with what it cost, and a link to see exactly what the AI was given.
           </p>
         )}
       </section>

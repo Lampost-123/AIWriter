@@ -301,7 +301,7 @@ function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: '
 export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
   switch (p.mode) {
     case 'generate':
-      return 'Generate (below any words already there)'
+      return 'Draft the scene (below any words already there)'
     case 'add_below':
       return 'Add below'
     case 'continue':
