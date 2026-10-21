@@ -138,11 +138,28 @@ function toBackupFile(folder: string, name: string): BackupFile {
   return { id: name, file, sizeBytes: statSync(file).size, ...parsed }
 }
 
-/** Makes the copy a plain single-file database (no -wal/-shm companions), so it can be copied or opened anywhere. */
+/** A copy with more than this share of its pages unused is packed tight (writeBackup). */
+const LOOSE_SHARE = 0.25
+
+/**
+ * Makes the copy a plain single-file database (no -wal/-shm companions), so it can be copied or opened anywhere. The
+ * online backup copies the world's unused pages too, so a world that let go of much (old AI prompts, review #22) would
+ * have every backup as big as it ever was: such a copy is packed tight, on the copy only, never the world itself.
+ */
 function makeSelfContained(file: string): void {
   const d = new Database(file)
   try {
     d.pragma('journal_mode = DELETE')
+    const pages = d.pragma('page_count', { simple: true }) as number
+    const unused = d.pragma('freelist_count', { simple: true }) as number
+    if (pages > 0 && unused / pages > LOOSE_SHARE) {
+      try {
+        d.exec('VACUUM')
+      } catch (e) {
+        // Out of room on the disk, say: the copy is whole as it is, just not packed.
+        console.warn('Could not pack the backup tight; it is kept as it is', e)
+      }
+    }
   } finally {
     d.close()
   }
