@@ -52,17 +52,24 @@ function chapterStamps(db: DB, shape: WorldShape, storyId: ID): { outside: strin
 
 /**
  * Brings a story's snapshots up to date, in chapter order, working out at most `most` of them (each one whose key
- * changed). Returns how many were worked out, and whether more are left to do.
+ * changed). Returns how many were worked out, whether more are left to do, and the memory it read for them: the memory
+ * keeper passes that back as `memory` for the next few while nothing has changed (review #26), so a change early in a
+ * long book doesn't read the whole memory again for every few chapters.
  */
-export function refreshSnapshots(db: DB, storyId: ID, most = SNAPSHOTS_AT_A_TIME): { worked: ID[]; more: boolean } {
+export function refreshSnapshots(
+  db: DB,
+  storyId: ID,
+  most = SNAPSHOTS_AT_A_TIME,
+  memory: RecordRead | null = null
+): { worked: ID[]; more: boolean; read: RecordRead | null } {
   const shape = loadShape(db)
   const stamps = chapterStamps(db, shape, storyId)
-  if (!stamps) return { worked: [], more: false }
+  if (!stamps) return { worked: [], more: false, read: null }
   const kept = storedSnapshots(
     db,
     stamps.chapters.map((c) => c.chapterId)
   )
-  let read: RecordRead | null = null
+  let read: RecordRead | null = memory
   const worked: ID[] = []
   // Every scene before this chapter in the story, as one running hash.
   let before = ''
@@ -70,14 +77,14 @@ export function refreshSnapshots(db: DB, storyId: ID, most = SNAPSHOTS_AT_A_TIME
     const key = hashText(`v${SNAPSHOT_VERSION}\n${stamps.outside}\n${before}\n${stamp}`)
     const row: StoredSnapshot | undefined = kept.get(chapterId)
     if (row?.key !== key) {
-      if (worked.length >= most) return { worked, more: true }
+      if (worked.length >= most) return { worked, more: true, read }
       read ??= { shape, data: writerData(db, loadMemoryData(db)) }
       putSnapshot(db, chapterId, { key, snapshot: chapterSnapshot(db, chapterId, read) })
       worked.push(chapterId)
     }
     before = hashText(`${before}\n${stamp}`)
   }
-  return { worked, more: false }
+  return { worked, more: false, read }
 }
 
 /**
