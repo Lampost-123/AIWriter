@@ -423,6 +423,11 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX index_threads_story ON index_threads(story_id, thread_entry_id);
   CREATE INDEX index_threads_scene ON index_threads(scene_id);
+  `,
+  // Review #43: Ask's chat list and each question read only the chat records (job 'chat'), newest last, through this
+  // index rather than every AI record in the world.
+  `
+  CREATE INDEX IF NOT EXISTS generations_job ON generations(job, created_at);
   `
 ]
 
