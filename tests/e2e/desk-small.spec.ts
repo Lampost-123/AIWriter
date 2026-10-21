@@ -51,8 +51,13 @@ test('at 1024 x 700 the home, the board and the top bar fit, and the story’s n
   const check = async (where: string): Promise<void> => {
     await expect.poll(() => spill(win), `the window at ${where}`).toBeLessThanOrEqual(0)
     // Most of "The Keeper's Light" (all of it but in the tightest room, Write, where it may lose its last letters).
-    await expect.poll(async () => (await storyName(win)).shown, `the story's name's width at ${where}`).toBeGreaterThanOrEqual(100)
-    await expect.poll(async () => (await storyName(win)).gap, `room between the story and the rooms at ${where}`).toBeGreaterThanOrEqual(0)
+    // Both at once: at least 100px of the name shows, and it stays clear of the rooms.
+    await expect
+      .poll(async () => {
+        const s = await storyName(win)
+        return Math.min(s.shown - 100, s.gap)
+      }, `the story's name at ${where}: 100px of it showing, clear of the rooms`)
+      .toBeGreaterThanOrEqual(0)
   }
   await check('Write')
 

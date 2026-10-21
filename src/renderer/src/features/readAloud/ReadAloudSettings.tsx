@@ -343,7 +343,7 @@ function SpeedSetting({ speed }: { speed: number }): React.JSX.Element {
       min={0.5}
       max={2}
       step={0.05}
-      onCommit={(v) => void save({ speed: v })}
+      onCommit={(v) => save({ speed: v })}
       className="max-w-[360px]"
     />
   )
@@ -663,7 +663,7 @@ function SoundVolume({ volume }: { volume: number }): React.JSX.Element {
       before="Quieter"
       after="Louder"
       onLive={(v) => mixer.setVolume(v)}
-      onCommit={(v) => void save({ soundVolume: v })}
+      onCommit={(v) => save({ soundVolume: v })}
       className="max-w-[360px]"
     />
   )

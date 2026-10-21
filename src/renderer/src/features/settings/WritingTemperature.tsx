@@ -120,7 +120,7 @@ export function WritingTemperature({ providers }: { providers: ProviderConfig[] 
               editing.current = false
               setTyped(show(v))
             }}
-            onCommit={(v) => save(v)}
+            onCommit={(v) => update({ writingTemperature: cleanWritingTemperature(v) })}
             className="min-w-0 flex-1"
           />
           <div className="w-[68px] shrink-0">

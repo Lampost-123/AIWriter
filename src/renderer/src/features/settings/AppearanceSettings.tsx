@@ -63,9 +63,7 @@ function PageSliders({ onLive }: { onLive?: (key: RangeKey, value: number | null
           max={r.max}
           step={r.step}
           onLive={onLive ? (v) => onLive(r.key, v) : undefined}
-          onCommit={(v) => {
-            void update({ editor: { [r.key]: v } }).finally(() => onLive?.(r.key, null))
-          }}
+          onCommit={(v) => update({ editor: { [r.key]: v } }).finally(() => onLive?.(r.key, null))}
         />
       ))}
     </>

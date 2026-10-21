@@ -654,6 +654,8 @@ export function CommandPalette(): React.JSX.Element {
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             e.preventDefault()
+            // Opened again before the last close finished: the action chosen then runs now, never on a later Esc.
+            if (pending.current) settle()
             settledEarly.current = false
             inputRef.current?.focus()
           }}
