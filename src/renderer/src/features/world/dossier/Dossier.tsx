@@ -838,7 +838,7 @@ export function Dossier({
             </h2>
           ) : (
             <h2 id={titleId} tabIndex={-1} className="dz-name-h">
-              <NameBox ref={nameRef} value={draft.name} onChange={setName} className="dz-name dz-name-input" maxRows={2} />
+              <NameBox ref={nameRef} value={draft.name} onChange={setName} className="dz-name dz-name-input" />
             </h2>
           )}
         </div>

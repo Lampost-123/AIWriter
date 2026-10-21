@@ -8,12 +8,12 @@ import { useFitHeight } from '@/components/ui/useFitHeight'
  * becomes a space. Each page gives it its own look (`className`).
  */
 export const NameBox = memo(
-  forwardRef<HTMLTextAreaElement, { value: string; onChange: (v: string) => void; className: string; maxRows?: number }>(function NameBox(
-    { value, onChange, className, maxRows = 4 },
+  forwardRef<HTMLTextAreaElement, { value: string; onChange: (v: string) => void; className: string }>(function NameBox(
+    { value, onChange, className },
     outer
   ) {
     const inner = useRef<HTMLTextAreaElement | null>(null)
-    useFitHeight(inner, value, 1, maxRows)
+    useFitHeight(inner, value, 1, 4)
     return (
       <textarea
         ref={(el) => {
