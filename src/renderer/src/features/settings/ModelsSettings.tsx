@@ -1072,8 +1072,10 @@ function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: M
       return
     }
     const value = Math.min(n, 10_000_000)
+    // Kept: nothing is left to save on close or when the field goes (which could otherwise write this model back
+    // over one picked since). The box is never rewritten from outside, so this can't disturb typing.
+    editing.current = false
     if (final) {
-      editing.current = false
       setError(null)
       setText(String(value))
     }
