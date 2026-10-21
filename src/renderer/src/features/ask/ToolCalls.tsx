@@ -41,7 +41,7 @@ import { KIND_ICONS } from '@/features/world/kindIcons'
 import { ENTRY_KINDS } from '@shared/fields'
 import type { EntryKind } from '@shared/types'
 import { useAskPrefs } from './askPrefs'
-import { instantMotion } from './inputMode'
+import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { callMs, callTime, failureWords, kindsOf, prettyArgs, rowLabel, STATUS_WORDS, toolPhrase, toolsSummary } from './toolView'
 
 export const TOOL_ICONS: Record<ToolKind, IconType> = {
@@ -228,7 +228,7 @@ export function ToolCalls({
   // Adam's own opening or folding wins; else open while the answer is written, then as the ⋯ menu says.
   const [chosen, setChosen] = useState<boolean | null>(null)
   const listId = useId()
-  const [fades] = useState(() => !!live && !instantMotion())
+  const [fades] = useState(() => !!live && !(keyboardDriven() || reducedMotion()))
   const summary = live ? null : toolsSummary(tools, ms)
   if (!live && !summary) return null
   const has = tools.length > 0

@@ -12,7 +12,7 @@ import { CARD_WIDTH, HoverCard, cardPosition } from '@/features/editor/names/Hov
 import { kindWord } from '@/features/peek/entryView'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
 import type { LinkTarget } from './citations'
-import { instantMotion } from './inputMode'
+import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 
 /** The open scene's entries as of the scene, by id, for the cards (empty with no scene open). */
 export const SceneEntries = createContext<Map<ID, NamedEntry>>(new Map())
@@ -78,7 +78,7 @@ function usePeek(): {
       onMouseEnter: (e) => openFor(e.currentTarget, false),
       onMouseLeave: closeSoon,
       onFocus: (e) => {
-        if (e.currentTarget.matches(':focus-visible')) openFor(e.currentTarget, instantMotion())
+        if (e.currentTarget.matches(':focus-visible')) openFor(e.currentTarget, keyboardDriven() || reducedMotion())
       },
       onBlur: close,
       onKeyDown: (e) => {
