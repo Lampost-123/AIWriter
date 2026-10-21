@@ -387,7 +387,8 @@ test('with no worlds: Create world waits in its own colour, the sample world sho
   const create = screen.getByRole('button', { name: 'Create world', exact: true })
   // Waiting for a name it keeps its own colour, a little dimmed, rather than fading to a grey block.
   await expect(create).toBeDisabled()
-  expect(Number(await create.evaluate((e) => getComputedStyle(e).opacity))).toBeGreaterThan(0.6)
+  const opacity = (el: unknown): string => (globalThis as unknown as { getComputedStyle(e: unknown): { opacity: string } }).getComputedStyle(el).opacity
+  expect(Number(await create.evaluate(opacity))).toBeGreaterThan(0.6)
   await screen.getByRole('textbox', { name: 'World name' }).fill('The Northern Reaches')
   await expect(create).toBeEnabled()
   await expect(create).toHaveCSS('opacity', '1')

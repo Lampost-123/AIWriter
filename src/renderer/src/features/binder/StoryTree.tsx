@@ -103,7 +103,7 @@ const keepInTree: Modifier = ({ transform, draggingNodeRect, scrollableAncestorR
 const measuring = { droppable: { strategy: MeasuringStrategy.Always } }
 /**
  * The dragged row settles into place at the selection's speed (--dur-base), unless the system asks for less motion.
- * Read each time a drag starts, so turning Windows' Animation effects on or off counts at once.
+ * Read as the tree renders (a drag starting renders it), so turning Windows' Animation effects on or off counts at once.
  */
 function dropAnimation(): DropAnimation | null {
   if (reducedMotion()) return null

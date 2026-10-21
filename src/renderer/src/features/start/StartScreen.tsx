@@ -312,7 +312,7 @@ function Tile({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13.5px] font-medium leading-[20px] text-fg">{label}</span>
-        <span id={hintId} className="line-clamp-2 block text-[12px] leading-[17px] text-muted">
+        <span id={hintId} className="line-clamp-2 text-[12px] leading-[17px] text-muted">
           {hint}
         </span>
       </span>
