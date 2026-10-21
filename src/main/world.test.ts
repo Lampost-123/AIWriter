@@ -76,3 +76,15 @@ describe('two folders holding the same world', () => {
     expect(listed.find((w) => w.folder === copy)).toMatchObject({ name: 'Mill (copy)' })
   })
 })
+
+describe('opening a world', () => {
+  it('refuses a world saved by a newer AI Write and leaves it as it was', async () => {
+    const { MIGRATIONS } = await import('./db/migrations')
+    const made = world.createWorld('Lighthouse')
+    world.closeWorld()
+    edit(made.folder, (d) => d.pragma(`user_version = ${MIGRATIONS.length + 1}`))
+    expect(() => world.openWorld(made.id)).toThrow(/newer version of AI Write/)
+    expect(world.maybeCurrentWorld()).toBeNull()
+    edit(made.folder, (d) => expect(d.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length + 1))
+  })
+})

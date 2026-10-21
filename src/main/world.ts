@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
 import { defaultStyleGuide } from '@shared/defaults'
-import { migrate, pendingMigrations } from './db/migrations'
+import { MIGRATIONS, migrate, pendingMigrations } from './db/migrations'
 import * as repo from './db/repo'
 import { getSettings, updateSettings } from './settings'
 import { newId, now, slugify, UserError } from './util'
@@ -182,6 +182,10 @@ function activate(folder: string): World {
   const d = openDatabase(worldDbPath(folder))
   let id: ID | null
   try {
+    // A layout this version doesn't know: writing into it would leave parts of the world out of step (review #8).
+    if ((d.pragma('user_version', { simple: true }) as number) > MIGRATIONS.length) {
+      throw new UserError('This world was saved by a newer version of AI Write. Update AI Write in Settings › About and updates, then open it again.', 'newer-world')
+    }
     if (pendingMigrations(d) > 0 && (d.pragma('user_version', { simple: true }) as number) > 0) {
       backupBeforeMigration(folder, d)
     }
