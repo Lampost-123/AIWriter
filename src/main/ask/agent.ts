@@ -2584,7 +2584,7 @@ export class EditorAgent {
               const goal = (cards.get(s.id)?.goal ?? '').trim()
               const at = o.scenes.indexOf(s)
               const mark = s.id === this.place.sceneId ? ` ${OPEN_MARK}` : open >= 0 && at > open ? ' (later)' : ''
-              return `  Sc ${si + 1}: ${s.title.trim() || 'Untitled'} (${s.status}, ${s.wordCount} words)${goal ? ` — goal: ${goal}` : ''}${mark}`
+              return `  Sc ${si + 1}: ${s.title.trim() || 'Untitled scene'} (${s.status}, ${s.wordCount} words)${goal ? ` — goal: ${goal}` : ''}${mark}`
             })
           return [`Ch ${ci + 1}: ${c.title.trim() || 'Untitled'}`, ...(scenes.length ? scenes : ['  (no scenes)'])].join('\n')
         })

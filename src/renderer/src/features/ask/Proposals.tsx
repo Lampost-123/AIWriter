@@ -444,7 +444,7 @@ function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: stri
     case 'rename':
       return (
         <div className="break-words text-[12.5px] leading-relaxed text-fg">
-          <del className="text-muted">{p.from || 'Untitled'}</del> → <span className="font-medium">{p.to}</span>
+          <del className="text-muted">{p.from.trim() || (p.target === 'scene' ? 'Untitled scene' : 'Untitled chapter')}</del> → <span className="font-medium">{p.to}</span>
         </div>
       )
     case 'draft':

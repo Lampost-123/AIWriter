@@ -61,7 +61,8 @@ export function proposalLine(p: Proposal): string {
       case 'newChapter':
         return `new chapter ${q(p.title)}`
       case 'rename':
-        return `rename ${p.target} ${q(p.from)} → ${q(p.to)}`
+        // A new scene has no title until it is named: no empty quotes for it.
+        return `rename ${p.target} ${p.from.trim() ? q(p.from) : '(untitled)'} → ${q(p.to)}`
       case 'insert':
         return `[${p.sceneLabel}] insert ${p.where} [${p.at.paragraph}]: ${q(p.text)}`
       case 'cut':

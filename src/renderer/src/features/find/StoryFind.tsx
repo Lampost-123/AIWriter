@@ -15,6 +15,7 @@ import { useApp } from '@/lib/store'
 import { useFind } from './findStore'
 import { Toggle } from './FindBar'
 import { pageNow, replaceInStory } from './storyReplace'
+import { ownSceneTitle, placeWords } from './words'
 
 /** How an entry is named in "Also rename the character Mara…". */
 const KIND_WORDS: Record<EntryKind, string> = {
@@ -30,9 +31,6 @@ const KIND_WORDS: Record<EntryKind, string> = {
 
 const key = (sceneId: string, matchId: string): string => `${sceneId}|${matchId}`
 const n = (x: number): string => x.toLocaleString()
-
-/** "Chapter 2, scene 3". */
-const placeWords = (s: StorySceneMatches): string => `Chapter ${s.chapterNumber}, scene ${s.sceneNumber}`
 
 export function StoryFind(): React.JSX.Element {
   const open = useFind((s) => s.storyOpen)
@@ -288,6 +286,7 @@ function SceneGroup({
   onOpen: (s: StorySceneMatches, index: number) => void
 }): React.JSX.Element {
   const on = scene.matches.filter((m) => !unticked.has(key(scene.sceneId, m.id))).length
+  const own = ownSceneTitle(scene.sceneTitle)
   return (
     <div role="listitem" className="pb-1 [content-visibility:auto] [contain-intrinsic-size:auto_96px]">
       <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 pb-1 pt-2 hover:bg-surface-2" title={scene.chapterTitle}>
@@ -296,14 +295,14 @@ function SceneGroup({
           checked={on === scene.matches.length}
           indeterminate={on > 0 && on < scene.matches.length}
           onChange={(v) => onScene(scene, v)}
-          aria-label={`${scene.sceneTitle}: all its matches`}
+          aria-label={`${own || placeWords(scene)}: all its matches`}
         />
-        {/* A scene still called "Scene 2" is named by where it is alone. */}
-        {/^Scene \d+$/.test(scene.sceneTitle.trim()) ? (
+        {/* An untitled scene, or one still called "Scene 2", is named by where it is alone. */}
+        {!own ? (
           <span className="min-w-0 truncate text-[13px] font-medium text-fg">{placeWords(scene)}</span>
         ) : (
           <>
-            <span className="min-w-0 truncate text-[13px] font-medium text-fg">{scene.sceneTitle}</span>
+            <span className="min-w-0 truncate text-[13px] font-medium text-fg">{own}</span>
             <span className="shrink-0 text-[12px] text-faint">{placeWords(scene)}</span>
           </>
         )}

@@ -45,6 +45,10 @@ describe('proposalLine', () => {
         to: 'The Salt Stair'
       })
     ).toBe('change 4: rename chapter "Salt" → "The Salt Stair" (declined)')
+    // A new scene has no title until it is named: no empty quotes for it.
+    expect(
+      proposalLine({ id: '6', status: 'applied', why: '', kind: 'rename', target: 'scene', targetId: 's2', from: '', to: 'The Weir' })
+    ).toBe('change 6: rename scene (untitled) → "The Weir" (applied)')
     expect(
       proposalLine({
         id: '5',
