@@ -377,3 +377,56 @@ test('New story from a recipe picks the recipe, then the world, and opens New st
   await expect.poll(async () => (await invoke(win, 'getWorld'))?.id).toBe(s.ash)
   await expect(startScreen(win)).toBeVisible()
 })
+
+test('with no worlds: Create world waits in its own colour, the sample world shows as a book, and the other ways make one row, even at 1024', async ({
+  launch
+}) => {
+  const { app, win } = await launch({ env: { AIWRITE_ARRANGEMENT: 'desk' } })
+  const screen = startScreen(win)
+  await expect(screen.getByRole('heading', { name: 'Create a world' })).toBeVisible()
+  const create = screen.getByRole('button', { name: 'Create world', exact: true })
+  // Waiting for a name it keeps its own colour, a little dimmed, rather than fading to a grey block.
+  await expect(create).toBeDisabled()
+  expect(Number(await create.evaluate((e) => getComputedStyle(e).opacity))).toBeGreaterThan(0.6)
+  await screen.getByRole('textbox', { name: 'World name' }).fill('The Northern Reaches')
+  await expect(create).toBeEnabled()
+  await expect(create).toHaveCSS('opacity', '1')
+
+  const other = screen.getByRole('region', { name: 'Other ways to start' })
+  await expect(other.getByRole('heading', { name: 'Explore the sample world' })).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Open the sample world' })).toBeVisible()
+  // Importing a manuscript or a world file, and Story recipes: three tiles side by side, none alone on a row.
+  const tiles = other.locator('.grid > button')
+  await expect(tiles).toHaveCount(3)
+  const tops = async (): Promise<number[]> => tiles.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+  expect(new Set(await tops()).size).toBe(1)
+
+  // The smallest window: still one row, and nothing scrolls sideways.
+  await app.evaluate(({ BrowserWindow }) => {
+    const b = BrowserWindow.getAllWindows()[0]
+    b.unmaximize()
+    b.setContentSize(1024, 700)
+  })
+  await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - 1024)).toBeLessThanOrEqual(1)
+  expect(new Set(await tops()).size).toBe(1)
+  const sideways = await screen.locator('.overflow-y-auto').first().evaluate((e) => e.scrollWidth - e.clientWidth)
+  expect(sideways).toBeLessThanOrEqual(0)
+})
+
+test('with worlds, Start something new is one row of three, named as everywhere else (Build with AI)', async ({ launch }) => {
+  const s = await seed(launch)
+  const { win } = await launch({ dataDir: s.dataDir, env: { ...START, AIWRITE_ARRANGEMENT: 'desk' } })
+  const make = startScreen(win).getByRole('region', { name: 'Start something new' })
+  const tiles = make.locator('.grid > button')
+  await expect(tiles).toHaveCount(3)
+  await expect(make.getByRole('button', { name: 'New world…' })).toBeVisible()
+  await expect(make.getByRole('button', { name: 'New story…' })).toBeVisible()
+  await expect(make.getByRole('button', { name: 'Build with AI…' })).toBeVisible()
+  await expect(startScreen(win)).not.toContainText('Story builder')
+  const tops = await tiles.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+  expect(new Set(tops).size).toBe(1)
+  // The other ways come after the worlds.
+  const other = startScreen(win).getByRole('region', { name: 'Other ways to start' })
+  const below = await other.evaluate((o, list) => (list ? o.getBoundingClientRect().top > list.getBoundingClientRect().top : false), await worldList(win).elementHandle())
+  expect(below).toBe(true)
+})

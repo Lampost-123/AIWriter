@@ -13,6 +13,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type DropAnimation,
   type Modifier,
   type UniqueIdentifier
 } from '@dnd-kit/core'
@@ -48,6 +49,7 @@ import { runCheck } from '@/features/check/runCheck'
 import { rereadScene } from '@/features/memory/reread'
 import * as actions from './actions'
 import { useCollapsed } from './collapsed'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import {
   actOf,
   applyTreeOrder,
@@ -99,11 +101,15 @@ const keepInTree: Modifier = ({ transform, draggingNodeRect, scrollableAncestorR
 }
 
 const measuring = { droppable: { strategy: MeasuringStrategy.Always } }
-/** The dragged row settles into place, unless the system asks for less motion. */
-const dropAnimation =
-  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    ? null
-    : { duration: 180, easing: 'cubic-bezier(0.2, 0, 0, 1)' }
+/**
+ * The dragged row settles into place at the selection's speed (--dur-base), unless the system asks for less motion.
+ * Read each time a drag starts, so turning Windows' Animation effects on or off counts at once.
+ */
+function dropAnimation(): DropAnimation | null {
+  if (reducedMotion()) return null
+  const duration = tokenMs(document.documentElement, '--dur-base')
+  return duration ? { duration, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' } : null
+}
 
 const MENU_LABELS: Record<RowKind, string> = { scene: 'Scene actions', chapter: 'Chapter actions', act: 'Act actions' }
 
@@ -607,7 +613,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
             </ActBlock>
           )
         })}
-        <DragOverlay dropAnimation={dropAnimation} modifiers={[keepInTree]}>
+        <DragOverlay dropAnimation={dropAnimation()} modifiers={[keepInTree]}>
           {activeScene ? (
             <SceneDragPreview scene={activeScene} level={actOfChapter.get(findChapterOf(order.scenes, activeScene.id) ?? '') ? 3 : 2} />
           ) : null}

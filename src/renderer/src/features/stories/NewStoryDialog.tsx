@@ -276,10 +276,10 @@ function NewStoryForm(): React.JSX.Element {
       bodyScrolls
       footer={
         <>
-          {/* The Story builder next: give it the plot and it plans the cast, the world and the outline (2026-10-17). */}
+          {/* Build with AI next: give it the plot and it plans the cast, the world and the outline (2026-10-17). */}
           <label
             className="mr-auto flex items-center gap-2 text-[12.5px] text-muted"
-            title="Opens the Story builder: give it your plot and it plans the whole cast and world, then the outline."
+            title="Opens Build with AI: give it your plot and it plans the whole cast and world, then the outline."
           >
             <input
               type="checkbox"
@@ -289,7 +289,7 @@ function NewStoryForm(): React.JSX.Element {
               onChange={(e) => setWithAi(e.target.checked)}
               data-build-with-ai
             />
-            Build it with the AI next
+            Build it with AI next
           </label>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
@@ -384,7 +384,7 @@ function NewStoryForm(): React.JSX.Element {
             scrolls beneath it clear of its edge without taking any room. */}
         <div
           ref={pinnedRef}
-          className="sticky -top-1 z-10 -mx-5 -mt-1 bg-surface px-5 pt-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-surface"
+          className="sticky -top-1 z-10 -mx-5 -mt-1 bg-surface px-5 pt-1 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-surface look-new:bg-raise look-new:after:bg-raise"
         >
           <div className="overflow-hidden rounded-lg border border-line bg-surface-2">
             <div className="flex min-h-[42px] items-center gap-3 px-3 py-1.5">

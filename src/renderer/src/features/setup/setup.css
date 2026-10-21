@@ -152,44 +152,9 @@
   }
 }
 
-/* ---------- the sample world as a small book (FirstRun.tsx, SampleWorldCard) ---------- */
-.setup-book-pages,
-.setup-book-cover {
-  position: absolute;
-  inset: 0;
-  border-radius: 3px 8px 8px 3px;
-}
-.setup-book-pages {
-  transform: translate(5px, 4px);
-  background: repeating-linear-gradient(0deg, var(--surface-2) 0 2px, var(--page) 2px 3px);
-  box-shadow: var(--elev-1);
-}
-.setup-book-cover {
-  overflow: hidden;
-  color: color-mix(in oklab, var(--accent) 30%, #0b1124);
-  background:
-    linear-gradient(90deg, rgb(0 0 0 / 0.22), transparent 10%),
-    linear-gradient(180deg, color-mix(in oklab, var(--accent) 55%, #121a33), color-mix(in oklab, #7a5878 60%, var(--accent)) 70%, #f1bd86);
-  box-shadow:
-    var(--elev-2),
-    inset 0 0 0 1px rgb(255 255 255 / 0.08);
-  transition: transform var(--dur-quick) var(--motion-glide);
-}
-.setup-book:hover .setup-book-cover {
-  transform: rotate(-2deg) translateY(-2px);
-}
-.setup-book-title {
-  position: absolute;
-  left: 10px;
-  right: 8px;
-  top: 12px;
-  font: 600 12px/1.15 var(--heading-font);
-  color: #fff6e6;
-}
-.setup-book-art {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
+
+/* Continue keeps its colour while the step waits (a name to type): a little dimmed, not faded to a grey block. Plain
+   CSS outside Tailwind's layers, so it wins over the Button's own disabled fade (as on the start screen, start.css). */
+[data-step-foot] [data-step-next]:disabled {
+  opacity: 0.68;
 }
