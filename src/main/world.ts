@@ -10,6 +10,7 @@ import { newId, now, slugify, UserError } from './util'
 import { backupBeforeMigration } from './services/backups'
 import { isReservedName } from './library/names'
 import { recipesDir } from './recipes/paths'
+import { finishStaged } from './transfer/worldFile'
 
 // The open world: one folder in the library holding world.db, images/ and backups/.
 
@@ -75,8 +76,14 @@ export function listWorlds(): WorldSummary[] {
   const out: WorldSummary[] = []
   for (const name of readdirSync(lib, { withFileTypes: true })) {
     if (!name.isDirectory()) continue
-    // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/).
-    if (name.name.startsWith('.aiwrite-')) continue
+    // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/). One the app
+    // closed in the middle of, already holding a whole world, takes its own name here and is listed (review #21).
+    if (name.name.startsWith('.aiwrite-')) {
+      const finished = finishStaged(lib, name.name)
+      const s = finished ? readSummary(finished) : null
+      if (s) out.push(s)
+      continue
+    }
     // Deleted worlds wait one folder down, in Recently deleted (src/main/library/deleted.ts): that folder has no
     // world.db of its own, so readSummary passes it over like any folder that isn't a world.
     // Story recipes live beside the worlds, in a folder that is never one (src/main/recipes/paths.ts).

@@ -1,7 +1,7 @@
 // The library's world folders as world.ts reads and opens them. A made-up library folder; invented worlds.
 
 import Database from 'better-sqlite3'
-import { cpSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -86,5 +86,25 @@ describe('opening a world', () => {
     expect(() => world.openWorld(made.id)).toThrow(/newer version of AI Write/)
     expect(world.maybeCurrentWorld()).toBeNull()
     edit(made.folder, (d) => expect(d.pragma('user_version', { simple: true })).toBe(MIGRATIONS.length + 1))
+  })
+})
+
+describe('an import the app closed in the middle of', () => {
+  it('a whole world left in its hidden folder takes its own name and is listed', () => {
+    const made = world.createWorld('Orchard')
+    world.closeWorld()
+    // Stopped just before the folder took its own name.
+    const staged = join(lib, '.aiwrite-import-1234')
+    renameSync(made.folder, staged)
+    // One still unpacking (no world.db yet) is left for the import clean-up.
+    const unpacking = join(lib, '.aiwrite-copy-5678')
+    mkdirSync(unpacking)
+
+    const listed = world.listWorlds()
+    expect(listed.map((w) => w.name)).toEqual(['Orchard'])
+    expect(listed[0]).toMatchObject({ id: made.id, folder: join(lib, 'Orchard') })
+    expect(existsSync(staged)).toBe(false)
+    expect(existsSync(unpacking)).toBe(true)
+    expect(world.openWorld(made.id).name).toBe('Orchard')
   })
 })

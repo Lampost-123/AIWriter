@@ -23,7 +23,7 @@ import { strToU8, strFromU8, Unzip, UnzipInflate, Zip, ZipDeflate } from 'fflate
 import type { ID } from '@shared/types'
 import { MIGRATIONS } from '../db/migrations'
 import * as repo from '../db/repo'
-import { newId, renameRetry, slugify, UserError } from '../util'
+import { newId, renameRetry, renameRetrySync, slugify, UserError } from '../util'
 import { isReservedName } from '../library/names'
 
 type DB = Database.Database
@@ -207,6 +207,34 @@ export function freeFolder(library: string, name: string): string {
   return folder
 }
 
+/** Hidden folders an import or copy is filling right now: never finished or removed from under it. */
+const filling = new Set<string>()
+
+/**
+ * A hidden folder an import or copy left holding a whole world (it stopped just before the folder took its own name)
+ * takes its name now, so the library lists it (review #21). Returns where it went; null when the folder isn't one, is
+ * still being filled, or can't be moved yet (it is tried again at the next listing).
+ */
+export function finishStaged(library: string, dirName: string): string | null {
+  const dir = join(library, dirName)
+  if (!STAGING.test(dirName) || filling.has(dir) || !existsSync(join(dir, 'world.db'))) return null
+  try {
+    let name = 'Imported world'
+    const d = new Database(join(dir, 'world.db'), { readonly: true, fileMustExist: true })
+    try {
+      name = repo.getMeta(d, 'name')?.trim() || name
+    } finally {
+      d.close()
+    }
+    const folder = freeFolder(library, name)
+    renameRetrySync(dir, folder)
+    return folder
+  } catch (e) {
+    console.warn('Could not finish an import left part way', dir, e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
 /** Removes hidden folders left in the library by an import or copy the app closed in the middle of. */
 export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   let names: string[]
@@ -218,8 +246,8 @@ export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   for (const n of names) {
     if (!STAGING.test(n)) continue
     const dir = join(library, n)
-    // One stopped just before it took its own name is already a whole world (the library lists it): never removed.
-    if (existsSync(join(dir, 'world.db'))) continue
+    // One stopped just before it took its own name is already a whole world (the library finishes it): never removed.
+    if (filling.has(dir) || existsSync(join(dir, 'world.db'))) continue
     try {
       if (nowMs - statSync(dir).mtimeMs > STALE_MS) rmSync(dir, { recursive: true, force: true })
     } catch {
@@ -522,6 +550,7 @@ export async function importWorld(opts: ImportWorldOptions): Promise<{ folder: s
   })
   removeStaleStaging(opts.library)
   const staging = join(opts.library, `.aiwrite-import-${newId()}`)
+  filling.add(staging)
   try {
     await mkdir(staging, { recursive: true })
     progress('Opening the file', 0)
@@ -548,6 +577,8 @@ export async function importWorld(opts: ImportWorldOptions): Promise<{ folder: s
   } catch (e) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     throw plainFileError(e, 'import the world')
+  } finally {
+    filling.delete(staging)
   }
 }
 
@@ -566,6 +597,7 @@ export async function copyWorld(opts: CopyWorldOptions): Promise<{ folder: strin
   const progress = opts.progress ?? (() => undefined)
   removeStaleStaging(opts.library)
   const staging = join(opts.library, `.aiwrite-copy-${newId()}`)
+  filling.add(staging)
   try {
     await mkdir(staging, { recursive: true })
     const incoming = join(staging, 'world.db.incoming')
@@ -582,5 +614,7 @@ export async function copyWorld(opts: CopyWorldOptions): Promise<{ folder: strin
   } catch (e) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     throw plainFileError(e, 'copy the world')
+  } finally {
+    filling.delete(staging)
   }
 }
