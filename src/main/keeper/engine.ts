@@ -395,6 +395,9 @@ export class Keeper {
     // A scene also waiting for its own new words stays queued for those.
     this.queue = this.queue.filter((x) => !drop.has(x) || kdb.needsReading(this.db, x))
     if (this.current && drop.has(this.current.sceneId) && !kdb.needsReading(this.db, this.current.sceneId)) this.current.controller.abort()
+    // Anyone waiting for a dropped scene is let go (the one being read settles when its run ends).
+    for (const id of ids)
+      if (!this.queue.includes(id) && !this.urgent.includes(id) && this.current?.sceneId !== id) this.settle(id)
     this.emitStatus()
   }
 
