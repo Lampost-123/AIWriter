@@ -26,7 +26,7 @@ import { fold, matchesAll, parseQuery, plainWords, snippet, type Term } from '..
 import { effectivePins, happenedText } from '../ai/context'
 import { lineAt } from '../memory/asOf'
 import { labeler } from '../memory/line'
-import { loadMemoryData, loadShape } from '../memory/scene'
+import { loadMemoryData, loadShape, writerData } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
 import { LOOKUP_TOOLS, runLookup, type LookupContext } from '../ai/lookups'
 import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
@@ -1070,7 +1070,8 @@ function pinsAt(db: DB, point: AskPoint): Pin[] {
 
 function storyView(db: DB, storyId: ID | null, sceneId: ID | null): StoryView {
   const shape = loadShape(db)
-  const point = askPoint(db, storyId, sceneId, shape, loadMemoryData(db))
+  // The memory as the writer is given it: facts whose words were edited wait for a read, guesses are labelled.
+  const point = askPoint(db, storyId, sceneId, shape, writerData(db, loadMemoryData(db)))
   const hidden = new Set([...effectivePins(pinsAt(db, point)).values()].filter((p) => p.action === 'hide').map((p) => p.entryId))
   const scenes = new Map<ID, ScenePlace>()
   const chapters = new Map<ID, 'done' | 'open' | 'later'>()
@@ -1719,7 +1720,9 @@ export class EditorAgent {
       (e.changed ?? []).includes(key) ? ` (changed${e.changedWhere?.[key] ? ` in ${e.changedWhere[key]}` : ' in the story'})` : ''
     const defs = (FIELD_GROUPS[e.kind] ?? []).flatMap((g) => g.fields)
     const value = (k: string): string => (e.fields?.[k] ?? '').trim()
-    const fields = defs.filter((f) => value(f.key)).map((f) => `${f.label} [${f.key}]${changed(f.key)}: ${value(f.key)}`)
+    // The memory's guesses with no words behind them, labelled as drafting labels them (writerData).
+    const guess = (key: string): string => (e.guesses?.includes(key) ? ' (guess)' : '')
+    const fields = defs.filter((f) => value(f.key)).map((f) => `${f.label}${guess(f.key)} [${f.key}]${changed(f.key)}: ${value(f.key)}`)
     const empty = defs.filter((f) => !value(f.key)).map((f) => `${f.label} [${f.key}]`)
     const name = (id: ID): string => v.point.names.get(id) ?? 'Someone'
     const ties = v.point.relationships
@@ -1742,7 +1745,7 @@ export class EditorAgent {
       where,
       e.aliases.length && `Also called: ${e.aliases.join(', ')}`,
       e.summary.trim() && `Summary${changed('summary')}: ${e.summary.trim()}`,
-      e.description.trim() && `Description${changed('description')}: ${e.description.trim()}`,
+      e.description.trim() && `Description${guess('description')}${changed('description')}: ${e.description.trim()}`,
       ...fields,
       thread,
       happenedText(e),
