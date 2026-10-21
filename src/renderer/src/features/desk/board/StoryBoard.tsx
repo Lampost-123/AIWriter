@@ -16,6 +16,7 @@ import { Check, Plus, Sparkles } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { LoadFailed, useLoaded } from '@/lib/useLoaded'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
@@ -38,21 +39,7 @@ import './strings.css'
 const fmt = (x: number): string => x.toLocaleString('en-GB')
 
 /** Loads something for the board, again whenever `deps` change; the last value stays while the next loads. */
-export function useBoardData<T>(load: () => Promise<T> | null, deps: unknown[]): T | null {
-  const [value, setValue] = useState<T | null>(null)
-  const key = JSON.stringify(deps)
-  useEffect(() => {
-    let live = true
-    const p = load()
-    if (!p) return
-    p.then((v) => live && setValue(v)).catch(() => undefined)
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return value
-}
+export const useBoardData = <T,>(load: () => Promise<T> | null, deps: unknown[]): T | null => useLoaded(load, deps).value
 
 /** The threads for the strings: where each is set up and paid off, from the cards and the memory. */
 export function threadsIn(board: ThreadsBoard | null, cards: Record<ID, BoardSceneCard> | null): ThreadIn[] {
@@ -108,11 +95,17 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
   const view = useBoardStore((s) => s.view)
   const arriving = useArrival('board')
 
-  const cards = useBoardData(() => api.listSceneCards(storyId), [storyId, outlineRev, briefingRev])
-  const board = useBoardData(() => api.getThreadsBoard(storyId), [storyId, outlineRev, briefingRev, memoryRev])
-  const codex = useBoardData<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev])
+  const cardsLoad = useLoaded(() => api.listSceneCards(storyId), [storyId, outlineRev, briefingRev])
+  const boardLoad = useLoaded(() => api.getThreadsBoard(storyId), [storyId, outlineRev, briefingRev, memoryRev])
+  const codexLoad = useLoaded<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev])
   const marksRev = useBoardStore((s) => s.marksRev)
-  const marks = useBoardData<BoardMarks>(() => api.getBoardMarks(), [outlineRev, marksRev])
+  const marksLoad = useLoaded<BoardMarks>(() => api.getBoardMarks(), [outlineRev, marksRev])
+  const cards = cardsLoad.value
+  const board = boardLoad.value
+  const codex = codexLoad.value
+  const marks = marksLoad.value
+  // A part that failed to load says so once, at the top, and Try again reads every failed part again.
+  const failed = [cardsLoad, boardLoad, codexLoad, marksLoad].filter((l) => l.failed)
   const people = useMemo(() => new Map((codex ?? []).map((c) => [c.id, c])), [codex])
   const ai = useMemo(() => new Set(marks?.aiIdeas ?? []), [marks])
 
@@ -150,6 +143,7 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
           ) : null}
           {/* The plot threads, beside the board's buttons: hover one to pick out its string; click to keep it picked. */}
           {view === 'cards' && board ? <Legend threads={board.threads} drawn={new Set(layout.strings.map((s) => s.id))} /> : null}
+          {failed.length ? <LoadFailed onRetry={() => failed.forEach((l) => l.retry())} /> : null}
         </div>
         <div className="board-ctl">
           <ViewSwitch />

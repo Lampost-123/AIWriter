@@ -4,7 +4,7 @@
 // dots and how far along it is; then the open plot threads, the cast, and this week's writing; and a quiet footer with
 // the memory and the story's checks. The first time it shows in a session its pieces arrive in turn (the book tips up,
 // lines rise, the shelf slides in, the bars grow); never again, never from the keyboard, never with less motion.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
@@ -13,6 +13,7 @@ import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { LoadFailed, useLoaded } from '@/lib/useLoaded'
 import * as actions from '@/features/binder/actions'
 import { useOutline } from '@/features/binder/outlineStore'
 import { openConsistency } from '@/features/consistency/checkStore'
@@ -61,23 +62,6 @@ const fmt = (x: number): string => x.toLocaleString('en-GB')
 /** An arriving piece's delay. */
 const at = (ms: number): CSSProperties => ({ '--d': `${ms}ms` }) as CSSProperties
 
-/** Loads something for the home, again whenever `deps` change; null until it arrives (or when it fails). */
-function useLoad<T>(load: () => Promise<T> | null, deps: unknown[]): T | null {
-  const [value, setValue] = useState<{ key: string; v: T } | null>(null)
-  const key = JSON.stringify(deps)
-  useEffect(() => {
-    let live = true
-    const p = load()
-    if (!p) return
-    p.then((v) => live && setValue({ key, v })).catch(() => undefined)
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return value ? value.v : null
-}
-
 export function StoryHome(): React.JSX.Element {
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
@@ -97,10 +81,12 @@ export function StoryHome(): React.JSX.Element {
   const frame = useDeskFrame()
   const glide = useSheetGlide(frame)
 
-  const board = useLoad<ThreadsBoard>(() => (storyId ? api.getThreadsBoard(storyId) : null), [storyId, outlineRev, memoryRev])
-  const codex = useLoad<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev, world?.id])
-  const issues = useLoad(() => (storyId ? api.issueCounts(storyId) : null), [storyId, outlineRev, memoryRev])
-  const last = useLoad(() => (sceneId ? api.getScene(sceneId) : null), [sceneId, outlineRev])
+  const boardLoad = useLoaded<ThreadsBoard>(() => (storyId ? api.getThreadsBoard(storyId) : null), [storyId, outlineRev, memoryRev])
+  const codexLoad = useLoaded<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev, world?.id])
+  const issues = useLoaded(() => (storyId ? api.issueCounts(storyId) : null), [storyId, outlineRev, memoryRev]).value
+  const last = useLoaded(() => (sceneId ? api.getScene(sceneId) : null), [sceneId, outlineRev]).value
+  const board = boardLoad.value
+  const codex = codexLoad.value
   const cover = useStoryCover(story, world)
   const motifs = useEntryMotifs()
 
@@ -253,6 +239,8 @@ export function StoryHome(): React.JSX.Element {
               ) : (
                 <p className="home-empty">No plot threads yet. They come from the scene cards and the memory.</p>
               )
+            ) : boardLoad.failed ? (
+              <LoadFailed onRetry={boardLoad.retry} />
             ) : null}
           </div>
           <div className="home-lc a-up" style={at(660)}>
@@ -304,6 +292,8 @@ export function StoryHome(): React.JSX.Element {
               ) : (
                 <p className="home-empty">Nobody in the world yet.</p>
               )
+            ) : codexLoad.failed ? (
+              <LoadFailed onRetry={codexLoad.retry} />
             ) : null}
           </div>
           <div className="home-lc a-up" style={at(720)}>
@@ -326,7 +316,7 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
   // Only a planned scene whose card says nothing yet about what happens.
-  const card = useLoad(() => (target ? api.getScene(target.id) : null), [target?.id])
+  const card = useLoaded(() => (target ? api.getScene(target.id) : null), [target?.id]).value
   const session = useSceneIdeas((s) => (target ? s.sessions[ideasKey(worldId, target.id)] : undefined))
   const ideas = session ? parseIdeas(session.text, session.status !== 'running') : []
   if (!target || !outline || !card || card.id !== target.id || !cardIsEmpty(card.card)) return null
