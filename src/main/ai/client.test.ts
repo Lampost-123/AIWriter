@@ -136,6 +136,29 @@ describe('streamChat', () => {
     expect(retries).toEqual([])
   })
 
+  it('takes a stream that closes cleanly because Adam pressed Stop as stopped, not dropped', async () => {
+    const chunk = (content: string) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}
+
+`
+    const ctl = new AbortController()
+    const stoppedEarly = (async () => {
+      const words = new TextEncoder().encode(chunk('The rain had not '))
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(words)
+          // Stop is pressed, and the provider closes the stream cleanly.
+          setTimeout(() => {
+            ctl.abort()
+            c.close()
+          }, 5)
+        }
+      })
+      return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const { outcome } = await run('fake/writer', { fetchImpl: stoppedEarly, signal: ctl.signal })
+    expect(outcome.status).toBe('stopped')
+  })
+
   it('keeps the text when an error arrives mid-stream', async () => {
     const { outcome } = await run('fake/midstream-error')
     expect(outcome.status).toBe('error')

@@ -650,6 +650,8 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       }
       // Words came but no sign the reply had finished (review #3): the connection was lost part way, as when it is reset,
       // so the draft is said to be cut short (the text is kept) and isn't taken as whole, its beats unticked.
+      // Stop closes the stream too: that is Adam stopping it, not the connection dropping.
+      if (o.signal.aborted) return { kind: 'stopped' }
       if (!done && !s.finishReason && s.text.trim()) return { kind: 'fail', failure: { type: 'dropped' }, retry: null, retryAfterMs: null }
       return { kind: 'ok' }
     } finally {
