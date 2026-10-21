@@ -94,7 +94,7 @@ describe('the story index tables', () => {
     db.pragma('user_version = 4')
     repo.initWorld(db, 'w', 'Old world')
     const stories = repo.listStories(db).length
-    expect(migrate(db)).toEqual({ from: 4, to: 5 })
+    expect(migrate(db)).toEqual({ from: 4, to: MIGRATIONS.length })
     expect(repo.listStories(db)).toHaveLength(stories)
     expect(columns(db, 'index_threads')).toHaveLength(6)
   })

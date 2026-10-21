@@ -808,3 +808,8 @@ export function setSideStoryEnd(
   db.prepare('UPDATE stories SET end_at = ?, end_ref_id = ?, updated_at = ? WHERE id = ?').run(endAt, endRefId, now(), storyId)
   return { endAt: (r?.end_at as string | null) ?? null, endRefId: (r?.end_ref_id as string | null) ?? null }
 }
+
+/** How many rows this connection has written since the world opened: unchanged means nothing was written in between. */
+export function totalChanges(db: DB): number {
+  return (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
+}

@@ -114,6 +114,15 @@ describe('ANCHOR: paragraphs by number, words matched as the page does', () => {
     expect(agent.proposals[0]).toMatchObject({ find: 'opened the tally book.', replace: 'opened the ledger.', at: { paragraph: 2, pid: 'p2', offset: 33 } })
   })
 
+  it('checks a widened edit for clashes by the words it will look for, not the words asked', () => {
+    switchOn('ANCHOR')
+    const { agent } = paragraphs()
+    expect(call(agent, 'propose_edit', { find: 'He opened', replace: 'He shut', why: 'x' })).toMatch(/^Proposed/)
+    // "the tally book" in [2] widens to "opened the tally book.", whose words change 1 would change first.
+    expect(call(agent, 'propose_edit', { paragraph: 2, find: 'the tally book', replace: 'the ledger', why: 'x' })).toMatch(/overlap change 1/)
+    expect(agent.proposals).toHaveLength(1)
+  })
+
   it('offers the closest words when they aren’t there, and steers words across paragraphs to a rewrite', () => {
     switchOn('ANCHOR')
     const { agent } = paragraphs()

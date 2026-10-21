@@ -15,17 +15,26 @@ import * as mem from '../db/memory'
 describe('end-of-chapter snapshots, kept in step with the record', () => {
   it('works each chapter out once and keeps it in meta; again, nothing is worked out', () => {
     const w = chapterWorld()
-    expect(refreshSnapshots(w.db, w.storyId, 10)).toEqual({ worked: w.chapters, more: false })
+    expect(refreshSnapshots(w.db, w.storyId, 10)).toMatchObject({ worked: w.chapters, more: false })
     const kept = storedSnapshots(w.db)
     expect([...kept.keys()].sort()).toEqual([...w.chapters].sort())
     expect(kept.get(w.chapters[1])!.snapshot!.sceneId).toBe(w.scenes[1][2])
-    expect(refreshSnapshots(w.db, w.storyId, 10)).toEqual({ worked: [], more: false })
+    expect(refreshSnapshots(w.db, w.storyId, 10)).toMatchObject({ worked: [], more: false })
   })
 
   it('works out a few at a time, and says when more are left', () => {
     const w = chapterWorld()
-    expect(refreshSnapshots(w.db, w.storyId, 2)).toEqual({ worked: w.chapters.slice(0, 2), more: true })
-    expect(refreshSnapshots(w.db, w.storyId, 2)).toEqual({ worked: [w.chapters[2]], more: false })
+    expect(refreshSnapshots(w.db, w.storyId, 2)).toMatchObject({ worked: w.chapters.slice(0, 2), more: true })
+    expect(refreshSnapshots(w.db, w.storyId, 2)).toMatchObject({ worked: [w.chapters[2]], more: false })
+  })
+
+  it('works the next few out from the memory it was handed, not read again (review #26)', () => {
+    const w = chapterWorld()
+    const first = refreshSnapshots(w.db, w.storyId, 1)
+    expect(first.read).not.toBeNull()
+    const next = refreshSnapshots(w.db, w.storyId, 1, first.read)
+    expect(next.worked).toEqual([w.chapters[1]])
+    expect(next.read).toBe(first.read)
   })
 
   it('a change in one chapter works out that chapter again and every one after it, never one before it', () => {

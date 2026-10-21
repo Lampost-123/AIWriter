@@ -449,6 +449,11 @@ class Run {
     this.madeHere.add(e.id)
   }
 
+  /** Every entry, as read when the run began, with those it made since (review #42: not read again). */
+  get allEntries(): readonly Entry[] {
+    return this.entries
+  }
+
   /** Who "where" points at in this scene's story, for side-story questions. */
   private story(id: ID | null | undefined): WorldShape['stories'][number] | null {
     return (id && this.ctx.shape?.stories.find((s) => s.id === id)) || null
@@ -2289,7 +2294,7 @@ function linkMentions(run: Run): void {
       .filter((l) => l.factKind === 'entry' && l.state === 'ok')
       .map((l) => l.factId)
   )
-  for (const e of repo.listEntries(db)) {
+  for (const e of [...run.allEntries]) {
     if (e.kind === 'thread' || e.kind === 'event') continue
     const s = findMention([e.name, ...e.aliases], run.plan.toRead)
     if (!s) continue

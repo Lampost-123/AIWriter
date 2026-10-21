@@ -24,7 +24,7 @@
 // (db/threadPlans.ts). Both hand back what Undo needs. Runs inside the caller's transaction for writes. No Electron imports.
 
 import type Database from 'better-sqlite3'
-import type { Change, Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink, ThreadPlan, ThreadPlanChange } from '@shared/types'
+import type { Entry, ID, MemoryCheckFact, MemoryCheckItem, MemoryCheckUndo, Origin, SourceLink, ThreadPlan, ThreadPlanChange } from '@shared/types'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
 import * as hist from '../db/history'
@@ -38,7 +38,7 @@ import { chapterChoice } from '../memory/promises'
 import type { WorldShape } from '../memory/types'
 import { UserError } from '../util'
 import { changeInput, patchFor } from './apply'
-import { builderField, changeWords, fieldLabel, fieldValue, guessFields } from './facts'
+import { builderField, changeWords, fieldLabel, fieldValue, guessFields, liveChange } from './facts'
 import { loadShapeSafe } from './places'
 import { DUE_SUMMARY_SCENES, memoryNames, sceneSourceHash, summaryDue } from './sceneChange'
 import { hashText, plain } from './text'
@@ -50,14 +50,6 @@ const ADAM = { origin: 'adam' as const }
 const short = (s: string, max = 160): string => {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
-}
-
-function liveChange(db: DB, id: ID): Change | null {
-  try {
-    return mem.getChange(db, id)
-  } catch {
-    return null
-  }
 }
 
 const liveEntry = (db: DB, id: ID): Entry | null => repo.getEntries(db, [id])[0] ?? null

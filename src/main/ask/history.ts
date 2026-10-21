@@ -10,6 +10,9 @@ import type { DraftMode, Proposal } from '@shared/contracts/ask'
 /** The most of either side of a change shown again. */
 export const CLIP = 120
 
+/** A tool's answer cut to `max` characters, saying how much was left out. */
+export const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
+
 /** Words on one line, cut to `max` characters with an ellipsis. */
 export function clipLine(s: string, max = CLIP): string {
   const t = s.replace(/\s+/g, ' ').trim()

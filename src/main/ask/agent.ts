@@ -26,12 +26,13 @@ import { fold, matchesAll, parseQuery, plainWords, snippet, type Term } from '..
 import { effectivePins, happenedText } from '../ai/context'
 import { lineAt } from '../memory/asOf'
 import { labeler } from '../memory/line'
-import { loadMemoryData, loadShape } from '../memory/scene'
+import { loadMemoryData, loadShape, writerData } from '../memory/scene'
 import type { WorldShape } from '../memory/types'
 import { LOOKUP_TOOLS, runLookup, type LookupContext } from '../ai/lookups'
 import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
+import { clip } from './history'
 import { ASK_PACKS, proposedTail } from './prompts'
 import {
   SCENE_CARD_WITH_NAMES,
@@ -84,6 +85,8 @@ const RESULT_CHARS = 8_000
 const SHORT_CHARS = 3_000
 /** The most search results listed. */
 const SEARCH_HITS = 12
+/** When nothing has every word asked, the most words (each with hits of its own) whose groups are tried. */
+const FALLBACK_WORDS = 5
 
 // ---------- The runaway guard (chat Phase 3): no change too long for one reply ----------
 
@@ -832,7 +835,6 @@ export const fieldList = (kind: EntryKind): string =>
     .map((f) => `${f.key} (${f.label})`)
     .join(', ') || 'none (only summary, description and aliases)'
 
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const lower = (s: string): string => s.trim().toLocaleLowerCase()
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
 /** A whole number the model gave (as a number, or a string of digits), or undefined. */
@@ -1070,7 +1072,8 @@ function pinsAt(db: DB, point: AskPoint): Pin[] {
 
 function storyView(db: DB, storyId: ID | null, sceneId: ID | null): StoryView {
   const shape = loadShape(db)
-  const point = askPoint(db, storyId, sceneId, shape, loadMemoryData(db))
+  // The memory as the writer is given it: facts whose words were edited wait for a read, guesses are labelled.
+  const point = askPoint(db, storyId, sceneId, shape, writerData(db, loadMemoryData(db)))
   const hidden = new Set([...effectivePins(pinsAt(db, point)).values()].filter((p) => p.action === 'hide').map((p) => p.entryId))
   const scenes = new Map<ID, ScenePlace>()
   const chapters = new Map<ID, 'done' | 'open' | 'later'>()
@@ -1602,15 +1605,23 @@ export class EditorAgent {
     const scope = v.point.story
       ? `Searched ${v.point.story.title} as of ${v.point.label}${v.point.sceneId ? ' (the open scene)' : ''}, along its own line only.`
       : 'Searched the world as it was set up (no story is open).'
+    const queryOf = (some: Term[]): string => `${some.map((t) => t.word).join(' ')}${some[some.length - 1].prefix ? '' : ' '}`
     let hits = this.searchFor(q, terms, q)
     let note = ''
-    for (let k = terms.length - 1; !hits.length && k >= 1; k--) {
+    // Each word once first: words with no hits here are dropped and at most FALLBACK_WORDS kept, so the groups tried
+    // stay a handful of searches however many words were asked (each search reads the whole story).
+    const alone = new Map<Term, { key: string; line: string }[]>()
+    if (!hits.length && terms.length > 1)
+      for (const t of terms) {
+        const found = this.searchFor(queryOf([t]), [t], q)
+        if (found.length) alone.set(t, found)
+      }
+    const kept = terms.filter((t) => alone.has(t)).slice(0, FALLBACK_WORDS)
+    for (let k = Math.min(kept.length, terms.length - 1); !hits.length && k >= 1; k--) {
       const seen = new Set<string>()
-      let tried = 0
-      for (const some of subsets(terms, k)) {
-        if (tried++ >= 40 || hits.length >= SEARCH_HITS) break
-        const query = `${some.map((t) => t.word).join(' ')}${some[some.length - 1].prefix ? '' : ' '}`
-        for (const h of this.searchFor(query, some, q)) {
+      for (const some of subsets(kept, k)) {
+        if (hits.length >= SEARCH_HITS) break
+        for (const h of k === 1 ? (alone.get(some[0]) ?? []) : this.searchFor(queryOf(some), some, q)) {
           if (seen.has(h.key)) continue
           seen.add(h.key)
           hits.push({ key: h.key, line: `${h.line} [has: ${some.map((t) => t.word).join(', ')}]` })
@@ -1719,7 +1730,9 @@ export class EditorAgent {
       (e.changed ?? []).includes(key) ? ` (changed${e.changedWhere?.[key] ? ` in ${e.changedWhere[key]}` : ' in the story'})` : ''
     const defs = (FIELD_GROUPS[e.kind] ?? []).flatMap((g) => g.fields)
     const value = (k: string): string => (e.fields?.[k] ?? '').trim()
-    const fields = defs.filter((f) => value(f.key)).map((f) => `${f.label} [${f.key}]${changed(f.key)}: ${value(f.key)}`)
+    // The memory's guesses with no words behind them, labelled as drafting labels them (writerData).
+    const guess = (key: string): string => (e.guesses?.includes(key) ? ' (guess)' : '')
+    const fields = defs.filter((f) => value(f.key)).map((f) => `${f.label}${guess(f.key)} [${f.key}]${changed(f.key)}: ${value(f.key)}`)
     const empty = defs.filter((f) => !value(f.key)).map((f) => `${f.label} [${f.key}]`)
     const name = (id: ID): string => v.point.names.get(id) ?? 'Someone'
     const ties = v.point.relationships
@@ -1742,7 +1755,7 @@ export class EditorAgent {
       where,
       e.aliases.length && `Also called: ${e.aliases.join(', ')}`,
       e.summary.trim() && `Summary${changed('summary')}: ${e.summary.trim()}`,
-      e.description.trim() && `Description${changed('description')}: ${e.description.trim()}`,
+      e.description.trim() && `Description${guess('description')}${changed('description')}: ${e.description.trim()}`,
       ...fields,
       thread,
       happenedText(e),
@@ -1875,7 +1888,8 @@ export class EditorAgent {
     const find = hay.slice(from, to)
     replace = hay.slice(from, at) + replace + hay.slice(atEnd, to)
     const revises = this.revising(a, ['text'], 'words')
-    const clash = this.clashWith(id, s, at, atEnd, revises)
+    // By the widened words: those are what the page looks for when this change is applied.
+    const clash = this.clashWith(id, s, from, to, revises)
     if (clash?.kind === 'text') {
       throw new Mistake(
         `Those words overlap change ${clash.id} (“${clip(clash.find, 120)}”): once one is applied, the other's words are gone. Make one change covering both, with \`revises\`: "${clash.id}".`

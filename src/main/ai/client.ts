@@ -648,6 +648,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         // The stream closed without a word or a sign that it had finished.
         return { kind: 'fail', failure: { type: 'network', code: null, message: 'closed' }, retry: { kind: 'network' }, retryAfterMs: null }
       }
+      // Words came but no sign the reply had finished (review #3): the connection was lost part way, as when it is reset,
+      // so the draft is said to be cut short (the text is kept) and isn't taken as whole, its beats unticked.
+      if (!done && !s.finishReason && s.text.trim()) return { kind: 'fail', failure: { type: 'dropped' }, retry: null, retryAfterMs: null }
       return { kind: 'ok' }
     } finally {
       if (timer) clearTimeout(timer)
