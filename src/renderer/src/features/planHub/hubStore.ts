@@ -586,7 +586,7 @@ export async function keepUpdate(storyId: ID): Promise<void> {
         void (async () => {
           for (const w of was) {
             await patchCard(w.sceneId, { goal: w.card.goal, beats: w.card.beats, when: w.card.when })
-            if (w.title) await renameScene(w.sceneId, w.title)
+            await renameScene(w.sceneId, w.title)
           }
           useApp.getState().bumpOutline()
         })().catch((e: Error) => toast(e.message || 'That didn’t work. Please try again.', { tone: 'danger' }))

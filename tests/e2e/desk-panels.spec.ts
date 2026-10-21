@@ -64,8 +64,10 @@ test('in focus mode the scene panel left open makes no room: the page sits in th
   // column's small shift left of centre where the window has room for it (deskFit.ts MARGIN_SHIFT, 32px at most).
   await expect
     .poll(async () => {
+      // (Against the window's own middle: CI's window may be wider than asked.)
       const sheet = (await win.locator('.desk-sheet').boundingBox())!
-      return Math.abs(Math.round(sheet.x + sheet.width / 2 - 720))
+      const middle = ((await win.evaluate('innerWidth')) as number) / 2
+      return Math.abs(Math.round(sheet.x + sheet.width / 2 - middle))
     })
     .toBeLessThanOrEqual(32)
   await win.keyboard.press('F11')
