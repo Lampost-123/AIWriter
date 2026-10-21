@@ -400,18 +400,6 @@
   font-size: 13px;
   color: var(--muted);
 }
-[data-arrangement='desk'] .ck-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-[data-arrangement='desk'] .ck-toggle input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-}
 [data-arrangement='desk'] .ck-filters {
   position: relative;
   display: inline-flex;
@@ -579,7 +567,7 @@
 /* Ignored: the card folds up and away; the ones below close the gap (useFlip). */
 [data-arrangement='desk'] .ck-card[data-leaving] {
   pointer-events: none;
-  animation: ck-fold 180ms var(--desk-ease) forwards;
+  animation: ck-fold var(--dur-exit) var(--desk-ease) forwards;
 }
 @keyframes ck-fold {
   to {

@@ -121,3 +121,21 @@ test('at 1440 x 900 the story board fits beside the full spine, with one main bu
   await expect(hint).toHaveCount(0)
   await expect(board(win).getByLabel('Pins')).toBeVisible()
 })
+
+test('at 1024 x 700 the plan pages’ header line reads whole, and Story recipes’ two actions sit side by side', async ({ launch }) => {
+  const { app, win } = await sampleWorld(launch)
+  await size(app, win, 1024, 700)
+  await room(win, 'Plan').click()
+  const line = win.locator('.plan-line').first()
+  for (const page of ['Plot threads board', 'Story recipes']) {
+    await win.getByRole('button', { name: page }).click()
+    await expect(line).toBeVisible()
+    // Not cut off: the whole line fits in the lines it has.
+    expect(await line.evaluate((e) => e.scrollHeight - e.clientHeight), page).toBeLessThanOrEqual(1)
+    expect(await spill(win), page).toBeLessThanOrEqual(0)
+  }
+  const make = (await win.getByRole('button', { name: 'Make a recipe from a story' }).boundingBox())!
+  const write = (await win.getByRole('button', { name: 'Write one yourself' }).boundingBox())!
+  expect(Math.abs(make.y - write.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(make.height - write.height)).toBeLessThanOrEqual(1)
+})

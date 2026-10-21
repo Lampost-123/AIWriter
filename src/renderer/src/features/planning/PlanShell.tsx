@@ -75,7 +75,9 @@ export function PlanBand({
           <span>{kicker}</span>
         </p>
         <h1 className="plan-title">{title}</h1>
-        <p className="plan-line">{line}</p>
+        <p className="plan-line" title={typeof line === 'string' ? line : undefined}>
+          {line}
+        </p>
       </div>
       {children}
     </header>

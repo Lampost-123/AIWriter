@@ -1,5 +1,5 @@
 // The story line (Build with AI's third section, 2026-10-20; the Plan hub's before): the story from start to end in a few
-// rows, the AI's suggestions in their place. What is written is folded away ("✓ Act 1 · Ch 1 to Ch 3 · written", Open),
+// rows, the AI's suggestions in their place. What is written is folded away ("✓ Act 1 · Ch 1 to Ch 3 · written", Show the chapters),
 // the chapter being written lists its scenes so far, then YOU ARE HERE and the newest suggestions for what comes next;
 // then the chapters planned but not written, one row each (2026-10-20: no row around them to open), and acts that have
 // no chapters yet (Plan its chapters). Quiet since "Option A: Zoom in" (Adam, 2026-10-20):
@@ -11,7 +11,7 @@
 import { useEffect, useMemo } from 'react'
 import type { HubDrift } from '@shared/contracts/planHub'
 import type { Chapter, ID, Outline } from '@shared/types'
-import { Check, ChevronRight, NotebookText, PenLine, Sparkles } from '@/components/ui/icons'
+import { Check, ChevronDown, ChevronRight, NotebookText, PenLine, Sparkles } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { reducedMotion, tokenMs } from '@/features/look/motion'
@@ -220,14 +220,17 @@ export function StoryLine(p: StoryLineProps): React.JSX.Element {
             {row.kind === 'written-act' ? `Act ${row.actNo} · ` : ''}
             {row.range} · written
           </span>
+          {/* Quiet, with a turning arrow: it folds the row open here, unlike a chapter's Open, which goes to its page. */}
           <button
             type="button"
-            className="hub-row-btn"
+            className="hub-row-btn is-quiet"
             aria-expanded={isOpen}
             onClick={() => toggleRow(storyId, row.key)}
-            title={isOpen ? undefined : 'Open it chapter by chapter'}
+            title={isOpen ? undefined : 'Show what is written, chapter by chapter'}
+            data-fold-written
           >
-            {isOpen ? 'Fold away' : 'Open'}
+            {isOpen ? 'Fold away' : row.chapters.length === 1 ? 'Show the chapter' : 'Show the chapters'}
+            <ChevronDown size={12} aria-hidden className={cn('transition-[rotate] duration-(--dur-base) ease-glide', isOpen && 'rotate-180')} />
           </button>
         </li>
       )
