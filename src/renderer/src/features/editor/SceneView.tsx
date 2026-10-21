@@ -22,7 +22,7 @@ import { onPutBackRequest, takePutBack } from './putBack'
 import { onRevealRequest, takeReveal } from './reveal'
 import { SceneHeader } from './SceneHeader'
 import { PageTitle } from './PageTitle'
-import { useDesk, useNewLook } from '@/features/look/look'
+import { useDesk } from '@/features/look/look'
 import { sheetSides, useDeskFrame, useSheetGlide } from '@/layout/desk/deskFit'
 import { DeskPageHead } from '@/features/desk/page/DeskPageHead'
 import { Dock, FootActivity } from '@/features/desk/dock/Dock'
@@ -80,7 +80,6 @@ interface Shown {
 function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
   const worldId = useApp((s) => s.world?.id ?? null)
   const prefs = useApp((s) => s.settings?.editor)
-  const isNew = useNewLook()
   // The New look's desk layout: the page is a sheet of paper lying in the middle of the lit desk, its tools floating at
   // its foot (layout/desk/desk.css). The same elements as in the panels, so switching layout never remounts the editor.
   const desk = useDesk()
@@ -371,7 +370,7 @@ function SceneEditor({ sceneId }: { sceneId: ID }): React.JSX.Element {
           {desk && shown && !error ? <FirstSceneGuide sceneId={shown.id} slip /> : null}
           {desk && shown && !error ? (
             <DeskPageHead sceneId={shown.id} fallbackTitle={shown.title} />
-          ) : isNew && shown && !error ? (
+          ) : shown && !error ? (
             <PageTitle sceneId={shown.id} fallbackTitle={shown.title} />
           ) : null}
           <EditorContent editor={editor} />

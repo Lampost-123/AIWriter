@@ -12,7 +12,6 @@ import { useOutline } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
 import { dayOf, sizeNote, streakNote, streakOf, wordsLabel } from './goalLogic'
 import { useGoals } from './goalStore'
-import { useNewLook } from '@/features/look/look'
 
 /** Words selected in the page now (0 with nothing selected), kept current while the panel is open. */
 function useSelectedWords(open: boolean): number {
@@ -208,7 +207,6 @@ export function WordCountsBody({ open }: { open: boolean }): React.JSX.Element {
 /** The scene's word count in the top bar; click for the counts and today's writing. */
 export function WordCountButton(): React.JSX.Element {
   const words = useApp((s) => s.sceneWords)
-  const isNew = useNewLook()
   const [open, setOpen] = useState(false)
   useEffect(() => onOpenWordCounts(() => setOpen(true)), [])
 
@@ -220,12 +218,12 @@ export function WordCountButton(): React.JSX.Element {
         onMouseDown={(e) => e.preventDefault()}
         className="-ml-1 mr-2 shrink-0 whitespace-nowrap rounded px-1 text-[12px] tabular-nums text-faint outline-none transition-colors duration-150 hover:text-muted focus-visible:ring-2 focus-visible:ring-accent/40 data-[state=open]:text-fg look-new:flex look-new:h-8 look-new:items-center look-new:gap-2 look-new:rounded-full look-new:px-2 look-new:text-[12.5px] look-new:text-muted look-new:hover:bg-surface-2"
       >
-        {isNew ? <GoalRing /> : null}
+        <GoalRing />
         {/* Counting up (a draft coming in, typing) moves nothing in the bar: the count keeps the room of four digits. */}
         <span>
           <Steady text={words.toLocaleString()} room={COUNT_ROOM} /> words
         </span>
-        {isNew ? <GoalShare /> : null}
+        <GoalShare />
       </P.Trigger>
       <PopoverPanel
         className="w-[300px]"

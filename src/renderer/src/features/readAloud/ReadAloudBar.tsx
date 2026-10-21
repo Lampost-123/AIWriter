@@ -50,7 +50,6 @@ import {
 } from './control'
 import { openEntryVoice } from './voiceReveal'
 import { setBarRoom } from './highlight'
-import { useNewLook } from '@/features/look/look'
 import { playingPlace } from './playing'
 import { onOff, SOUNDS_OFF, SOUNDS_ON, TONE_OFF, TONE_ON, toneTooltip } from './tone'
 import { stopSample } from './useSample'
@@ -111,12 +110,10 @@ export function ReadAloudBar({
     return () => clearTimeout(t)
   }, [bar])
 
-  // While it shows, the room it takes over the top of the page: the cursor is scrolled clear of it, and so is
-  // anything brought into view (the page's own scroll padding).
-  // The New look: the bar floats at the foot of the page instead (16px clear of its edge), so the room is kept there.
+  // While it shows, the room it takes at the foot of the page, where it floats 16px clear of the edge: the cursor is
+  // scrolled clear of it, and so is anything brought into view (the page's own scroll padding).
   const box = useRef<HTMLDivElement>(null)
   const open = !!shown
-  const atFoot = useNewLook()
   useLayoutEffect(() => {
     const el = box.current
     const page = scrollerRef.current
@@ -124,13 +121,13 @@ export function ReadAloudBar({
     // On the desk the AI dock also floats at the foot of the sheet: it is lifted clear of the bar (--read-aloud-lift,
     // read by SceneView), and the room kept for the line being read takes in the dock too.
     const sheet = el.closest<HTMLElement>('.scene-sheet')
-    const dock = atFoot ? sheet?.querySelector<HTMLElement>('[data-desk-dock]') : null
+    const dock = sheet?.querySelector<HTMLElement>('[data-desk-dock]')
     const room = (): void => {
       const bar = el.offsetHeight
-      sheet?.style.setProperty('--read-aloud-lift', `${atFoot ? bar + 12 : 0}px`)
-      const px = bar + (atFoot ? 16 : 0) + (dock ? dock.offsetHeight + 12 : 0)
-      setBarRoom(px, atFoot ? 'bottom' : 'top')
-      if (page) page.style[atFoot ? 'scrollPaddingBottom' : 'scrollPaddingTop'] = `${px}px`
+      sheet?.style.setProperty('--read-aloud-lift', `${bar + 12}px`)
+      const px = bar + 16 + (dock ? dock.offsetHeight + 12 : 0)
+      setBarRoom(px, 'bottom')
+      if (page) page.style.scrollPaddingBottom = `${px}px`
     }
     room()
     const ro = new ResizeObserver(room)
@@ -145,7 +142,7 @@ export function ReadAloudBar({
         page.style.scrollPaddingBottom = ''
       }
     }
-  }, [open, scrollerRef, atFoot])
+  }, [open, scrollerRef])
 
   if (!shown) return null
   const player = isPlayer(shown)

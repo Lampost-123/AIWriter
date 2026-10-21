@@ -21,7 +21,7 @@ import { Skeleton, useDelayed, useNow } from '@/features/generate/parts'
 import { beforeAfter, canUndo, groupHeading, groupLog, markAnswered, markUndone, pointsToSettings, wordsGone } from './logic'
 import { openScene } from './openScene'
 import { DeskLedger } from './DeskLedger'
-import { useDesk, useNewLook } from '@/features/look/look'
+import { useDesk } from '@/features/look/look'
 import { CheckQueue } from './CheckQueue'
 import { StoryFillCard } from './StoryFillCard'
 
@@ -53,8 +53,6 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
   const ticket = useRef(0)
   const now = useNow()
   const desk = useDesk()
-  // Fill in the whole story is in the New look only (Adam, 2026-10-19: Classic is retired).
-  const newLook = useNewLook()
 
   const load = useCallback(() => {
     const t = ++ticket.current
@@ -211,7 +209,7 @@ function WhatChangedPage({ sceneId }: { sceneId: ID | null }): React.JSX.Element
           ) : null}
         </div>
 
-        {sceneId || !newLook ? null : <StoryFillCard className="mt-5" />}
+        {sceneId ? null : <StoryFillCard className="mt-5" />}
 
         <div className="mt-6">
           {error && !items ? (

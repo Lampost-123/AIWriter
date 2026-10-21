@@ -57,7 +57,7 @@ import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { useDelayed } from '@/features/generate/parts'
 import { KIND_ICONS, KIND_INK } from '@/features/world/kindIcons'
-import { useDesk, useNewLook } from '@/features/look/look'
+import { useDesk } from '@/features/look/look'
 import { openAsk } from '@/features/ask/open'
 import { setDraft } from '@/features/ask/askStore'
 import { openResult, runAction } from './actions'
@@ -228,7 +228,6 @@ function DeskMotifs({ children }: { children: React.ReactNode }): React.JSX.Elem
 }
 
 function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JSX.Element {
-  const isNew = useNewLook()
   const motifs = useContext(MotifsContext)
   const base = cn('pal-row flex cursor-default select-none gap-3 rounded-lg px-3', active && 'bg-surface-2')
   const props = {
@@ -279,7 +278,7 @@ function OptionRow({ row, active, onPoint, onChoose }: OptionRowProps): React.JS
   const { hit } = row
   const Icon = hitIcon(hit)
   // The New look: a world entry's icon sits on a tile in its kind's ink.
-  const kind = isNew && hit.open.kind === 'entry' ? hit.open.entryKind : null
+  const kind = hit.open.kind === 'entry' ? hit.open.entryKind : null
   const motif = kind && motifs && hit.open.kind === 'entry' ? (motifs.get(hit.open.entryId) ?? null) : null
   return (
     <div {...props} data-row="hit" data-prose={hit.prose || undefined} className={cn(base, 'items-start py-2')}>
