@@ -3,7 +3,7 @@
 // headland at dusk with the lighthouse being lit step by step (SetupScene.tsx), a line under it saying what is
 // happening. Finishing lights the lamp fully and says so on the sheet for a moment (about 900 ms) before the first
 // scene opens. In a narrower window the rail folds into a line of six segments over the sheet, and below about
-// 1100 px the picture steps aside. Classic keeps its single column (FirstRun.tsx).
+// 1100 px the picture steps aside.
 import type { ReactNode } from 'react'
 import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
 import { AudioLines, Compass, Cpu, Feather, Globe2, Network, type IconType } from '@/components/ui/icons'

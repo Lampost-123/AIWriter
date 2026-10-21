@@ -15,7 +15,7 @@ import { onMarkDoneRequest, requestMarkDone } from './doneShortcut'
 
 /**
  * Ctrl+Enter marks the scene done, from the page (the editor passes it on as a request) or anywhere else in the writing
- * view; a scene already done says so. Used by Mark done in the scene's toolbar (Classic and the panels) and, with no
+ * view; a scene already done says so. Used by Mark done in the scene's toolbar (the panels) and, with no
  * button, by the desk's page (features/desk/keys/DeskSceneKeys.tsx). `run` keeps one mark at a time.
  */
 export function useMarkDoneKeys(sceneId: ID, done: boolean, run: (fn: () => Promise<unknown>) => Promise<void> = (fn) => fn().then(() => undefined)): void {

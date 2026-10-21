@@ -1,10 +1,9 @@
 // The look: the New look ("Lamplight"), the only one since Classic was retired (2026-10-19; lookOf in contracts/look.ts
-// always answers 'new', so the Classic branches that read it here await removal). It is painted as <html data-look>
-// (styles.css sets its tokens), and is known here for what draws differently in code: the icons
-// (components/ui/icons.tsx) and the shell (the area rail).
+// always answers 'new'; a few Classic branches outside this folder still read it). It is painted as <html data-look>
+// (styles.css sets its tokens).
 // The New look's layout (Settings › Appearance › Layout) is kept here too: the desk or the panels, painted as
 // <html data-arrangement> (layout/desk/desk.css), and known here for the shell (App.tsx's Workspace).
-// Its own small store, so the icons never depend on the app's store.
+// Its own small store, so it never depends on the app's store.
 
 import { useLayoutEffect } from 'react'
 import { create } from 'zustand'
