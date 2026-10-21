@@ -15,7 +15,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { buildNameIndex, entriesNamedIn } from '@/features/editor/names/nameMatch'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { applyIdea, askIdeas, ideasKey, setWish, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
 import { parseIdeas, type SceneIdea } from '@/features/outline/parse'
 import { Portrait } from '@/features/views/Portrait'
@@ -71,6 +71,7 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
   const session = useSceneIdeas((s) => (sceneId ? s.sessions[ideasKey(worldId, sceneId)] : undefined))
   const index = useMemo(() => buildNameIndex(people), [people])
   const panel = useRef<HTMLElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const scene = sceneId ? outline.scenes.find((s) => s.id === sceneId) : undefined
 
   // A new ask brings every idea back.
@@ -86,8 +87,13 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneId])
   useEffect(() => {
-    if (sceneId) panel.current?.focus({ preventScroll: true })
+    if (!sceneId) return
+    // Opened again while closing: it stays open.
+    clearTimeout(closeTimer.current)
+    setClosing(false)
+    panel.current?.focus({ preventScroll: true })
   }, [sceneId])
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
 
   if (!sceneId) return null
   const running = session?.status === 'running'
@@ -95,23 +101,27 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
   const shown = ideas.map((idea, i) => ({ idea, i })).filter((x) => !gone.has(x.i))
 
   function close(): void {
-    if (keyboardDriven() || reducedMotion()) {
+    clearTimeout(closeTimer.current)
+    const exit = panel.current && !keyboardDriven() && !reducedMotion() ? tokenMs(panel.current, '--dur-exit') : 0
+    if (!exit) {
+      setClosing(false)
       useBoardStore.setState({ ideasFor: null })
       return
     }
     setClosing(true)
-    setTimeout(() => {
+    closeTimer.current = setTimeout(() => {
       setClosing(false)
       useBoardStore.setState({ ideasFor: null })
-    }, 140)
+    }, exit)
   }
   const dismiss = (i: number): void => {
-    if (reducedMotion() || keyboardDriven()) return setGone(new Set([...gone, i]))
+    const exit = panel.current && !reducedMotion() && !keyboardDriven() ? tokenMs(panel.current, '--dur-exit') : 0
+    if (!exit) return setGone(new Set([...gone, i]))
     setLeaving(i)
     setTimeout(() => {
       setLeaving(null)
       setGone((g) => new Set([...g, i]))
-    }, 160)
+    }, exit)
   }
   const use = async (idea: SceneIdea, el: HTMLElement | null): Promise<void> => {
     if (!sceneId) return

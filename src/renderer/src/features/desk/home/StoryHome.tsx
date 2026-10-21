@@ -4,7 +4,7 @@
 // dots and how far along it is; then the open plot threads, the cast, and this week's writing; and a quiet footer with
 // the memory and the story's checks. The first time it shows in a session its pieces arrive in turn (the book tips up,
 // lines rise, the shelf slides in, the bars grow); never again, never from the keyboard, never with less motion.
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
@@ -12,6 +12,7 @@ import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, WandSparkles, X } fr
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { useApp } from '@/lib/store'
 import { LoadFailed, useLoaded } from '@/lib/useLoaded'
 import * as actions from '@/features/binder/actions'
@@ -319,19 +320,40 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
   const card = useLoaded(() => (target ? api.getScene(target.id) : null), [target?.id]).value
   const session = useSceneIdeas((s) => (target ? s.sessions[ideasKey(worldId, target.id)] : undefined))
   const ideas = session ? parseIdeas(session.text, session.status !== 'running') : []
+  const panel = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // As the board's drawer closes: at once from the keyboard or with less motion, else after the exit; reopening cancels it.
+  const close = useCallback((): void => {
+    clearTimeout(closeTimer.current)
+    const exit = panel.current && !keyboardDriven() && !reducedMotion() ? tokenMs(panel.current, '--dur-exit') : 0
+    if (!exit) {
+      setOpen(false)
+      setClosing(false)
+      return
+    }
+    setClosing(true)
+    closeTimer.current = setTimeout(() => {
+      setOpen(false)
+      setClosing(false)
+    }, exit)
+  }, [])
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
+  // Esc closes it.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !e.defaultPrevented) close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, close])
   if (!target || !outline || !card || card.id !== target.id || !cardIsEmpty(card.card)) return null
 
   const show = (): void => {
+    clearTimeout(closeTimer.current)
     setClosing(false)
     setOpen(true)
     if (!session || session.status === 'error' || session.hidden) void askIdeas(target.id)
-  }
-  const close = (): void => {
-    setClosing(true)
-    setTimeout(() => {
-      setOpen(false)
-      setClosing(false)
-    }, 140)
   }
   const thinking = session?.status === 'running' && !ideas.length
   return (
@@ -342,7 +364,7 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
         <ChevronDown size={14} className="home-chev" />
       </button>
       {open ? (
-        <div className={cn('home-ideas', closing && 'is-out')} role="dialog" aria-label="Ideas for the next scene">
+        <div ref={panel} className={cn('home-ideas', closing && 'is-out')} role="dialog" aria-label="Ideas for the next scene">
           <div className="home-ideas-head">
             <span className={cn('home-lamp-dot', session?.status === 'running' && 'is-busy')} aria-hidden />
             <span className="home-ideas-title">Ideas for the next scene</span>
