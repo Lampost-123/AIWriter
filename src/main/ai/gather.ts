@@ -315,7 +315,8 @@ export function stageNote(input: Pick<ContextInput, 'continuity' | 'memory'>, o:
 // Add below, a later beat and Continue carry on from words already in the scene, so the writer is told where things
 // stand at the end of those words, not as the previous scene ended. The memory keeper registers how (setStandAt).
 
-export type StandAt = (db: DB, sceneId: ID, text: string, signal?: AbortSignal) => Promise<SceneState | null>
+// No signal: the work goes on in the background and is kept for next time (standAtText stops waiting, not the work).
+export type StandAt = (db: DB, sceneId: ID, text: string) => Promise<SceneState | null>
 
 let standAt: StandAt | null = null
 

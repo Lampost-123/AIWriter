@@ -208,12 +208,12 @@ export async function continuityBefore(db: Database.Database, sceneId: ID, signa
  * Where things stand at the end of `text`, the scene so far (continuity/tracker.ts `stateAtText`), worked out with
  * the memory model. Never throws; null with no memory model (or memory paused) or when it couldn't say.
  */
-export async function continuityAt(db: Database.Database, sceneId: ID, text: string, signal?: AbortSignal): Promise<SceneState | null> {
+export async function continuityAt(db: Database.Database, sceneId: ID, text: string): Promise<SceneState | null> {
   const m = memoryModel()
   if ('error' in m || pausedNote()) return null
   const live = (): boolean => db.open && maybeCurrentWorld()?.db === db
   try {
-    return await stateAtText({ db, model: m, signal: signal ?? new AbortController().signal, closed: () => !live() }, sceneId, text)
+    return await stateAtText({ db, model: m, signal: new AbortController().signal, closed: () => !live() }, sceneId, text)
   } catch (e) {
     console.warn('Could not work out where things stand in the scene so far', e)
     return null
