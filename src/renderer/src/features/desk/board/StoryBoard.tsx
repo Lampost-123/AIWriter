@@ -7,7 +7,7 @@
 // scene stands, and say so on hover: done green, drafted grey, planned hollow, planned from an AI idea amber. A card opens its scene; its ⋯
 // opens its card in the drawer; dragged, it moves (the others make room), with Undo. Cards | Outline switches to a
 // compact list. The board scrolls both ways inside the room, so it sits beside the story's spine at any window size.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardMarks, BoardSceneCard, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID, Outline, SceneMeta } from '@shared/types'
@@ -460,6 +460,16 @@ function Cards({
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && other) void moveCard(id, other.id, Math.min(box.index, count(other.id)))
   }
 
+  // The cards' callbacks stay the same from draw to draw, so a drag redraws only the cards it moves (BoardCard is memoised).
+  const live = useRef({ startDrag, keyMove })
+  live.current = { startDrag, keyMove }
+  const onCardPointerDown = useCallback((e: ReactPointerEvent<HTMLElement>, id: ID) => live.current.startDrag(e, id), [])
+  const onCardKeyDown = useCallback((e: React.KeyboardEvent, id: ID) => live.current.keyMove(e, id), [])
+  const onCardOpen = useCallback((id: ID) => {
+    if (justDragged.current) return
+    useApp.getState().selectScene(id)
+  }, [])
+
   return (
     <div className={cn('board-wrap', drag?.moving && 'is-dragging')}>
       <div ref={scroller} className="board-scroller" data-board-scroller>
@@ -499,7 +509,6 @@ function Cards({
             const scene = scenes.get(box.id)
             if (!scene) return null
             const dragging = drag?.moving && drag.id === box.id
-            const shift = room.get(box.id) ?? 0
             return (
               <BoardCard
                 key={box.id}
@@ -512,22 +521,13 @@ function Cards({
                 fresh={box.id === fresh}
                 lifted={litScenes.has(box.id)}
                 delay={260 + i * 40}
-                style={
-                  dragging
-                    ? { transform: `translate(${drag.dx}px, ${drag.dy}px) rotate(1.5deg) scale(1.03)`, zIndex: 20, transition: 'none' }
-                    : shift
-                      ? { transform: `translateY(${shift}px) rotate(${box.tilt}deg)` }
-                      : undefined
-                }
-                dragging={!!dragging}
-                onPointerDown={(e) => startDrag(e, box.id)}
-                onOpen={() => {
-                  if (justDragged.current) return
-                  useApp.getState().selectScene(box.id)
-                }}
-                onKeyDown={(e) => keyMove(e, box.id)}
+                drag={dragging ? { dx: drag.dx, dy: drag.dy } : null}
+                shift={room.get(box.id) ?? 0}
+                onPointerDown={onCardPointerDown}
+                onOpen={onCardOpen}
+                onKeyDown={onCardKeyDown}
                 placeMotif={cards?.[box.id]?.locationId ? motifs.get(cards[box.id].locationId!) : undefined}
-                onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? () => openIdeasFor(box.id) : undefined}
+                onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? openIdeasFor : undefined}
               />
             )
           })}
