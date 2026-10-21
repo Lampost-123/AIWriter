@@ -21,12 +21,13 @@ import {
   X,
   type IconType
 } from '@/components/ui/icons'
-import { forwardRef, memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { CHARACTER_ROLES, FIELD_GROUPS, KIND_LABELS, type FieldDef, type FieldGroup } from '@shared/fields'
 import type { Entry, EntryKind, ID, Origin } from '@shared/types'
 import type { BuilderKind } from '@shared/contracts/builder'
 import { Button, Field, IconButton, Input, Select } from '@/components/ui'
-import { AutoTextarea, useFitHeight } from './parts/AutoTextarea'
+import { AutoTextarea } from './parts/AutoTextarea'
+import { NameBox } from './parts/NameBox'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -333,7 +334,7 @@ export const EntryForm = memo(function EntryForm({
               {draft.name.trim() || 'Unnamed'}
             </h2>
           ) : (
-            <NameBox ref={nameRef} value={draft.name} onChange={setName} />
+            <NameBox ref={nameRef} value={draft.name} onChange={setName} className={NAME_LOOK} />
           )}
           {/* Grows to a second row when the buttons don't fit side by side (the same in both modes, so
               nothing moves between them). */}
@@ -540,36 +541,9 @@ export function ReachNote({
   )
 }
 
-/**
- * The entry's name, as a title. It wraps onto more lines rather than cut off a long one ("The night
- * the harbour burned", "Who left the letter on Mara's pillow?"), and stays one line of text: Enter
- * does nothing, and a pasted line break becomes a space.
- */
-const NameBox = memo(
-  forwardRef<HTMLTextAreaElement, { value: string; onChange: (v: string) => void }>(function NameBox({ value, onChange }, outer) {
-    const inner = useRef<HTMLTextAreaElement | null>(null)
-    useFitHeight(inner, value, 1, 4)
-    return (
-      <textarea
-        ref={(el) => {
-          inner.current = el
-          if (typeof outer === 'function') outer(el)
-          else if (outer) outer.current = el
-        }}
-        rows={1}
-        value={value}
-        aria-label="Name"
-        placeholder="Name"
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
-        }}
-        className="-mx-2 mt-1 block w-[calc(100%+16px)] resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-[28px] font-semibold leading-tight text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-      />
-    )
-  })
-)
+/** How the name box (parts/NameBox.tsx) looks on this page: a title that shows it can be edited on hover and focus. */
+const NAME_LOOK =
+  '-mx-2 mt-1 block w-[calc(100%+16px)] resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 font-serif text-[28px] font-semibold leading-tight text-fg transition-[border-color,box-shadow] duration-150 placeholder:text-faint hover:border-line focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20'
 
 /** "Inside" for a place. Memoised: a world can hold hundreds of places. */
 const ParentSelect = memo(function ParentSelect({
