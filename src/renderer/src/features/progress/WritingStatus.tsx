@@ -41,14 +41,18 @@ export function WritingStatus(): React.JSX.Element | null {
   }, [nowKey, open])
   const shown = now ?? (open ? which : null)
   if (!shown) return null
-  // The chapter plan waits for Adam: the top bar opens it again (as before).
+  // The chapter plan waits for Adam: the top bar opens it again (as before), or cancels it from wherever he is (2026-10-21:
+  // with the plan out of reach, nothing could end the run).
   if (shown.kind === 'chapter' && chapter?.stage === 'review') {
     return (
-      <div className="flex min-w-0 shrink justify-end" role="status" aria-live="polite" data-testid="chapter-writer-status">
+      <div className="flex min-w-0 shrink items-center justify-end gap-1" role="status" aria-live="polite" data-testid="chapter-writer-status">
         <button type="button" className="wp-pill" onClick={openChapterPlan} title="Read the chapter plan, change it if you like, then write.">
           <span className="wp-dot" aria-hidden />
           <span className="wp-lead">The chapter plan is ready for you</span>
         </button>
+        <Button size="sm" variant="ghost" onClick={() => void stopChapterWriter()} title="Cancel the plan. Nothing in the chapter changes.">
+          Cancel
+        </Button>
       </div>
     )
   }
@@ -239,6 +243,7 @@ function ChapterCard({ chapterId, runId, close }: { chapterId: ID; runId: ID; cl
   const now = useNow(1000)
   const view = useChapterView(chapterId, now)
   const last = useChapterWriter((s) => (s.last?.report.runId === runId ? s.last : null))
+  const storyId = useChapterWriter((s) => (s.progress?.runId === runId ? s.progress.storyId : undefined))
   const chapters = useOutlineStore((s) => s.outline?.chapters ?? null)
   const [stopping, setStopping] = useState(false)
   const names = chapterNames(chapters, chapterId)
@@ -306,7 +311,7 @@ function ChapterCard({ chapterId, runId, close }: { chapterId: ID; runId: ID; cl
               Stop
             </Button>
             <span className="wp-links">
-              <button type="button" className="wp-link" onClick={() => (close(), openChapterWriter(chapterId))}>
+              <button type="button" className="wp-link" onClick={() => (close(), openChapterWriter(chapterId, storyId))}>
                 <ListChecks size={13} aria-hidden /> See the plan
               </button>
               {view.steps[0].state === 'done' ? (

@@ -96,7 +96,7 @@ test('Whole chapter with AI: plans first, writes every scene to the plan Adam ch
     await toWriting(win)
     await expect(view).toBeHidden()
     await expect(status(win)).toContainText('The chapter plan is ready for you')
-    await status(win).getByRole('button').click()
+    await status(win).getByRole('button', { name: /ready for you/ }).click()
     await expect(view).toBeVisible()
     // Adam changes Sc 2's part, then writes.
     await view.getByTestId('chapter-plan-change').click()
@@ -180,6 +180,35 @@ test('Whole chapter with AI: Cancel at the plan changes nothing; once writing, i
     await win.locator('[data-progress-card="chapter"]').press('Escape')
     await expect(status(win)).toBeHidden()
     expect((await invoke(win, 'getChapterWriterReport', chapterId))?.status).toBe('stopped')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('Whole chapter with AI: a plan waiting is opened from the top bar in its own story, with another story open, and cancelled from there', async ({
+  launch
+}) => {
+  test.setTimeout(120_000)
+  const fake = await startFake({ delayMs: 25 })
+  try {
+    const { win } = await launch({ env: NEW_LOOK })
+    const { chapterId, ferry } = await setUp(win, fake)
+    await start(win)
+    await expect(planView(win)).toBeVisible({ timeout: 60_000 })
+    // The window opens again at another story while the plan waits (2026-10-21: the top bar looked for it in the story
+    // open, and it could be neither read nor cancelled).
+    const other = await invoke(win, 'createStory', { title: 'Winter Crossing' })
+    await invoke(win, 'updateSettings', { lastStoryId: other.id })
+    await win.reload()
+    await expect(status(win)).toContainText('The chapter plan is ready for you')
+    await status(win).getByRole('button', { name: /ready for you/ }).click()
+    await expect(planView(win).getByTestId('chapter-plan')).toContainText('1 · The ferry')
+    // Cancel beside it ends the run from wherever Adam is: nothing in the chapter changed.
+    await status(win).getByRole('button', { name: 'Cancel' }).click()
+    await expect(win.getByText('Cancelled before writing: nothing in the chapter changed.')).toBeVisible({ timeout: 30_000 })
+    await expect(status(win)).toBeHidden()
+    expect((await invoke(win, 'getChapterWriterReport', chapterId))?.status).toBe('cancelled')
+    expect((await invoke(win, 'getScene', ferry)).text).toBe(FERRY)
   } finally {
     await fake.close()
   }
