@@ -1,8 +1,9 @@
-<!-- version: 0.8.8 -->
-What's new in 0.8.8:
+<!-- version: 0.8.9 -->
+What's new since 0.8.6:
 
-- What the story says someone now wears, and orders one character gives another, are remembered in later chapters.
-- Older books: right-click a scene and choose Re-read this scene to catch these.
-- Sections open and close smoothly, and a card dropped on the story board glides into place.
-- Cards give a small press when clicked; the tour glides between steps.
-- A tick draws itself when an import or a chapter you watched being written is done.
+- AI Write opens filling the screen.
+- Clearer screens: every way into Build with AI has that name, the story board is calmer, and World cards are quieter in Light and Sepia.
+- Chats only say they changed something when they really did, and applied changes stay applied.
+- What someone wears and orders they are given are remembered in later chapters.
+- Smoother motion where things used to jump.
+- Sharper word choice in drafts.
