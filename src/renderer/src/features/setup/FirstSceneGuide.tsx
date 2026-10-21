@@ -176,7 +176,7 @@ function StepText({ step, drafting, desk }: { step: GuideStep; drafting: boolean
       </>
     ) : (
       <>
-        <Strong>Press Generate</Strong> <Keys id="generate" /> and the AI drafts the scene from its card and your world.
+        <Strong>Press Draft</Strong> <Keys id="generate" /> and the AI drafts the scene from its card and your world.
       </>
     )
   if (step === 'edit')

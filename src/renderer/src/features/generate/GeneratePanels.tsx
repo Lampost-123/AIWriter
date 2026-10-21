@@ -281,7 +281,7 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
             ) : null}
           </div>
           <Button variant="primary" className="w-full" icon={<Sparkles size={14} />} onClick={() => void generate()}>
-            Generate draft
+            Draft the scene
             <span className="ml-1 text-[11.5px] font-normal opacity-70">{modKey()}+G</span>
           </Button>
         </div>

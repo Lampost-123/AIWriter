@@ -53,6 +53,22 @@ test('in focus mode Ask the world sits beside the page, never over its words', a
   await win.keyboard.press('F11')
 })
 
+test('in focus mode the scene panel left open makes no room: the page sits in the middle', async ({ launch }) => {
+  const { win } = await sampleWorld(launch)
+  await top(win).getByRole('button', { name: 'Details' }).click()
+  await expect(win.locator('aside.desk-drawer')).toBeVisible()
+  await win.locator('.scene-prose').click()
+  await win.keyboard.press('F11')
+  await expect.poll(() => win.evaluate<boolean>("'focus' in document.documentElement.dataset")).toBe(true)
+  await expect
+    .poll(async () => {
+      const sheet = (await win.locator('.desk-sheet').boundingBox())!
+      return Math.abs(Math.round(sheet.x + sheet.width / 2 - 720))
+    })
+    .toBeLessThanOrEqual(2)
+  await win.keyboard.press('F11')
+})
+
 test('a scene’s right-click menu opens where the click was', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   const row = win.getByRole('complementary', { name: 'Chapters and scenes' }).getByRole('treeitem', { name: /Low Tide/ })

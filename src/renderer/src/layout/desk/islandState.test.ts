@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changesText, islandState, wordsText, type IslandInput } from './islandState'
+import { islandState, wordsText, type IslandInput } from './islandState'
 
 const base: IslandInput = { saveState: 'saved', onPage: true, sceneWords: 1167, draft: null, memory: null, daily: null, typedToday: 0 }
 
@@ -43,7 +43,5 @@ describe('the desk’s status island', () => {
   it('words its counts', () => {
     expect(wordsText(1)).toBe('1 word')
     expect(wordsText(1167)).toBe('1,167 words')
-    expect(changesText(1)).toBe('1 change')
-    expect(changesText(18)).toBe('18 changes')
   })
 })

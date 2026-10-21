@@ -535,8 +535,8 @@ test('from the draft options, Ctrl+Enter asks with Add below ready for Enter, an
     await expect(direction).toBeFocused()
     await expect(direction).toHaveValue('Make it tense')
 
-    // Generate draft (clicked) asks too, with nothing picked; Tab reaches the answers.
-    await win.getByRole('button', { name: /^Generate draft/ }).click()
+    // Draft the scene (clicked) asks too, with nothing picked; Tab reaches the answers.
+    await win.getByRole('button', { name: /^Draft the scene.*\+G$/ }).click()
     await expect(choiceHeading(win)).toBeVisible()
     await win.keyboard.press('Tab')
     await expect(replaceIt(win)).toBeFocused()

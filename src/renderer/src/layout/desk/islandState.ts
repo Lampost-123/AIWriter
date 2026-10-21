@@ -60,6 +60,3 @@ export function islandState(i: IslandInput): Island {
 
 /** "1,167 words", "1 word". */
 export const wordsText = (n: number): string => `${n.toLocaleString('en-GB')} ${n === 1 ? 'word' : 'words'}`
-
-/** "2 changes", "1 change". */
-export const changesText = (n: number): string => `${n.toLocaleString('en-GB')} ${n === 1 ? 'change' : 'changes'}`

@@ -105,7 +105,7 @@ test('a fresh install walks through the setup, resumes after quitting, and lands
     // The card, then Generate, then an edit of his own, then Mark done: the guide follows along.
     const card = win.getByRole('tabpanel', { name: 'Scene card' })
     await card.getByLabel('Goal').fill('Mara finds the hidden door.')
-    await expect(guide(win)).toContainText('Press Generate')
+    await expect(guide(win)).toContainText('Press Draft')
     await main(win).locator('header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect(prose(win)).toContainText('The rain had not let up')
     await expect(guide(win)).toContainText('Make it yours', { timeout: 20_000 })

@@ -221,7 +221,10 @@ export function useDeskFrame(): DeskFrame {
   // In focus mode the spine steps away and the sheet is centred in the window; an open drawer (Ask the world, say)
   // still makes room beside the page as it does outside focus mode, never lying over its words.
   const focus = useFocusMode((s) => s.on)
-  return deskFit(windowW, columnW, wantsFull && !focus, drawerOpen)
+  // (In focus mode the drawer shows only for Ask or a name shown beside the page, as App.tsx decides; the scene panel
+  // left open doesn't count.)
+  const focusDrawer = useApp((s) => s.askOpen || s.peekEntryId !== null)
+  return deskFit(windowW, columnW, wantsFull && !focus, drawerOpen && (!focus || focusDrawer))
 }
 
 /** How long the sheet's glide may take at most (the spine opening out, 280ms), with a little to spare. */

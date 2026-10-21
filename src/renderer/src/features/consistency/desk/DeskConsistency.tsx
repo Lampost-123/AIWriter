@@ -191,7 +191,7 @@ function LastChecked({ storyId }: { storyId: ID }): React.JSX.Element | null {
   }, [last])
   if (!last) return null
   return (
-    <p className="ck-last" role="status">
+    <p className="ck-last">
       <Check size={13} aria-hidden className="shrink-0 text-success" />
       {lastCheckWords(last, now)}
     </p>
