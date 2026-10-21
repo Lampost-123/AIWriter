@@ -556,7 +556,8 @@ is built on migrations 1 and 2.
   had, wider than tall (`WIDE` in `layout.ts`, gap `MAP_GAP` in the contract). Characters already
   placed keep their places; only newcomers move. It is kept in the world's `meta` key `map_layout`
   (character id to `[x, y]`), with no migration.
-- Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
+- Map drawing (the panels' old map, removed with Classic in review #36; its rules are kept in `mapLogic.ts` with
+  its test, and the map on screen is `features/map/desk/`): names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
   overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
   opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
   `READABLE_ZOOM` or the cast is `SMALL_CAST` (12) or fewer, else at `OPENING_ZOOM` around the
