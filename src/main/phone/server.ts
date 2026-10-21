@@ -9,6 +9,7 @@ import type { PhoneHello } from '@shared/contracts/phone'
 import { normalizePhoneCode } from '@shared/contracts/phone'
 import { decodeWire, encodeWire } from '@shared/phoneWire'
 import type { IpcResult } from '@shared/api'
+import { phoneRefusal } from './allowed'
 
 const COOKIE = 'aiwrite_phone'
 const JOIN = '/__phone/join'
@@ -252,6 +253,12 @@ export function startPhoneServer(port: number, host: PhoneHost, bind = '0.0.0.0'
       args = body.args
     } catch {
       json(res, 400, { ok: false, error: { message: 'That request could not be read. Try again.' } })
+      return
+    }
+    // The phone gets the calls its page uses, not everything the computer's window can do (review #1).
+    const refused = phoneRefusal(method, args)
+    if (refused) {
+      json(res, 200, { ok: false, error: { message: refused } })
       return
     }
     try {

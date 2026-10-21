@@ -65,6 +65,9 @@ export function saveProvider(input: ProviderInput): ProviderConfig {
   if (input.id && !existing) throw new UserError('That provider has been removed. Connect it again on this page.')
   if (!id) id = kind === 'openrouter' && !list.some((p) => p.id === 'openrouter') ? 'openrouter' : newId()
 
+  // A key belongs to the address it was given for: a new address without a new key forgets it, so the key is never
+  // sent somewhere it wasn't pasted for (review #1).
+  if (existing && existing.baseUrl !== baseUrl && input.apiKey === undefined) setSecret(keyName(id), null)
   const willHaveKey = input.apiKey !== undefined ? !!input.apiKey.trim() : hasSecret(keyName(id))
   if (kind === 'openrouter' && !willHaveKey) throw new UserError('Paste your OpenRouter API key first. You can make one at openrouter.ai/keys.')
   if (input.apiKey !== undefined) setSecret(keyName(id), input.apiKey.trim() || null)

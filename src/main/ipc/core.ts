@@ -1,5 +1,5 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
-import { join } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
@@ -20,7 +20,15 @@ import { sweepGone } from '../db/checks'
 import { makingAt } from '../worldViews/eventHomes'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
-const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
+// A scene id is plain letters, digits and dashes: anything else could reach a file outside the recovery folder (review #1).
+const recoveryFile = (sceneId: unknown): string => {
+  if (typeof sceneId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(sceneId)) throw new UserError('That scene could not be found. Reopen it and try again.')
+  return join(recoveryDir(), `${sceneId}.json`)
+}
+
+/** True when the path is one of these folders. */
+const oneOf = (path: string, folders: (string | null | undefined)[]): boolean =>
+  folders.some((folder) => !!folder && relative(resolve(folder), resolve(path)) === '')
 
 /** Writes and clears of one recovery file run one at a time, in the order they were asked for. */
 const recoveryQueue = new Map<string, Promise<void>>()
@@ -98,7 +106,13 @@ export const coreHandlers: Handlers<CoreMethods> = {
     updateSettings({ libraryPath: res.filePaths[0], lastWorldId: null, lastStoryId: null, lastSceneId: null })
     return res.filePaths[0]
   },
+  // Only the library and the second backup folder (the two Show folder buttons): opening any other path would let a
+  // caller start any program on the computer (review #1).
   showInFolder: async (path) => {
+    const settings = getSettings()
+    if (typeof path !== 'string' || !oneOf(path, [settings.libraryPath, settings.backup?.extraFolder])) {
+      throw new UserError('AI Write only opens its library folder and backup folder.')
+    }
     await shell.openPath(path)
   },
   flushDone: () => resolveFlush(),

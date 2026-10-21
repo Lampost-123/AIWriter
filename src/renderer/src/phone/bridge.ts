@@ -20,8 +20,9 @@ function events(): void {
 }
 
 async function invoke(method: string, ...args: unknown[]): Promise<IpcResult<unknown>> {
-  // Showing the computer's window is the computer's own business. The phone is already showing.
-  if (method === 'showWindow') return { ok: true, value: undefined }
+  // Showing the computer's window, and telling it this page has saved before it closes, are the computer's own
+  // business: the computer refuses them from the phone. The phone is already showing, and saves as it goes.
+  if (method === 'showWindow' || method === 'flushDone') return { ok: true, value: undefined }
   const res = await fetch('/__phone/call', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

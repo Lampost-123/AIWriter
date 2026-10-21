@@ -15,7 +15,7 @@ function harness(): PhoneHost & { sent: { event: string; payload: unknown }[]; p
     checkCode: (code) => code === CODE,
     call: async (method, args) => {
       calls.push({ method, args })
-      if (method === 'speak') return { ok: true, value: new Uint8Array([9, 8, 7]) }
+      if (method === 'speakClip') return { ok: true, value: new Uint8Array([9, 8, 7]) }
       return { ok: true, value: args[0] }
     },
     subscribe: (fn) => {
@@ -79,7 +79,7 @@ describe('phone server', () => {
     const call = await fetch(`${base}/__phone/call`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie: 'aiwrite_phone=482193' },
-      body: JSON.stringify({ method: 'speak', args: encodeWire([undefined]) })
+      body: JSON.stringify({ method: 'speakClip', args: encodeWire([undefined]) })
     })
     expect(call.status).toBe(200)
     const body = (await call.json()) as { ok: boolean; value: { $aiw: string } }
@@ -104,5 +104,68 @@ describe('phone server', () => {
     const picture = await fetch(`${base}/__phone/image/entry/mara`, { headers: { cookie: 'aiwrite_phone=482193' } })
     expect(picture.headers.get('content-type')).toBe('image/png')
     expect(new Uint8Array(await picture.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+  })
+})
+
+describe('what the phone may ask the computer to do', () => {
+  let close: (() => Promise<void>) | null = null
+  afterEach(async () => {
+    await close?.()
+    close = null
+  })
+
+  async function ask(method: string, args: unknown[]): Promise<{ result: { ok: boolean; error?: { message: string } }; calls: string[] }> {
+    const host = harness()
+    const server = await startPhoneServer(0, host, '127.0.0.1')
+    close = () => server.close()
+    const res = await fetch(`http://127.0.0.1:${server.port}/__phone/call`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: `aiwrite_phone=${CODE}` },
+      body: JSON.stringify({ method, args: encodeWire(args) })
+    })
+    return { result: (await res.json()) as { ok: boolean; error?: { message: string } }, calls: host.calls.map((c) => c.method) }
+  }
+
+  it('refuses what only the computer itself may do', async () => {
+    for (const [method, args] of [
+      ['showInFolder', ['C:/Windows/System32/calc.exe']],
+      ['saveProvider', [{ id: 'p1', kind: 'custom', name: 'Mine', baseUrl: 'http://evil.example/v1' }]],
+      ['chooseLibraryFolder', []],
+      ['readDroppedManuscript', ['C:/Users/adam/secret.txt']],
+      ['setPhoneLink', [false]],
+      ['notAMethodAtAll', []]
+    ] as const) {
+      const { result, calls } = await ask(method, [...args])
+      expect(result.ok, method).toBe(false)
+      expect(result.error?.message, method).toMatch(/computer/)
+      expect(calls, method).toEqual([])
+      await close?.()
+      close = null
+    }
+  })
+
+  it('refuses settings changes that point the computer somewhere else', async () => {
+    for (const patch of [{ providers: [] }, { libraryPath: 'D:/' }, { backup: { extraFolder: '//evil/share' } }, { speech: { serverUrl: 'http://evil.example' } }]) {
+      const { result, calls } = await ask('updateSettings', [patch])
+      expect(result.ok, JSON.stringify(patch)).toBe(false)
+      expect(calls).toEqual([])
+      await close?.()
+      close = null
+    }
+  })
+
+  it('lets through what the app on the phone uses', async () => {
+    for (const [method, args] of [
+      ['getScene', ['s1']],
+      ['saveSceneText', ['s1', {}, 'Hello']],
+      ['updateSettings', [{ layout: { binderWidth: 240 }, speech: { readAloud: true } }]],
+      ['writeRecovery', [{ worldId: 'w', sceneId: 's1', doc: {}, text: '', savedAt: '' }]]
+    ] as const) {
+      const { result, calls } = await ask(method, [...args])
+      expect(result.ok, method).toBe(true)
+      expect(calls).toEqual([method])
+      await close?.()
+      close = null
+    }
   })
 })
