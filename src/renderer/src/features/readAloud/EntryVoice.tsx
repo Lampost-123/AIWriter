@@ -224,7 +224,7 @@ function VoiceBox({ entry, on }: { entry: Entry; on: boolean }): React.JSX.Eleme
       id={character ? VOICE_BOX : undefined}
       aria-labelledby={ids.title}
       className={cn(
-        'mt-6 scroll-mt-6 rounded-lg border bg-surface px-3 pb-3 pt-2.5 transition-[border-color,box-shadow] duration-500',
+        'mt-6 scroll-mt-6 rounded-lg border bg-surface px-3 pb-3 pt-2.5 transition-[border-color,box-shadow] duration-(--dur-view)',
         lit ? 'border-accent/60 shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]' : 'border-line'
       )}
     >

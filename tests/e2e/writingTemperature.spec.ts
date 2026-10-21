@@ -66,6 +66,13 @@ test('Writing temperature: a DeepSeek writer, Custom set with the slider and the
     await box.fill('1.5')
     await box.press('Enter')
     await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.5)
+    // A number typed is kept after a short pause, without Enter or leaving the box (closing the window can't lose it).
+    await box.fill('1.3')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.3)
+    await expect(box).toBeFocused()
+    await box.fill('1.5')
+    await box.press('Enter')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.5)
 
     // The writer's Thinking on: DeepSeek ignores the temperature, and the setting says so.
     const thinking = win.getByRole('radiogroup', { name: 'Writer model thinking', exact: true })

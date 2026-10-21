@@ -541,9 +541,9 @@ test('milestone 4, check 4: holding the dictation key types spoken words into th
   await test.step('4. picking Parakeet downloads the speech engine and the dictation model with one click', async () => {
     await openSpeechSettings(win)
     const section = engine(win)
-    await section.getByRole('radio', { name: 'Parakeet' }).click()
+    await section.getByRole('radio', { name: 'Sharper' }).click()
     await expect(section.getByText('Connected', { exact: true })).toBeVisible({ timeout: 60_000 })
-    await expect(fact(win, 'Dictation')).toHaveText(/^Parakeet, (ready|loaded)$/, { timeout: 60_000 })
+    await expect(fact(win, 'Dictation')).toHaveText(/^Sharper, (ready|loaded)$/, { timeout: 60_000 })
     await expect(section.getByRole('switch', { name: 'Start with AI Write' })).toBeChecked()
   })
 

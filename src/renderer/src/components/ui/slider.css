@@ -1,0 +1,50 @@
+/*
+  The slider (Slider.tsx): a thin track filled with the accent up to the value (--fill), the rest of it a quiet line
+  that still shows on every theme's cards, and a raised round thumb that swells a little while held.
+*/
+.ui-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+}
+.ui-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) var(--fill, 50%),
+    color-mix(in oklab, var(--fg) 16%, transparent) var(--fill, 50%)
+  );
+}
+.ui-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: var(--raise);
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px color-mix(in oklab, var(--accent) 70%, var(--line-strong));
+  transition:
+    scale var(--dur-quick) var(--motion-glide),
+    box-shadow var(--dur-quick) var(--motion-glide);
+}
+.ui-slider:active::-webkit-slider-thumb {
+  scale: 1.12;
+  transition-duration: var(--dur-press);
+}
+.ui-slider:focus-visible {
+  outline: none;
+}
+/* The focus ring is every control's (controls.ts): 2px of the accent, 2px out, here around the thumb. */
+.ui-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1.5px var(--accent),
+    0 0 0 2px var(--raise),
+    0 0 0 4px var(--focus);
+}

@@ -13,7 +13,7 @@ import type { AudioCacheStats, ReadAloudVoice } from '@shared/contracts/readAlou
 import type { SoundsStatus } from '@shared/contracts/sounds'
 import type { SpeechSettings } from '@shared/types'
 import { defaultSpeechSettings } from '@shared/defaults'
-import { Badge, Button, Field, Input, Notice, Select, SettingsSection, Spinner, Textarea, toast } from '@/components/ui'
+import { Badge, Button, Field, Input, Notice, Select, SettingsSection, Slider, Spinner, Textarea, toast } from '@/components/ui'
 import { api, ApiError, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { shortcutText } from '@/lib/shortcuts'
@@ -335,29 +335,18 @@ function VoiceRow({
 
 /** Speed, 0.5× to 2×, without changing pitch. Saved when the slider is let go. */
 function SpeedSetting({ speed }: { speed: number }): React.JSX.Element {
-  const [value, setValue] = useState(speed)
-  useEffect(() => setValue(speed), [speed])
-  const commit = (v: number): void => {
-    if (v !== speed) void save({ speed: v })
-  }
   return (
-    <Field label={`Speed: ${value.toFixed(2)}×`} hint="Faster or slower without changing the pitch of the voice.">
-      {(id) => (
-        <input
-          id={id}
-          type="range"
-          min={0.5}
-          max={2}
-          step={0.05}
-          value={value}
-          onChange={(e) => setValue(Number(e.target.value))}
-          onPointerUp={(e) => commit(Number(e.currentTarget.value))}
-          onKeyUp={(e) => commit(Number(e.currentTarget.value))}
-          onBlur={(e) => commit(Number(e.currentTarget.value))}
-          className="w-full max-w-[360px] accent-[var(--accent)]"
-        />
-      )}
-    </Field>
+    <Slider
+      label="Speed"
+      format={(v) => `${v.toFixed(2)}×`}
+      hint="Faster or slower without changing the pitch of the voice."
+      value={speed}
+      min={0.5}
+      max={2}
+      step={0.05}
+      onCommit={(v) => void save({ speed: v })}
+      className="max-w-[360px]"
+    />
   )
 }
 
@@ -663,42 +652,21 @@ function SoundEffects({ speech }: { speech: SpeechSettings }): React.JSX.Element
 
 /** How loud the sounds are under the voice: heard at once while it moves, saved when it is let go. */
 function SoundVolume({ volume }: { volume: number }): React.JSX.Element {
-  const [value, setValue] = useState(volume)
-  useEffect(() => setValue(volume), [volume])
-  const commit = (v: number): void => {
-    if (v !== volume) void save({ soundVolume: v })
-  }
   return (
-    <Field label="Sounds volume" hint="How loud the sounds are under the voice. They dip a little while a line is spoken.">
-      {(id) => (
-        <div className="flex max-w-[360px] items-center gap-3">
-          <span aria-hidden className="text-[12px] text-faint">
-            Quieter
-          </span>
-          <input
-            id={id}
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={value}
-            aria-valuetext={`${Math.round(value * 100)}%`}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              setValue(v)
-              mixer.setVolume(v)
-            }}
-            onPointerUp={(e) => commit(Number(e.currentTarget.value))}
-            onKeyUp={(e) => commit(Number(e.currentTarget.value))}
-            onBlur={(e) => commit(Number(e.currentTarget.value))}
-            className="min-w-0 flex-1 accent-[var(--accent)]"
-          />
-          <span aria-hidden className="text-[12px] text-faint">
-            Louder
-          </span>
-        </div>
-      )}
-    </Field>
+    <Slider
+      label="Sounds volume"
+      format={(v) => `${Math.round(v * 100)}%`}
+      hint="How loud the sounds are under the voice. They dip a little while a line is spoken."
+      value={volume}
+      min={0}
+      max={1}
+      step={0.05}
+      before="Quieter"
+      after="Louder"
+      onLive={(v) => mixer.setVolume(v)}
+      onCommit={(v) => void save({ soundVolume: v })}
+      className="max-w-[360px]"
+    />
   )
 }
 

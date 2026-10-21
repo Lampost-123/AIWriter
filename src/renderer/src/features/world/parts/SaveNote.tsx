@@ -18,7 +18,7 @@ export function SaveNote({ status, error, className }: { status: SaveStatus; err
       aria-live="polite"
       title={isError && error ? error : undefined}
       className={cn(
-        'inline-flex min-w-[64px] items-center justify-end gap-1 whitespace-nowrap text-[12px] transition-opacity duration-200',
+        'inline-flex min-w-[64px] items-center justify-end gap-1 whitespace-nowrap text-[12px] transition-opacity duration-(--dur-base)',
         isError ? 'text-danger' : 'text-faint',
         !showSaved && !isError && 'opacity-0',
         className

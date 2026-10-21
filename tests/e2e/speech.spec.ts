@@ -118,7 +118,7 @@ test('shows Not running, then what is ready once the address is a speech server�
     await expect(section.getByText(`Nothing answers at ${nowhere}.`, { exact: false })).toBeVisible()
     await expect(fact(win, 'Voices')).toHaveText('Not downloaded')
     await expect(fact(win, 'Dictation')).toHaveText('Not picked')
-    await expect(fact(win, 'Runs on')).toHaveText('NVIDIA GeForce RTX 4090')
+    await expect(fact(win, 'Runs on')).toHaveText('Graphics card')
 
     await win.getByRole('button', { name: 'More', exact: true }).click()
     const address = win.getByRole('textbox', { name: 'Server address' })
@@ -175,7 +175,7 @@ test('shows Not running, then what is ready once the address is a speech server�
     await expect(section.getByText('Not running', { exact: true })).toBeVisible()
     await expect(section.getByText(`Nothing answers at ${fake.url}.`, { exact: false })).toBeVisible()
     // What it runs on stays known while nothing answers.
-    await expect(fact(win, 'Runs on')).toHaveText('NVIDIA GeForce RTX 4090')
+    await expect(fact(win, 'Runs on')).toHaveText('Graphics card')
   } finally {
     await fake.close()
   }
@@ -223,37 +223,40 @@ test('downloads the speech engine step by step: Cancel stops it, Try again carri
   await section.getByRole('button', { name: 'Download the speech engine (about 150 MB)' }).click()
   await expect(win.getByText('The speech engine is downloaded.')).toBeVisible()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  await expect(fact(win, 'Runs on')).toHaveText('NVIDIA GeForce RTX 4090')
+  await expect(fact(win, 'Runs on')).toHaveText('Graphics card')
+  // The card's own name, and the engines', are under Details.
+  await section.getByRole('button', { name: 'Details' }).click()
+  await expect(section.getByRole('definition').filter({ hasText: 'NVIDIA GeForce RTX 4090' })).toBeVisible()
   await expect(fact(win, 'Voices')).toHaveText('Not downloaded')
   expect(await answers(address)).toBe(true)
   const log = readFileSync(join(dataDir, 'app', 'speech', 'logs', 'install.log'), 'utf8')
   expect(log).toContain('Downloading the speech engine (packages)')
 
   // Dictation: picking Whisper downloads it, and the server loads it.
-  await section.getByRole('radio', { name: 'Whisper' }).click()
-  await expect(win.getByText('Whisper is downloaded.')).toBeVisible()
-  await expect(fact(win, 'Dictation')).toHaveText(/^Whisper, (ready|loaded)$/)
+  await section.getByRole('radio', { name: 'Smaller' }).click()
+  await expect(win.getByText('Smaller dictation is downloaded.')).toBeVisible()
+  await expect(fact(win, 'Dictation')).toHaveText(/^Smaller, (ready|loaded)$/)
   await expect.poll(async () => (await invoke(win, 'getSpeechStatus')).dictationReady).toBe(true)
   expect((await invoke(win, 'getSettings')).speech.dictationEngine).toBe('whisper')
 
   // Parakeet picked while Whisper runs: until Parakeet is all there, dictation isn't ready, and the fact is about
   // Parakeet (never "Parakeet, loaded" for the Whisper the server still holds).
   fake.set({ 'parakeet:model': 'slow' })
-  await section.getByRole('radio', { name: 'Parakeet' }).click()
+  await section.getByRole('radio', { name: 'Sharper' }).click()
   await expect(section.getByText('Downloading Parakeet’s English model', { exact: true })).toBeVisible()
-  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, downloading')
+  await expect(fact(win, 'Dictation')).toHaveText('Sharper, downloading')
   expect((await invoke(win, 'getSpeechStatus')).dictationReady).toBe(false)
   // Stopped while it unpacks: nothing of it counts as downloaded.
   await section.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(section.getByText('Download of Parakeet stopped. Try again carries on from where it can.')).toBeVisible()
-  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, not downloaded')
+  await expect(section.getByText('Download of sharper dictation stopped. Try again carries on from where it can.')).toBeVisible()
+  await expect(fact(win, 'Dictation')).toHaveText('Sharper, not downloaded')
   let status = await invoke(win, 'getSpeechStatus')
   expect(status).toMatchObject({ dictationReady: false, installed: { parakeet: false, whisper: true } })
 
   // Back to Whisper: the stopped Parakeet download isn't offered any more, and dictation is ready again.
-  await section.getByRole('radio', { name: 'Whisper' }).click()
-  await expect(fact(win, 'Dictation')).toHaveText(/^Whisper, (ready|loaded)$/)
-  await expect(section.getByText('Download of Parakeet stopped.', { exact: false })).toHaveCount(0)
+  await section.getByRole('radio', { name: 'Smaller' }).click()
+  await expect(fact(win, 'Dictation')).toHaveText(/^Smaller, (ready|loaded)$/)
+  await expect(section.getByText('Download of sharper dictation stopped.', { exact: false })).toHaveCount(0)
   await expect.poll(async () => (await invoke(win, 'getSpeechStatus')).dictationReady).toBe(true)
   status = await invoke(win, 'getSpeechStatus')
   expect(status.download).toBeNull()
@@ -277,25 +280,25 @@ test('picking a dictation model first downloads the engine, and turns Start with
   const start = section.getByRole('switch', { name: 'Start with AI Write' })
   await expect(start).not.toBeChecked()
 
-  await section.getByRole('radio', { name: 'Parakeet' }).click()
+  await section.getByRole('radio', { name: 'Sharper' }).click()
   await expect(section.getByText('Downloading the speech engine', { exact: true })).toBeVisible()
-  await expect(section.getByText('Waiting for the speech engine to finish. Parakeet downloads next.', { exact: true })).toBeVisible()
+  await expect(section.getByText('Waiting for the speech engine to finish. Sharper dictation downloads next.', { exact: true })).toBeVisible()
   await expect(start).toBeChecked()
   expect((await invoke(win, 'getSettings')).speech.runServer).toBe(true)
   await section.getByRole('button', { name: 'Download the voices' }).click()
   await expect(
-    section.getByText('Waiting for the speech engine to finish. The voices download after Parakeet.', { exact: true })
+    section.getByText('Waiting for the speech engine to finish. The voices download after sharper dictation.', { exact: true })
   ).toBeVisible()
 
   // Cancel stops them all; Parakeet's own button carries on, the engine first.
   await section.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(section.getByText('Waiting for', { exact: false })).toHaveCount(0)
   fake.set({})
-  await section.getByRole('button', { name: 'Download Parakeet (about 1 GB)' }).click()
+  await section.getByRole('button', { name: 'Download sharper dictation (about 1 GB)' }).click()
   await expect(win.getByText('The speech engine is downloaded.')).toBeVisible()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  await expect(win.getByText('Parakeet is downloaded.')).toBeVisible()
-  await expect(fact(win, 'Dictation')).toHaveText(/^Parakeet, (ready|loaded)$/)
+  await expect(win.getByText('Sharper dictation is downloaded.')).toBeVisible()
+  await expect(fact(win, 'Dictation')).toHaveText(/^Sharper, (ready|loaded)$/)
   await expect.poll(async () => (await invoke(win, 'getSpeechStatus')).dictationReady).toBe(true)
 
   // Parakeet stops loading (a damaged file): it says so in plain words, with one click to download it again.
@@ -303,15 +306,15 @@ test('picking a dictation model first downloads the engine, and turns Start with
   const damaged = join(speech, 'models', 'parakeet', 'damaged.txt')
   writeFileSync(damaged, 'RuntimeError: Load model from encoder.int8.onnx failed: Protobuf parsing failed.')
   await section.getByRole('button', { name: 'Check', exact: true }).click()
-  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, couldn’t load')
+  await expect(fact(win, 'Dictation')).toHaveText('Sharper, couldn’t load')
   await expect(
     section.getByText('Parakeet couldn’t be loaded. Download it again below to repair it, or pick Whisper.', { exact: true })
   ).toBeVisible()
   await expect(section.getByText(/RuntimeError|Protobuf/)).toHaveCount(0)
-  await section.getByRole('button', { name: 'Download Parakeet again' }).click()
-  await expect(fact(win, 'Dictation')).toHaveText('Parakeet, downloading')
+  await section.getByRole('button', { name: 'Download sharper dictation again' }).click()
+  await expect(fact(win, 'Dictation')).toHaveText('Sharper, downloading')
   await expect(section.getByText('Parakeet couldn’t be loaded.', { exact: false })).toHaveCount(0)
-  await expect(fact(win, 'Dictation')).toHaveText(/^Parakeet, (ready|loaded)$/)
+  await expect(fact(win, 'Dictation')).toHaveText(/^Sharper, (ready|loaded)$/)
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
   await expect(section.getByText('Parakeet couldn’t be loaded.', { exact: false })).toHaveCount(0)
   expect(existsSync(damaged)).toBe(false)
@@ -331,8 +334,8 @@ test('offers to download the speech engine again when part of it is missing, kee
   const start = section.getByRole('switch', { name: 'Start with AI Write' })
   await start.click()
   await expect(section.getByText('Connected', { exact: true })).toBeVisible()
-  await section.getByRole('radio', { name: 'Whisper' }).click()
-  await expect(win.getByText('Whisper is downloaded.')).toBeVisible()
+  await section.getByRole('radio', { name: 'Smaller' }).click()
+  await expect(win.getByText('Smaller dictation is downloaded.')).toBeVisible()
 
   // Part of the engine goes missing (antivirus, a broken update): it stops as it starts.
   fake.set({ run: 'broken' })
@@ -352,7 +355,7 @@ test('offers to download the speech engine again when part of it is missing, kee
   const log = readFileSync(join(dataDir, 'app', 'speech', 'logs', 'install.log'), 'utf8')
   expect(log.match(/Setting up Python for the speech engine \(venv\)/g)).toHaveLength(2)
   // What was downloaded besides is kept.
-  await expect(fact(win, 'Dictation')).toHaveText(/^Whisper, (ready|loaded)$/)
+  await expect(fact(win, 'Dictation')).toHaveText(/^Smaller, (ready|loaded)$/)
   expect((await invoke(win, 'getSpeechStatus')).installed.whisper).toBe(true)
 
   // A start that takes its time (antivirus checking the files the first time) never holds up turning it off.

@@ -4,6 +4,7 @@
 // effects' download card (SoundsDownload.tsx) is made of the same pieces, exported below.
 import {
   AudioLines,
+  ChevronRight,
   CircleAlert,
   CircleCheck,
   Download,
@@ -27,7 +28,7 @@ import type {
   SpeechStorage
 } from '@shared/contracts/speech'
 import { SPEECH_SERVER_URL } from '@shared/defaults'
-import { Badge, Button, Card, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
+import { Badge, Button, Card, Field, Fold, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
@@ -45,8 +46,8 @@ import { VOICES_NEEDS, voicesChecks } from './voiceNeeds'
 export const KINDS: Record<SpeechDownloadKind, { name: string; size: string }> = {
   server: { name: 'the speech engine', size: 'about 150 MB' },
   voices: { name: 'the voices', size: 'about 11 GB to download' },
-  parakeet: { name: 'Parakeet', size: 'about 1 GB' },
-  whisper: { name: 'Whisper', size: 'about 300 MB' },
+  parakeet: { name: 'sharper dictation', size: 'about 1 GB' },
+  whisper: { name: 'smaller dictation', size: 'about 300 MB' },
   sounds: { name: 'the sound effects', size: 'about 12 GB' },
   studio: { name: 'the studio voices', size: 'about 3.3 GB to download' }
 }
@@ -191,7 +192,58 @@ function voicesFact(s: SpeechStatus): { value: string; ready: boolean } {
   return { value: s.installed.voices ? 'Downloaded' : 'Not downloaded', ready: false }
 }
 
-const modelName = (m: DictationModel): string => (m === 'parakeet' ? 'Parakeet' : 'Whisper')
+/**
+ * The dictation choices by what they are to Adam, not by their engines' names (Parakeet and Whisper, which the
+ * Details fold under the facts names): `label` on the choice and in the facts, `name` in sentences.
+ */
+const DICTATION: Record<DictationModel, { label: string; name: string }> = {
+  parakeet: { label: 'Sharper', name: 'Sharper dictation' },
+  whisper: { label: 'Smaller', name: 'Smaller dictation' }
+}
+const modelName = (m: DictationModel): string => DICTATION[m].label
+
+/** What the voices run on, in plain words: the graphics card or the processor (the card's own name is in Details). */
+function runsOn(s: SpeechStatus): string {
+  if (s.server === 'connected') return s.device && !/^(cpu|processor)$/i.test(s.device.trim()) ? 'Graphics card' : 'Processor'
+  return s.nvidia ? 'Graphics card' : '—'
+}
+
+/** The engines' own names, and the graphics card's, for anyone who wants them (closed until asked for). */
+function EngineDetails({ status }: { status: SpeechStatus }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const card = status.server === 'connected' && status.device && !/^(cpu|processor)$/i.test(status.device.trim()) ? status.device.replace(/^CUDA\s*·\s*/i, '') : status.nvidia
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 rounded-[6px] text-[12px] font-medium text-muted transition-colors duration-(--dur-quick) hover:text-fg"
+      >
+        <ChevronRight size={12} aria-hidden className={cn('transition-transform duration-(--dur-quick) ease-glide', open && 'rotate-90')} />
+        Details
+      </button>
+      <Fold open={open} id={id}>
+        <dl aria-label="Details" className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12.5px] leading-5">
+          <dt className="text-faint">Voices</dt>
+          <dd className="text-muted">Breeze TTS 2 (its licence is for personal, non-commercial use)</dd>
+          <dt className="text-faint">Dictation</dt>
+          <dd className="text-muted">Sharper is Parakeet; Smaller is Whisper</dd>
+          {card ? (
+            <>
+              <dt className="text-faint">Graphics card</dt>
+              <dd className="truncate text-muted" title={card}>
+                {card}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+      </Fold>
+    </div>
+  )
+}
 
 /**
  * Always about the model picked. It is ready only when the server runs that very model (status.ts): another
@@ -219,15 +271,15 @@ function Readiness({ status }: { status: SpeechStatus }): React.JSX.Element {
   const picked = useApp((s) => s.settings?.speech?.dictationEngine ?? 'none')
   const voices = voicesFact(status)
   const dictation = dictationFact(status, picked)
-  const device = status.server === 'connected' ? status.device || 'Processor' : status.nvidia ? status.nvidia : '—'
   return (
     <div className="@container p-4">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 @lg:grid-cols-3">
         <Fact label="Voices" value={voices.value} ready={voices.ready} />
         <Fact label="Dictation" value={dictation.value} ready={dictation.ready} />
-        <Fact label="Runs on" value={device} className="col-span-2 @lg:col-span-1" />
+        <Fact label="Runs on" value={runsOn(status)} className="col-span-2 @lg:col-span-1" />
       </dl>
       <StatusLine status={status} />
+      <EngineDetails status={status} />
     </div>
   )
 }
@@ -361,8 +413,8 @@ function Voices({ status }: { status: SpeechStatus }): React.JSX.Element {
   return (
     <Row icon={<AudioLines size={16} />} title="Voices" badge={installed === 'own' ? <Badge tone="success">Downloaded</Badge> : null}>
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-        Breeze TTS 2 gives the narrator and each character a voice of their own, made from a description, with sighs and laughs performed.
-        Its licence is for personal, non-commercial use.
+        Lifelike voices give the narrator and each character a voice of their own, made from a description, with sighs and laughs
+        performed. Their licence is for personal, non-commercial use.
       </p>
       {serversOwn ? (
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">The speech server in use has voices of its own ready, so there is nothing to download for it.</p>
@@ -442,8 +494,8 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   const picked = useApp((s) => s.settings?.speech?.dictationEngine ?? 'none')
   const options: { value: 'none' | DictationModel; label: string }[] = [
     { value: 'none', label: 'None' },
-    { value: 'parakeet', label: 'Parakeet' },
-    { value: 'whisper', label: 'Whisper' }
+    { value: 'parakeet', label: DICTATION.parakeet.label },
+    { value: 'whisper', label: DICTATION.whisper.label }
   ]
   const pick = async (engine: 'none' | DictationModel): Promise<void> => {
     if (engine === picked) return
@@ -459,8 +511,8 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
   return (
     <Row icon={<Mic size={16} />} title="Dictation">
       <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-        Speak instead of typing. English only, on the processor, so the graphics card stays free for the voices. Parakeet is the sharper one
-        (about 1 GB); Whisper is smaller (about 300 MB). Picking one downloads it the first time.
+        Speak instead of typing. English only, on the processor, so the graphics card stays free for the voices. Sharper hears you best
+        (about 1 GB); Smaller is a lighter download (about 300 MB). Picking one downloads it the first time.
       </p>
       <Segmented<'none' | DictationModel>
         className="mt-3"
@@ -471,9 +523,9 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
       />
       {missing ? (
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-[12.5px] text-muted">{modelName(chosen)} isn’t downloaded yet.</span>
+          <span className="text-[12.5px] text-muted">{DICTATION[chosen].name} isn’t downloaded yet.</span>
           <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => void download(chosen)}>
-            Download {modelName(chosen)} ({KINDS[chosen].size})
+            Download {KINDS[chosen].name} ({KINDS[chosen].size})
           </Button>
         </div>
       ) : null}
@@ -482,7 +534,7 @@ function Dictation({ status }: { status: SpeechStatus }): React.JSX.Element {
           problem={problem}
           repair={
             <Button size="sm" icon={<Download size={13} />} onClick={() => void download(chosen)}>
-              Download {modelName(chosen)} again
+              Download {KINDS[chosen].name} again
             </Button>
           }
         />
@@ -498,7 +550,7 @@ export const isPending = (s: SpeechStatus, kind: SpeechDownloadKind): boolean =>
 
 // ---------- Downloads ----------
 
-/** "The voices download next", "Parakeet downloads after the voices". */
+/** "The voices download next", "Sharper dictation downloads after the voices". */
 function comesNext(kind: SpeechDownloadKind, queued: SpeechDownloadKind[]): string {
   const name = KINDS[kind].name
   const at = queued.indexOf(kind)
@@ -953,8 +1005,8 @@ const formatSize = (bytes: number): string =>
 const PART_NAMES: Record<SpeechDownloadKind, string> = {
   server: 'Speech engine',
   voices: 'Voices',
-  parakeet: 'Parakeet',
-  whisper: 'Whisper',
+  parakeet: 'Sharper dictation',
+  whisper: 'Smaller dictation',
   sounds: 'Sound effects',
   studio: 'Studio voices'
 }
