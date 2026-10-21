@@ -14,7 +14,7 @@ const COMPUTER_ONLY = [
   // Keys and where AI and speech requests go
   'saveProvider', 'deleteProvider', 'restoreProvider', 'setHuggingFaceKey', 'undoRemoveHuggingFaceKey', 'setSpeechServerUrl',
   // Installing software
-  'installUpdate', 'installPython', 'downloadSpeech',
+  'installUpdate', 'installPython', 'downloadSpeech', 'setSpeechStartWithApp', 'setDictationEngine',
   // The phone link itself
   'setPhoneLink', 'newPhoneCode'
 ] as const satisfies readonly ApiMethod[]
@@ -56,9 +56,9 @@ const PHONE = [
   'restoreDeleted', 'restoreDraft', 'restoreEntryVersion', 'restoreRecipe', 'restoreRecipeSource', 'restoreSoundEdits',
   'restoreStudioVoices', 'restoreWorld', 'restored', 'retakeSound', 'sampleReading', 'sampleWorldOpen', 'saveAskNote', 'saveBeatMarks',
   'saveRecipePlan', 'saveSceneText', 'saveStoryBrief', 'saveWorldSummary', 'sceneLeft', 'scenePlansWaiting', 'search', 'searchPlaces',
-  'setBlockMode', 'setCurrentDraft', 'setDictationEngine', 'setDirectionFavourite', 'setEntryImage', 'setEntryMotif', 'setEntryReadAloud',
+  'setBlockMode', 'setCurrentDraft', 'setDirectionFavourite', 'setEntryImage', 'setEntryMotif', 'setEntryReadAloud',
   'setFirstExists', 'setLeadsIn', 'setMonthlyLimit', 'setOptionMark', 'setPin', 'setProposalStatus', 'setRecallValue', 'setSetupStep',
-  'setSpeechStartWithApp', 'setStoryBuildsWaiting', 'setStoryCover', 'setStoryPlacement', 'setSummary', 'setWritingPrefs',
+  'setStoryBuildsWaiting', 'setStoryCover', 'setStoryPlacement', 'setSummary', 'setWritingPrefs',
   'settleCritiqueNote', 'sortStartChanges', 'soundAudio', 'soundCueTimes', 'speakClip', 'speakerLabels', 'spendToastShown', 'startActAt',
   'startBeat', 'startCatchUp', 'startChapterPlan', 'startChapterWriter', 'startCheck', 'startCritique', 'startDraft', 'startEdit',
   'startFleshOut', 'startInterview', 'startOptions', 'startOutline', 'startOutlineStage', 'startPlanChat', 'startPlanRedo',
@@ -82,14 +82,15 @@ void everyMethodPlaced
 const phone = new Set<string>(PHONE)
 for (const m of COMPUTER_ONLY) phone.delete(m)
 
-// Settings that point the computer somewhere: provider addresses, the library and the second backup folder.
+// Settings that point the computer somewhere (provider addresses, the library, the second backup folder) or start the
+// speech server, which downloads it when it isn't installed.
 const COMPUTER_SETTINGS = ['providers', 'libraryPath', 'backup']
 
 function pointsSomewhere(patch: unknown): boolean {
   if (!patch || typeof patch !== 'object') return false
   if (COMPUTER_SETTINGS.some((key) => key in patch)) return true
   const speech = (patch as { speech?: unknown }).speech
-  return !!speech && typeof speech === 'object' && 'serverUrl' in speech
+  return !!speech && typeof speech === 'object' && ['serverUrl', 'runServer', 'dictationEngine'].some((key) => key in speech)
 }
 
 export const COMPUTER_ONLY_MESSAGE = 'That can only be done on the computer. Open AI Write there to do it.'

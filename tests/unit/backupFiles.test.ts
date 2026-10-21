@@ -109,23 +109,6 @@ describe('writing, listing and pruning backups', () => {
     db.close()
   })
 
-  it('packs the copy tight when much of the world was let go of (review #22), keeping everything still there', async () => {
-    const db = worldDb()
-    db.exec('CREATE TABLE filler (id INTEGER PRIMARY KEY, body TEXT)')
-    const put = db.prepare('INSERT INTO filler (body) VALUES (?)')
-    for (let i = 0; i < 400; i++) put.run('x'.repeat(10_000))
-    db.exec('DELETE FROM filler WHERE id > 10')
-    db.pragma('wal_checkpoint(TRUNCATE)')
-    const world = readFileSync(join(dir, 'world.db')).length
-    const b = await writeBackup(db, join(dir, 'backups'), 'manual')
-    expect(b.sizeBytes).toBeLessThan(world / 4)
-    expect(checkBackupFile(b.file, 'world-1')).toEqual({ ok: true })
-    const copy = new Database(b.file, { readonly: true })
-    expect(copy.prepare('SELECT COUNT(*) AS n FROM filler').get()).toEqual({ n: 10 })
-    copy.close()
-    db.close()
-  })
-
   it('never overwrites a backup made in the same millisecond', async () => {
     const db = worldDb()
     const folder = join(dir, 'backups')

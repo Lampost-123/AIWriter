@@ -34,7 +34,7 @@ export function lastEmptyScene(outline: Outline, empty: (id: ID) => boolean): ID
 
 /** Opens the drawer for a scene (the board's own button finds or makes one). */
 export const openIdeasFor = (sceneId: ID): void => {
-  useBoardStore.setState({ ideasFor: sceneId, ideasInstant: keyboardDriven() })
+  useBoardStore.setState((s) => ({ ideasFor: sceneId, ideasInstant: keyboardDriven(), ideasOpened: s.ideasOpened + 1 }))
   void askIfNeeded(sceneId)
 }
 
@@ -64,6 +64,7 @@ export async function ideasForWhatComesNext(outline: Outline, empty: (id: ID) =>
 export function IdeasDrawer({ outline, people }: { outline: Outline; people: CodexCard[] }): React.JSX.Element | null {
   const sceneId = useBoardStore((s) => s.ideasFor)
   const instant = useBoardStore((s) => s.ideasInstant)
+  const opened = useBoardStore((s) => s.ideasOpened)
   const worldId = useApp((s) => s.world?.id ?? null)
   const [closing, setClosing] = useState(false)
   const [gone, setGone] = useState<Set<number>>(new Set())
@@ -92,7 +93,7 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
     clearTimeout(closeTimer.current)
     setClosing(false)
     panel.current?.focus({ preventScroll: true })
-  }, [sceneId])
+  }, [sceneId, opened])
   useEffect(() => () => clearTimeout(closeTimer.current), [])
 
   if (!sceneId) return null

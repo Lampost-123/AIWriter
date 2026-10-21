@@ -471,7 +471,7 @@ function SecondFolder({ onSettled }: { onSettled: () => void }): React.JSX.Eleme
             run: () => {
               void useApp
                 .getState()
-                .updateSettings({ backup: { extraFolder: previous } })
+                .updateSettings({ backup: { extraFolder: previous } }, { quiet: true })
                 .then(load)
                 .catch((e: Error) => toast(e.message, { tone: 'danger' }))
             }

@@ -1,6 +1,6 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
 import { join, relative, resolve } from 'node:path'
-import { accessSync, constants, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import { mergeThreadLinks } from '@shared/threadLinks'
@@ -29,8 +29,11 @@ const recoveryFile = (sceneId: unknown): string => {
 /** The folder is there (made if need be) and AI Write may write in it. */
 function usableFolder(path: string): boolean {
   if (!ensureLibraryFolder(path)) return false
+  // A real write: on Windows a read-only folder still passes accessSync(W_OK).
+  const probe = join(path, `.aiwrite-write-check-${process.pid}`)
   try {
-    accessSync(path, constants.W_OK)
+    writeFileSync(probe, '')
+    unlinkSync(probe)
     return true
   } catch {
     return false

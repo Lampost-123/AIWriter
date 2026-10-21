@@ -167,7 +167,7 @@ export const speedText = (speed: number): string => `${Number(speed.toFixed(2))}
 export function saveSpeech(patch: Partial<SpeechSettings>): void {
   useApp
     .getState()
-    .updateSettings({ speech: patch })
+    .updateSettings({ speech: patch }, { quiet: true })
     .catch((e: unknown) => toast(`That change couldn't be saved. ${(e as Error).message}`, { tone: 'danger' }))
 }
 

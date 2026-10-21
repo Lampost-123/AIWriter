@@ -133,6 +133,8 @@ describe('what the phone may ask the computer to do', () => {
       ['chooseLibraryFolder', []],
       ['readDroppedManuscript', ['C:/Users/adam/secret.txt']],
       ['setPhoneLink', [false]],
+      ['setSpeechStartWithApp', [true]],
+      ['setDictationEngine', ['whisper']],
       ['notAMethodAtAll', []]
     ] as const) {
       const { result, calls } = await ask(method, [...args])
@@ -145,7 +147,7 @@ describe('what the phone may ask the computer to do', () => {
   })
 
   it('refuses settings changes that point the computer somewhere else', async () => {
-    for (const patch of [{ providers: [] }, { libraryPath: 'D:/' }, { backup: { extraFolder: '//evil/share' } }, { speech: { serverUrl: 'http://evil.example' } }]) {
+    for (const patch of [{ providers: [] }, { libraryPath: 'D:/' }, { backup: { extraFolder: '//evil/share' } }, { speech: { serverUrl: 'http://evil.example' } }, { speech: { runServer: true } }, { speech: { dictationEngine: 'whisper' } }]) {
       const { result, calls } = await ask('updateSettings', [patch])
       expect(result.ok, JSON.stringify(patch)).toBe(false)
       expect(calls).toEqual([])

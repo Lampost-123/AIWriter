@@ -21,7 +21,7 @@ const onDesk = (): boolean => document.documentElement.dataset.arrangement === '
 async function finishTour(): Promise<void> {
   useTour.getState().close()
   try {
-    await useApp.getState().updateSettings({ tourSeen: true })
+    await useApp.getState().updateSettings({ tourSeen: true }, { quiet: true })
   } catch (e) {
     toast((e as Error).message, { tone: 'danger' })
   }

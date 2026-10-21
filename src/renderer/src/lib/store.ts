@@ -171,7 +171,8 @@ interface AppState {
    * `startScreen: false` (a first-run setup is showing) skips that, and the start screen then shows only with no world.
    */
   init(opts?: { startScreen?: boolean }): Promise<void>
-  updateSettings(patch: DeepPartial<Settings>): Promise<void>
+  /** Saves settings; a failure shows one plain toast and still rejects. `quiet` when the caller says it its own way. */
+  updateSettings(patch: DeepPartial<Settings>, opts?: { quiet?: boolean }): Promise<void>
   createWorld(name: string): Promise<void>
   openWorld(id: ID): Promise<void>
   /** After a failed switch: make the screen match the world that is really open. */
@@ -366,13 +367,13 @@ export const useApp = create<AppState>((set, get) => ({
     set({ settings, ...extra, home, ready: true })
   },
 
-  async updateSettings(patch) {
+  async updateSettings(patch, opts) {
     let settings: Settings
     try {
       settings = await api.updateSettings(patch)
     } catch (e) {
       // Said once here for every setting (a locked or full disk); callers that go on to do more still see it fail.
-      toast('That setting couldn’t be saved. Try again.', { tone: 'danger' })
+      if (!opts?.quiet) toast('That setting couldn’t be saved. Try again.', { tone: 'danger' })
       throw e
     }
     set({ settings })
