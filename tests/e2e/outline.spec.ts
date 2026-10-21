@@ -632,8 +632,8 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await expect(wish).toBeFocused()
     await wish.fill('Mara has to pay back an old debt, and it costs her.')
     await ideasList(win).getByRole('button', { name: 'Suggest ideas' }).click()
-    await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' })).toBeVisible()
-    // It stays above the ideas, for Other ideas.
+    await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in”' })).toBeVisible()
+    // It stays above the ideas, for Three more ideas.
     await expect(wish).toHaveValue('Mara has to pay back an old debt, and it costs her.')
     await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
     await expect(ideasList(win).locator('[data-idea]')).toContainText(['The door left open', 'A debt called in', 'The wrong messenger'])
@@ -646,7 +646,7 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     expect(JSON.stringify(fake.lastRequest()!.body.messages)).toContain('Mara has to pay back an old debt, and it costs her.')
 
     // ----- Use this: the card is filled in one click, and the scene takes the idea's name -----
-    await ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' }).click()
+    await ideasList(win).getByRole('button', { name: 'Use “A debt called in”' }).click()
     const filled = 'Filled the scene card with “A debt called in”, and named the scene after it.'
     await expect(toastWith(win, filled)).toBeVisible()
     await expect(ideasList(win)).toHaveCount(0)
@@ -676,24 +676,24 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).card.goal).toBe('')
     await expect.poll(async () => (await invoke(win, 'getScene', scene.id)).title).toBe('Scene 1')
 
-    // ----- Other ideas that fail: the ideas on screen stay, under the reason in plain words -----
+    // ----- Three more ideas that fail: the ideas on screen stay, under the reason in plain words -----
     await setModel(win, 'fake/credit')
-    await ideasList(win).getByRole('button', { name: 'Other ideas' }).click()
+    await ideasList(win).getByRole('button', { name: 'Three more ideas' }).click()
     await expect(ideasList(win).getByRole('alert')).toContainText('out of credit')
     await expect(ideasList(win).getByRole('alert').getByRole('button', { name: 'Try again' })).toBeVisible()
     await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
-    await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in” for this scene' })).toBeVisible()
+    await expect(ideasList(win).getByRole('button', { name: 'Use “A debt called in”' })).toBeVisible()
 
-    // ----- Other ideas, stopped part way: what arrived stays -----
+    // ----- Three more ideas, stopped part way: what arrived stays -----
     await setModel(win, 'fake/slow')
-    await ideasList(win).getByRole('button', { name: 'Other ideas' }).click()
+    await ideasList(win).getByRole('button', { name: 'Three more ideas' }).click()
     await expect(ideasList(win).getByRole('status')).toBeVisible()
     await expect(ideasList(win).getByRole('alert')).toHaveCount(0)
     await expect(ideasList(win).locator('[data-idea]').first()).toContainText('Mara finds the guild house unguarded')
     await ideasList(win).getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(ideasList(win).getByRole('button', { name: 'Use “The door left open” for this scene' })).toBeVisible()
-    await expect(ideasList(win).getByRole('button', { name: 'Use “The wrong messenger” for this scene' })).toHaveCount(0)
-    await expect(ideasList(win).getByRole('button', { name: 'Other ideas' })).toBeVisible()
+    await expect(ideasList(win).getByRole('button', { name: 'Use “The door left open”' })).toBeVisible()
+    await expect(ideasList(win).getByRole('button', { name: 'Use “The wrong messenger”' })).toHaveCount(0)
+    await expect(ideasList(win).getByRole('button', { name: 'Three more ideas' })).toBeVisible()
 
     // ----- Closed: the quiet button is back, and stays put while Adam starts filling the card -----
     await setModel(win, 'fake/writer')
@@ -716,7 +716,7 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await win.keyboard.type('Ideas for this scene')
     await palette(win).getByRole('option', { name: 'Ideas for this scene' }).click()
     await expect(win.getByRole('tab', { name: 'Scene card', selected: true })).toBeVisible()
-    await expect(ideasList(win).getByRole('button', { name: 'Use “The wrong messenger” for this scene' })).toBeVisible()
+    await expect(ideasList(win).getByRole('button', { name: 'Use “The wrong messenger”' })).toBeVisible()
 
     // ----- What the AI saw, and back to the scene with its ideas -----
     await ideasList(win).getByRole('button', { name: 'What the AI saw' }).click()
@@ -727,7 +727,7 @@ test('next scene ideas: an empty scene card offers three directions, and Use thi
     await expect(ideasList(win).locator('[data-idea]')).toHaveCount(3)
 
     // ----- Use this on a card Adam has started: his goal stays, and the idea's beats are added -----
-    await ideasList(win).getByRole('button', { name: 'Use “The wrong messenger” for this scene' }).click()
+    await ideasList(win).getByRole('button', { name: 'Use “The wrong messenger”' }).click()
     const added = 'Added “The wrong messenger” to the scene card, after what was already on it, and named the scene after it.'
     await expect(toastWith(win, added)).toBeVisible()
     await expect(sceneCard(win).getByLabel('Goal', { exact: true })).toHaveValue('Get the ledger back')

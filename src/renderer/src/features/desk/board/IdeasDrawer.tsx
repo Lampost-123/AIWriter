@@ -4,12 +4,13 @@
 // scene added in the binder does), and a planned card's own Ideas asks for that one. The three ideas come in as index
 // cards, each naming who is in it; Use this fills the scene's card (and names a plain-titled scene after the idea), the
 // card flies from the drawer to its place on the board and wears "AI idea" until it has words; Undo in the toast
-// empties it again. Dismiss puts one idea away; Three more ideas asks again. Slides in 240ms, out 140ms; at once from
+// empties it again. Dismiss puts one idea away; Three more ideas asks again, Stop while they come (the shared card and
+// foot, outline/IdeaCard.tsx). Slides in 240ms, out 140ms; at once from
 // the keyboard or with less motion.
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ID, Outline } from '@shared/types'
-import { BookOpenText, Plus, Sparkles, X } from '@/components/ui/icons'
+import { BookOpenText, Sparkles, X } from '@/components/ui/icons'
 import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -18,10 +19,9 @@ import { buildNameIndex, entriesNamedIn } from '@/features/editor/names/nameMatc
 import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { applyIdea, askIdeas, ideasKey, setWish, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
 import { parseIdeas, type SceneIdea } from '@/features/outline/parse'
+import { IdeaCard, IdeasFooter } from '@/features/outline/IdeaCard'
 import { Portrait } from '@/features/views/Portrait'
-import { FreshText } from '@/features/planning/FreshText'
 import { LampStatus, WaitingCards } from '@/features/planning/LampThinking'
-import { useDealDelay } from '@/features/planning/deal'
 import { readingOrder, sceneWhere } from '@/features/desk/home/homeLogic'
 import { addSceneTo } from './boardActions'
 import { bumpMarks, useBoardStore } from './boardStore'
@@ -162,20 +162,24 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
         {scene ? `, ${sceneWhere(outline, scene.id)}` : ''}. Using one fills its card; Undo empties it again.
       </p>
       <div className="board-dr-ideas" aria-busy={running || undefined}>
-        {shown.map(({ idea, i }, n) => (
+        {shown.map(({ idea, i }) => (
           <IdeaCard
             key={`${session?.taskId}-${i}`}
             idea={idea}
             n={i}
-            delay={120 + n * 60}
             leaving={leaving === i}
-            cast={entriesNamedIn(`${idea.title} ${idea.summary} ${idea.beats.join(' ')}`, index)
-              .map((id) => people.find((p) => p.id === id))
-              .filter((p): p is CodexCard => !!p && p.kind === 'character')
-              .slice(0, 3)}
             live={!!running}
             onUse={(el) => void use(idea, el)}
             onDismiss={() => dismiss(i)}
+            extra={entriesNamedIn(`${idea.title} ${idea.summary} ${idea.beats.join(' ')}`, index)
+              .map((id) => people.find((p) => p.id === id))
+              .filter((p): p is CodexCard => !!p && p.kind === 'character')
+              .slice(0, 3)
+              .map((p) => (
+                <span key={p.id} title={p.name}>
+                  <Portrait entry={p} size={20} />
+                </span>
+              ))}
           />
         ))}
         {running ? (
@@ -202,83 +206,14 @@ export function IdeasDrawer({ outline, people }: { outline: Outline; people: Cod
           </div>
         ) : null}
       </div>
-      <div className="board-dr-foot">
-        <button type="button" className="board-btn-sec" disabled={running} onClick={() => void askIdeas(sceneId)}>
-          <Sparkles size={14} className="text-[var(--lamp)]" />
-          <span>Three more ideas</span>
-        </button>
-        {running ? (
-          <button type="button" className="board-dr-stop" onClick={() => stopIdeas(sceneId)}>
-            Stop
-          </button>
-        ) : (
+      <IdeasFooter className="board-dr-foot" running={!!running} hasIdeas onMore={() => void askIdeas(sceneId)} onStop={() => stopIdeas(sceneId)}>
+        {running ? null : (
           <span className="board-dr-saw">
             <BookOpenText size={14} />
             Only the idea you use goes on the card.
           </span>
         )}
-      </div>
+      </IdeasFooter>
     </aside>
-  )
-}
-
-function IdeaCard({
-  idea,
-  n,
-  delay,
-  leaving,
-  cast,
-  live,
-  onUse,
-  onDismiss
-}: {
-  idea: SceneIdea
-  n: number
-  delay: number
-  leaving: boolean
-  cast: CodexCard[]
-  /** The answer is still arriving: its words fade in. */
-  live: boolean
-  onUse: (el: HTMLElement | null) => void
-  onDismiss: () => void
-}): React.JSX.Element {
-  const ref = useRef<HTMLElement>(null)
-  // Ideas that show together are dealt in one after another; one arriving while the AI writes lands at once.
-  const deal = useDealDelay()
-  const title = idea.title.trim() || `Idea ${n + 1}`
-  return (
-    <article ref={ref} className={cn('board-idea', leaving && 'is-leaving', !idea.complete && 'is-arriving')} style={{ '--d': live ? (deal as Record<string, string>)['--deal'] : `${delay}ms` } as CSSProperties} data-idea>
-      <span className="board-c-rules" aria-hidden />
-      <span className="board-c-margin" aria-hidden />
-      <span className="board-i-kind">Idea {['one', 'two', 'three', 'four', 'five'][n] ?? n + 1}</span>
-      <h3 className="board-i-title">
-        <FreshText text={title} live={live} />
-      </h3>
-      <p className="board-i-hook">
-        <FreshText text={idea.summary} live={live} />
-      </p>
-      {idea.beats.length ? (
-        <p className="board-i-beats">
-          {idea.beats.length} {idea.beats.length === 1 ? 'beat' : 'beats'}: {idea.beats[0]}
-          {idea.beats.length > 1 ? '…' : ''}
-        </p>
-      ) : null}
-      <div className="board-i-actions">
-        <button type="button" className="board-btn-ai is-sm" disabled={!idea.complete} onClick={() => onUse(ref.current)} aria-label={`Use “${title}”`}>
-          <Plus size={13} />
-          <span>Use this</span>
-        </button>
-        <button type="button" className="board-txt-btn" onClick={onDismiss} aria-label={`Dismiss “${title}”`}>
-          Dismiss
-        </button>
-        <span className="board-i-cast">
-          {cast.map((p) => (
-            <span key={p.id} title={p.name}>
-              <Portrait entry={p} size={20} />
-            </span>
-          ))}
-        </span>
-      </div>
-    </article>
   )
 }

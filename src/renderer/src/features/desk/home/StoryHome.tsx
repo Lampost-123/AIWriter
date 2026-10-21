@@ -8,8 +8,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
-import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, WandSparkles, X } from '@/components/ui/icons'
-import { toast } from '@/components/ui'
+import { ArrowRight, ChevronDown, Palette, Plus, WandSparkles, X } from '@/components/ui/icons'
+import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
@@ -20,8 +20,8 @@ import { useOutline } from '@/features/binder/outlineStore'
 import { openConsistency } from '@/features/consistency/checkStore'
 import { useGoals } from '@/features/goals/goalStore'
 import { streakOf, weekOf } from '@/features/goals/goalLogic'
-import { askIdeas, ideasKey, useSceneIdeas } from '@/features/outline/ideasStore'
-import { FreshText } from '@/features/planning/FreshText'
+import { askIdeas, ideasKey, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
+import { IdeaCard, IdeasFooter } from '@/features/outline/IdeaCard'
 import { LampStatus } from '@/features/planning/LampThinking'
 import { cardIsEmpty } from '@/features/outline/ideasLogic'
 import { parseIdeas } from '@/features/outline/parse'
@@ -384,35 +384,17 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
               {session.problem.message}
             </p>
           ) : (
-            <ol className="home-idea-list">
+            <div className="flex flex-col gap-2">
               {ideas.map((idea, i) => (
-                <li key={i} className="home-idea" style={at(i * 60)}>
-                  <span className="home-idea-n">{['i.', 'ii.', 'iii.', 'iv.', 'v.'][i] ?? `${i + 1}.`}</span>
-                  <span className="home-idea-t">
-                    {idea.title ? (
-                      <b>
-                        <FreshText text={idea.title} live={session?.status === 'running'} />.{' '}
-                      </b>
-                    ) : null}
-                    <FreshText text={idea.summary} live={session?.status === 'running'} />
-                  </span>
-                </li>
+                <IdeaCard key={`${session?.taskId}-${i}`} idea={idea} n={i} live={session?.status === 'running'} />
               ))}
-            </ol>
+            </div>
           )}
-          <div className="home-ideas-foot">
-            <button type="button" className="home-btn-ghost" disabled={session?.status === 'running'} onClick={() => void askIdeas(target.id)}>
-              <RotateCcw size={14} />
-              <span>Try again</span>
-            </button>
-            <button
-              type="button"
-              className="home-btn-sec"
-              onClick={() => outline && useApp.getState().navigate({ kind: 'board', storyId: outline.story.id, ideasFor: target.id })}
-            >
-              Add to the plan
-            </button>
-          </div>
+          <IdeasFooter className="home-ideas-foot" running={session?.status === 'running'} hasIdeas={!!session} onMore={() => void askIdeas(target.id)} onStop={() => stopIdeas(target.id)}>
+            <Button size="sm" variant="ghost" onClick={() => useApp.getState().navigate({ kind: 'board', storyId: outline.story.id, ideasFor: target.id })}>
+              Choose one on the board
+            </Button>
+          </IdeasFooter>
         </div>
       ) : null}
     </div>

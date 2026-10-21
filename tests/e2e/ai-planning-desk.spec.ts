@@ -310,7 +310,7 @@ test('the scene card’s ideas on the desk: the lamp while they come, index card
     await expect(ideas.locator('[data-idea]')).toHaveCount(3, { timeout: 30_000 })
     await expect(ideas.locator('[data-idea].plan-idea').first()).toBeVisible()
     await expect(ideas.locator('[data-plan-thinking]')).toHaveCount(0, { timeout: 30_000 })
-    await ideas.getByRole('button', { name: 'Use “The door left open” for this scene' }).click()
+    await ideas.getByRole('button', { name: 'Use “The door left open”' }).click()
     await expect(win.locator('.plan-ghost')).toHaveCount(1)
     await expect(win.locator('.plan-ghost')).toHaveCount(0, { timeout: 3000 })
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes.find((s) => s.title.includes('door') || s.title === 'The Bell Rope')!.id
