@@ -156,9 +156,6 @@ export function setPickingKey(on: boolean): void {
 
 export const pickingKey = (): boolean => picking
 
-/** The recording listening now (or starting), if any: only one listens at a time. */
-export const listeningNow = (): Recording | undefined => useDictation.getState().recordings.find((r) => r.phase !== 'writing')
-
 /** Starts a recording. Null when another one is already listening. */
 export function startRecording(o: StartOptions): number | null {
   installWatchers()

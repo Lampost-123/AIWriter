@@ -58,7 +58,7 @@ import { findingKey, foldWords, ProgressGuard, Tries, wordsHash, wordsOverlap } 
 import { missedDirection } from './prompts'
 import { chapterLine, chapterPlanText, makeChapterPlan, withAnswer } from './plan'
 import { fixPassage, type FixDeps } from './fix'
-import { loadReport, saveBefore, saveNamed, saveReport, scenesNow } from './store'
+import { saveBefore, saveNamed, saveReport, scenesNow } from './store'
 import { findingLine, ownTitle, type Finding, type SceneRef } from './tools'
 
 type DB = Database.Database
@@ -1157,6 +1157,3 @@ export function noteFinding(n: CritiqueNote, sceneId: ID, at: string, chapterId:
     note: { id: n.id, at, target: { scope: 'chapter', id: chapterId } }
   }
 }
-
-/** The report kept for a chapter, if any (for the window). */
-export const reportFor = (db: DB, chapterId: ID): ChapterWriterReport | null => loadReport(db, chapterId)

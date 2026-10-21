@@ -87,7 +87,6 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'storyCodexChat',
   'redoCodexItem',
   'buildStoryCodex',
-  'startStoryOutline',
   'startPlanChat',
   'startPlanRedo',
   'recipeChat',
@@ -364,8 +363,3 @@ world.onWorldClosing((w) => {
     console.warn('Could not keep the spending of the world being closed', e)
   }
 })
-
-/** Keeps the figures before quitting. */
-export function saveUsage(): void {
-  lib().save()
-}

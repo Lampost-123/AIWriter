@@ -60,32 +60,3 @@ export function Field({ label, hint, error, className, children }: FieldProps): 
     </div>
   )
 }
-
-/** A comma- or newline-separated list edited as text, stored as string[]. */
-export function ListInput({
-  value,
-  onChange,
-  placeholder,
-  id
-}: {
-  value: string[]
-  onChange: (v: string[]) => void
-  placeholder?: string
-  id?: string
-}): React.JSX.Element {
-  return (
-    <Input
-      id={id}
-      defaultValue={value.join(', ')}
-      placeholder={placeholder}
-      onBlur={(e) =>
-        onChange(
-          e.target.value
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        )
-      }
-    />
-  )
-}

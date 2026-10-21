@@ -56,9 +56,11 @@ export interface Builder {
   build: CodexBuild | null
   /** Something was typed in an idea box while the app runs: an emptied box no longer shows the premise. */
   ideaTyped: boolean
+  /** The brief couldn't be read: nothing is saved over it until a real one loads (Try again calls loadBrief). */
+  briefFailed: boolean
 }
 
-const fresh = (): Builder => ({ brief: null, recipe: null, question: null, codexTask: null, codexError: null, redos: {}, build: null, ideaTyped: false })
+const fresh = (): Builder => ({ brief: null, recipe: null, question: null, codexTask: null, codexError: null, redos: {}, build: null, ideaTyped: false, briefFailed: false })
 
 export const useBuilders = create<{ builders: Record<string, Builder> }>(() => ({ builders: {} }))
 
@@ -97,11 +99,13 @@ export async function loadBrief(storyId: ID): Promise<void> {
   try {
     const brief = await api.getStoryBrief(storyId)
     if (get(storyId).brief) return
-    put(storyId, { brief })
+    put(storyId, { brief, briefFailed: false })
     if (brief.built) setKeepBuild(storyId, 'new-pages')
     if (brief.recipe) void loadRecipe(storyId, brief.recipe.id)
-  } catch {
-    put(storyId, { brief: emptyBrief() })
+  } catch (e) {
+    // An empty brief put in here would be saved over the real one at the next change.
+    console.warn('Could not read the story’s idea', e)
+    if (!get(storyId).brief) put(storyId, { briefFailed: true })
   }
 }
 
@@ -112,7 +116,9 @@ export function writeIdea(storyId: ID, plot: string): void {
 }
 
 export function patchBrief(storyId: ID, patch: Partial<StoryBrief> | ((b: StoryBrief) => Partial<StoryBrief>)): void {
-  const b = get(storyId).brief ?? emptyBrief()
+  // Not loaded (or the load failed): a change made now would save a whole empty brief over the real one.
+  const b = get(storyId).brief
+  if (!b) return
   const next = { ...b, ...(typeof patch === 'function' ? patch(b) : patch) }
   put(storyId, { brief: next })
   pending.set(storyId, { worldId: useApp.getState().world?.id, brief: next })

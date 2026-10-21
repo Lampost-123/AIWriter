@@ -74,6 +74,7 @@ import { asOfKnowing, type AsOfKnowing } from '../asOfViewLogic'
 import { dismissProfile } from '../reachLogic'
 import { AutoTextarea } from '../parts/AutoTextarea'
 import { SaveNote } from '../parts/SaveNote'
+import { NameBox } from '../parts/NameBox'
 import { Switch } from '@/components/ui'
 import { CommaListInput } from '../parts/TextInputs'
 import { useEntryEditor } from '../useEntryEditor'
@@ -426,13 +427,6 @@ export function Dossier({
       nameRef.current?.select()
     })
   }, [entry.id])
-  // The name stays one line of text that wraps (Enter does nothing), growing with it.
-  useLayoutEffect(() => {
-    const el = nameRef.current
-    if (!el) return
-    el.style.height = '0px'
-    el.style.height = `${el.scrollHeight}px`
-  }, [draft.name])
 
   // As of a scene: the dossier's body shows the entry as it is there.
   const asOf = useAsOfMode((s) => s.on)
@@ -860,19 +854,7 @@ export function Dossier({
             </h2>
           ) : (
             <h2 id={titleId} tabIndex={-1} className="dz-name-h">
-              <textarea
-                ref={nameRef}
-                rows={1}
-                value={draft.name}
-                aria-label="Name"
-                placeholder="Name"
-                spellCheck={false}
-                className="dz-name dz-name-input"
-                onChange={(e) => setName(e.target.value.replace(/[ \t]*[\r\n]+[ \t]*/g, ' '))}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.preventDefault()
-                }}
-              />
+              <NameBox ref={nameRef} value={draft.name} onChange={setName} className="dz-name dz-name-input" />
             </h2>
           )}
         </div>

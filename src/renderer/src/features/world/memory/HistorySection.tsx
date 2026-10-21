@@ -42,7 +42,9 @@ export function HistorySection({
   const entryId = now.id
   const history = useEntryData(() => api.listEntryHistory(entryId), `history:${entryId}`)
   // Which scene each memory update read, to say "Updated from Book 1, Ch 3, Sc 2". Optional.
-  const log = useEntryData(() => api.listMemoryLog({ entryId, limit: 500 }), `log:${entryId}`)
+  // Only the memory writes these notes, so typing on the page doesn't read them again.
+  const memoryRev = useApp((s) => s.memoryRev)
+  const log = useEntryData(() => api.listMemoryLog({ entryId, limit: 500 }), `log:${entryId}`, true, memoryRev)
   const [shown, setShown] = useState(PAGE)
   const [openId, setOpenId] = useState<ID | null>(null)
   const [busy, setBusy] = useState(false)

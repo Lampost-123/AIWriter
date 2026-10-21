@@ -5,7 +5,6 @@ import type { Entry } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { entryInitial } from '@/features/world/entryLogic'
 import { KIND_INK } from '@/features/world/kindIcons'
-import { useNewLook } from '@/features/look/look'
 import { Motif } from '@/components/art/Motif'
 
 export function Portrait({
@@ -30,16 +29,14 @@ export function Portrait({
   // A picture that fails to load (removed since) falls back to the letter, never a broken image.
   const [failed, setFailed] = useState<string | null>(null)
   const src = entry.image && failed !== entry.image ? entry.image : null
-  // The New look: the letter in its kind's ink, on its kind's tint, in the serif.
-  const isNew = useNewLook()
   return (
     <span
       aria-hidden
       className={cn(
         'relative inline-flex shrink-0 select-none items-center justify-center overflow-hidden',
-        isNew
-          ? cn(KIND_INK[entry.kind].tile, 'font-heading font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,currentColor_22%,transparent)]')
-          : 'bg-surface-2 font-medium text-muted',
+        // The letter in its kind's ink, on its kind's tint, in the serif.
+        KIND_INK[entry.kind].tile,
+        'font-heading font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,currentColor_22%,transparent)]',
         entry.kind === 'character' ? 'rounded-full' : 'rounded-md',
         className
       )}

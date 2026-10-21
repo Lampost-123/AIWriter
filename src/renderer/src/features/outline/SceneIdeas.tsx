@@ -4,22 +4,20 @@
 //
 // A quiet "Ideas for this scene" while the card is empty. Clicked, it asks what Adam has in mind, roughly, in his own
 // words (optional: the three ideas are then three takes on it); asked (or from the palette), the three ideas stream
-// in, each a short title, a line on what happens and its beats, with Use this. What he has in mind stays above them,
-// and Other ideas asks again with it as it stands. Stop keeps what has arrived; the list stays until one is used or
+// in, each a short title, a line on what happens and its beats, with Use this (the shared card, IdeaCard.tsx). What he
+// has in mind stays above them, and Three more ideas asks again with it as it stands. Stop keeps what has arrived; the list stays until one is used or
 // it is closed, even if Adam starts filling the card.
-import { Lightbulb, Square, X } from '@/components/ui/icons'
+import { Lightbulb, X } from '@/components/ui/icons'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ID, SceneCard } from '@shared/types'
 import { Button, IconButton, Notice, Textarea } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { useOutlineStore } from '@/features/binder/outlineStore'
-import { settingsAction, SuggestionButton, WritingStatus } from '@/features/builder/parts'
+import { settingsAction, WritingStatus } from '@/features/builder/parts'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { useDesk } from '@/features/look/look'
-import { FreshText } from '@/features/planning/FreshText'
 import { LampStatus } from '@/features/planning/LampThinking'
-import { useDealDelay } from '@/features/planning/deal'
 import { flyCard, mayFly } from '@/features/planning/fly'
 import { cardIsEmpty } from './ideasLogic'
 import {
@@ -36,6 +34,7 @@ import {
   type IdeasSession
 } from './ideasStore'
 import { parseIdeas, type SceneIdea } from './parse'
+import { IdeaCard, IdeasFooter } from './IdeaCard'
 
 export function SceneIdeas({
   sceneId,
@@ -194,12 +193,7 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
           <span className="truncate">Ideas for this scene</span>
         </h3>
         <div className="flex-1" />
-        {running ? (
-          <SuggestionButton onClick={() => stopIdeas(sceneId)} title="Stop. The ideas that have arrived stay." className="gap-1.5">
-            <Square size={9} fill="currentColor" aria-hidden />
-            Stop
-          </SuggestionButton>
-        ) : (
+        {running ? null : (
           <IconButton size="sm" label="Close the ideas" onClick={() => closeIdeas(sceneId)}>
             <X size={14} />
           </IconButton>
@@ -245,9 +239,10 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
           <IdeaCard
             key={i}
             idea={ideas[i]}
-            writing={running && !ideas[i].complete}
+            n={i}
             live={running}
-            adds={adds}
+            beats="list"
+            useTitle={adds ? 'Add this idea to the scene card, after what is already on it' : 'Fill the scene card with this idea'}
             onUse={(el) => use(ideas[i], el)}
           />
         ) : desk ? (
@@ -264,18 +259,9 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
         )
       )}
 
-      {!running && (ideas.length || s.generationId) ? (
-        <div className="flex items-center gap-3 text-[12px]">
-          {ideas.length ? (
-            <button
-              type="button"
-              onClick={onAsk}
-              className="rounded font-medium text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent/40"
-            >
-              Other ideas
-            </button>
-          ) : null}
-          {s.generationId ? (
+      {running || ideas.length || s.generationId ? (
+        <IdeasFooter running={running} hasIdeas={ideas.length > 0} onMore={onAsk} onStop={() => stopIdeas(sceneId)} className="text-[12px]">
+          {!running && s.generationId ? (
             <button
               type="button"
               onClick={whatTheAISaw}
@@ -284,8 +270,8 @@ function Ideas({ sceneId, s, card, onAsk }: { sceneId: ID; s: IdeasSession; card
               What the AI saw
             </button>
           ) : null}
-          {s.cutOff ? <span className="ml-auto text-faint">The answer reached its length limit.</span> : null}
-        </div>
+          {!running && s.cutOff ? <span className="ml-auto text-faint">The answer reached its length limit.</span> : null}
+        </IdeasFooter>
       ) : null}
     </section>
   )
@@ -309,60 +295,6 @@ function Problem({ problem, onRetry }: { problem: IdeasProblem; onRetry: () => v
           </Button>
         </div>
       </Notice>
-    </div>
-  )
-}
-
-function IdeaCard({
-  idea,
-  writing,
-  live,
-  adds,
-  onUse
-}: {
-  idea: SceneIdea
-  writing: boolean
-  /** The answer is still arriving: new words fade in (on the desk). */
-  live: boolean
-  adds: boolean
-  onUse: (el: HTMLElement | null) => void
-}): React.JSX.Element {
-  const box = useRef<HTMLDivElement>(null)
-  const deal = useDealDelay()
-  return (
-    <div ref={box} className={cn('plan-idea plan-deal rounded-lg border border-ai/25 bg-ai-soft px-3 py-2.5', writing && 'is-writing')} style={deal} data-idea>
-      <p className="plan-idea-t break-words font-serif text-[14px] font-semibold leading-snug text-fg">
-        <FreshText text={idea.title} live={live} />
-        {writing && !idea.summary && !idea.beats.length ? <Caret /> : null}
-      </p>
-      {idea.summary ? (
-        <p className="mt-1 break-words text-[13px] leading-relaxed text-fg">
-          <FreshText text={idea.summary} live={live} />
-          {writing && !idea.beats.length ? <Caret /> : null}
-        </p>
-      ) : null}
-      {idea.beats.length ? (
-        <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 text-[12.5px] leading-relaxed text-muted marker:text-faint">
-          {idea.beats.map((b, i) => (
-            <li key={i} className="break-words pl-0.5">
-              <FreshText text={b} live={live} />
-              {writing && i === idea.beats.length - 1 ? <Caret /> : null}
-            </li>
-          ))}
-        </ol>
-      ) : null}
-      {/* Its room is kept while it is written, so nothing moves when the button appears. */}
-      <div className={cn('mt-2 flex', writing && 'invisible')} aria-hidden={writing || undefined}>
-        <SuggestionButton
-          primary
-          className="plan-use"
-          onClick={() => onUse(box.current)}
-          aria-label={`Use “${idea.title}” for this scene`}
-          title={adds ? 'Add this idea to the scene card, after what is already on it' : 'Fill the scene card with this idea'}
-        >
-          Use this
-        </SuggestionButton>
-      </div>
     </div>
   )
 }
@@ -402,4 +334,3 @@ function WishLine({ sceneId }: { sceneId: ID }): React.JSX.Element | null {
   return <p className="line-clamp-3 break-words text-[12.5px] italic leading-relaxed text-muted">Going by: {wish}</p>
 }
 
-const Caret = (): React.JSX.Element => <span aria-hidden className="plan-caret ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-ai" />

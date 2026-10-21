@@ -226,6 +226,32 @@ export function forgetOldPrompts(db: DB, sceneId: ID, marker: string, keep: numb
   return old.length
 }
 
+/** How many of the newest records of each scene and job keep their whole prompt when a world opens (trimOldPrompts). */
+export const KEEP_PROMPTS = 10
+/** Drafts and beats keep as many as lastSentBlock looks through (the Context tab's last brief), so it still finds it. */
+export const KEEP_DRAFT_PROMPTS = 20
+
+/**
+ * Lets go of old prompts (review #22: every AI call keeps its whole prompt, often tens of thousands of characters, and
+ * every backup copies them): all but the newest few records of each scene and job have their messages and parts
+ * blanked. Their reply, cost, tokens, settings and the entries they were given stay, so usage, history and What the AI
+ * saw's reply are unchanged; a record still being written is never touched. The newest few are kept for what reads a
+ * prompt back: repair's stock phrases (the draft just written), the Context tab's last brief, and What the AI saw.
+ * Run when a world opens. Returns how many records were trimmed.
+ */
+export function trimOldPrompts(db: DB): number {
+  return db
+    .prepare(
+      `UPDATE generations SET messages_json = '[]', blocks_json = '[]'
+       WHERE status <> 'streaming' AND (messages_json <> '[]' OR blocks_json <> '[]') AND id IN (
+         SELECT id FROM (
+           SELECT id, job, ROW_NUMBER() OVER (PARTITION BY scene_id, job ORDER BY created_at DESC, rowid DESC) AS n FROM generations
+         ) WHERE n > CASE WHEN job IN ('draft', 'beat') THEN ? ELSE ? END
+       )`
+    )
+    .run(KEEP_DRAFT_PROMPTS, KEEP_PROMPTS).changes
+}
+
 /**
  * The text of a part as last sent to the writer in this scene (a draft or a beat, newest first, the part not left out),
  * or null when none of its drafts had one: the Context tab shows the last continuity brief this way (long story memory

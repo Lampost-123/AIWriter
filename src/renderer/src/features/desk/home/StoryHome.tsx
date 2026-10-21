@@ -4,22 +4,24 @@
 // dots and how far along it is; then the open plot threads, the cast, and this week's writing; and a quiet footer with
 // the memory and the story's checks. The first time it shows in a session its pieces arrive in turn (the book tips up,
 // lines rise, the shelf slides in, the bars grow); never again, never from the keyboard, never with less motion.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
-import { ArrowRight, ChevronDown, Palette, Plus, RotateCcw, WandSparkles, X } from '@/components/ui/icons'
-import { toast } from '@/components/ui'
+import { ArrowRight, ChevronDown, Palette, Plus, WandSparkles, X } from '@/components/ui/icons'
+import { Button, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { useApp } from '@/lib/store'
+import { LoadFailed, useLoaded } from '@/lib/useLoaded'
 import * as actions from '@/features/binder/actions'
 import { useOutline } from '@/features/binder/outlineStore'
 import { openConsistency } from '@/features/consistency/checkStore'
 import { useGoals } from '@/features/goals/goalStore'
 import { streakOf, weekOf } from '@/features/goals/goalLogic'
-import { askIdeas, ideasKey, useSceneIdeas } from '@/features/outline/ideasStore'
-import { FreshText } from '@/features/planning/FreshText'
+import { askIdeas, ideasKey, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
+import { IdeaCard, IdeasFooter } from '@/features/outline/IdeaCard'
 import { LampStatus } from '@/features/planning/LampThinking'
 import { cardIsEmpty } from '@/features/outline/ideasLogic'
 import { parseIdeas } from '@/features/outline/parse'
@@ -63,23 +65,6 @@ const fmt = (x: number): string => x.toLocaleString('en-GB')
 /** An arriving piece's delay. */
 const at = (ms: number): CSSProperties => ({ '--d': `${ms}ms` }) as CSSProperties
 
-/** Loads something for the home, again whenever `deps` change; null until it arrives (or when it fails). */
-function useLoad<T>(load: () => Promise<T> | null, deps: unknown[]): T | null {
-  const [value, setValue] = useState<{ key: string; v: T } | null>(null)
-  const key = JSON.stringify(deps)
-  useEffect(() => {
-    let live = true
-    const p = load()
-    if (!p) return
-    p.then((v) => live && setValue({ key, v })).catch(() => undefined)
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return value ? value.v : null
-}
-
 export function StoryHome(): React.JSX.Element {
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
@@ -99,10 +84,12 @@ export function StoryHome(): React.JSX.Element {
   const frame = useDeskFrame()
   const glide = useSheetGlide(frame)
 
-  const board = useLoad<ThreadsBoard>(() => (storyId ? api.getThreadsBoard(storyId) : null), [storyId, outlineRev, memoryRev])
-  const codex = useLoad<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev, world?.id])
-  const issues = useLoad(() => (storyId ? api.issueCounts(storyId) : null), [storyId, outlineRev, memoryRev])
-  const last = useLoad(() => (sceneId ? api.getScene(sceneId) : null), [sceneId, outlineRev])
+  const boardLoad = useLoaded<ThreadsBoard>(() => (storyId ? api.getThreadsBoard(storyId) : null), [storyId, outlineRev, memoryRev])
+  const codexLoad = useLoaded<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev, world?.id])
+  const issues = useLoaded(() => (storyId ? api.issueCounts(storyId) : null), [storyId, outlineRev, memoryRev]).value
+  const last = useLoaded(() => (sceneId ? api.getScene(sceneId) : null), [sceneId, outlineRev]).value
+  const board = boardLoad.value
+  const codex = codexLoad.value
   const cover = useStoryCover(story, world)
   const motifs = useEntryMotifs()
 
@@ -259,6 +246,8 @@ export function StoryHome(): React.JSX.Element {
               ) : (
                 <p className="home-empty">No plot threads yet. They come from the scene cards and the memory.</p>
               )
+            ) : boardLoad.failed ? (
+              <LoadFailed onRetry={boardLoad.retry} />
             ) : null}
           </div>
           <div className="home-lc a-up" style={at(660)}>
@@ -311,6 +300,8 @@ export function StoryHome(): React.JSX.Element {
               ) : (
                 <p className="home-empty">Nobody in the world yet.</p>
               )
+            ) : codexLoad.failed ? (
+              <LoadFailed onRetry={codexLoad.retry} />
             ) : null}
           </div>
           <div className="home-lc a-up" style={at(720)}>
@@ -333,33 +324,54 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
   // Only a planned scene whose card says nothing yet about what happens.
-  const card = useLoad(() => (target ? api.getScene(target.id) : null), [target?.id])
+  const card = useLoaded(() => (target ? api.getScene(target.id) : null), [target?.id]).value
   const session = useSceneIdeas((s) => (target ? s.sessions[ideasKey(worldId, target.id)] : undefined))
   const ideas = session ? parseIdeas(session.text, session.status !== 'running') : []
+  const panel = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // As the board's drawer closes: at once from the keyboard or with less motion, else after the exit; reopening cancels it.
+  const close = useCallback((): void => {
+    clearTimeout(closeTimer.current)
+    const exit = panel.current && !keyboardDriven() && !reducedMotion() ? tokenMs(panel.current, '--dur-exit') : 0
+    if (!exit) {
+      setOpen(false)
+      setClosing(false)
+      return
+    }
+    setClosing(true)
+    closeTimer.current = setTimeout(() => {
+      setOpen(false)
+      setClosing(false)
+    }, exit)
+  }, [])
+  useEffect(() => () => clearTimeout(closeTimer.current), [])
+  // Esc closes it.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !e.defaultPrevented) close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, close])
   if (!target || !outline || !card || card.id !== target.id || !cardIsEmpty(card.card)) return null
 
   const show = (): void => {
+    clearTimeout(closeTimer.current)
     setClosing(false)
     setOpen(true)
     if (!session || session.status === 'error' || session.hidden) void askIdeas(target.id)
   }
-  const close = (): void => {
-    setClosing(true)
-    setTimeout(() => {
-      setOpen(false)
-      setClosing(false)
-    }, 140)
-  }
   const thinking = session?.status === 'running' && !ideas.length
   return (
     <div className="relative">
-      <button type="button" className={cn('home-ideas-btn', open && 'is-on')} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : show())}>
+      <button type="button" className={cn('home-ideas-btn', open && !closing && 'is-on')} aria-haspopup="dialog" aria-expanded={open && !closing} onClick={() => (open && !closing ? close() : show())}>
         <span className={cn('home-lamp-dot', session?.status === 'running' && 'is-busy')} aria-hidden />
         <span>Next scene ideas</span>
         <ChevronDown size={14} className="home-chev" />
       </button>
       {open ? (
-        <div className={cn('home-ideas', closing && 'is-out')} role="dialog" aria-label="Ideas for the next scene">
+        <div ref={panel} className={cn('home-ideas', closing && 'is-out')} role="dialog" aria-label="Ideas for the next scene">
           <div className="home-ideas-head">
             <span className={cn('home-lamp-dot', session?.status === 'running' && 'is-busy')} aria-hidden />
             <span className="home-ideas-title">Ideas for the next scene</span>
@@ -379,35 +391,17 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
               {session.problem.message}
             </p>
           ) : (
-            <ol className="home-idea-list">
+            <div className="flex flex-col gap-2">
               {ideas.map((idea, i) => (
-                <li key={i} className="home-idea" style={at(i * 60)}>
-                  <span className="home-idea-n">{['i.', 'ii.', 'iii.', 'iv.', 'v.'][i] ?? `${i + 1}.`}</span>
-                  <span className="home-idea-t">
-                    {idea.title ? (
-                      <b>
-                        <FreshText text={idea.title} live={session?.status === 'running'} />.{' '}
-                      </b>
-                    ) : null}
-                    <FreshText text={idea.summary} live={session?.status === 'running'} />
-                  </span>
-                </li>
+                <IdeaCard key={`${session?.taskId}-${i}`} idea={idea} n={i} live={session?.status === 'running'} />
               ))}
-            </ol>
+            </div>
           )}
-          <div className="home-ideas-foot">
-            <button type="button" className="home-btn-ghost" disabled={session?.status === 'running'} onClick={() => void askIdeas(target.id)}>
-              <RotateCcw size={14} />
-              <span>Try again</span>
-            </button>
-            <button
-              type="button"
-              className="home-btn-sec"
-              onClick={() => outline && useApp.getState().navigate({ kind: 'board', storyId: outline.story.id, ideasFor: target.id })}
-            >
-              Add to the plan
-            </button>
-          </div>
+          <IdeasFooter className="home-ideas-foot" running={session?.status === 'running'} hasIdeas={!!session} onMore={() => void askIdeas(target.id)} onStop={() => stopIdeas(target.id)}>
+            <Button size="sm" variant="ghost" onClick={() => useApp.getState().navigate({ kind: 'board', storyId: outline.story.id, ideasFor: target.id })}>
+              Choose one on the board
+            </Button>
+          </IdeasFooter>
         </div>
       ) : null}
     </div>

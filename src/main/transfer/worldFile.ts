@@ -5,7 +5,7 @@
 //   world.db        a consistent copy of the world (SQLite's online backup, never a raw copy of a live file),
 //                   made a single self-contained file
 //   history.db      the same for the world's history, when it has one that can be read (left out otherwise)
-//   images/...      the world folder's images
+// Portraits live in world.db. Files from an older AI Write may also hold an images/ folder: it is skipped.
 // Never backups/, never a key (keys are never in a world), never the speech server's files or audio, and never the
 // search index (search-index.db, story memory step 5: it is made again from the world wherever it is opened).
 //
@@ -16,14 +16,14 @@
 
 import Database from 'better-sqlite3'
 import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, writeSync } from 'node:fs'
-import { cp, mkdir, open, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, open, rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { strToU8, strFromU8, Unzip, UnzipInflate, Zip, ZipDeflate } from 'fflate'
 import type { ID } from '@shared/types'
 import { MIGRATIONS } from '../db/migrations'
 import * as repo from '../db/repo'
-import { newId, renameRetry, slugify, UserError } from '../util'
+import { newId, renameRetry, renameRetrySync, slugify, UserError } from '../util'
 import { isReservedName } from '../library/names'
 
 type DB = Database.Database
@@ -140,27 +140,6 @@ async function copyDatabase(source: DB | string, to: string, onFraction?: (f: nu
   selfContained(to)
 }
 
-/** The world folder's images, as paths inside images/ ("portraits/mara.png"). Links and other oddities are skipped. */
-async function imageFiles(folder: string): Promise<string[]> {
-  const root = join(folder, 'images')
-  const out: string[] = []
-  const walk = async (rel: string): Promise<void> => {
-    let items
-    try {
-      items = await readdir(join(root, rel), { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const it of items) {
-      const r = rel ? `${rel}/${it.name}` : it.name
-      if (it.isDirectory()) await walk(r)
-      else if (it.isFile()) out.push(r)
-    }
-  }
-  await walk('')
-  return out
-}
-
 /** A world's database copied, with its history when it has one that can be read. */
 async function copyWorldFiles(
   src: WorldSource,
@@ -207,6 +186,34 @@ export function freeFolder(library: string, name: string): string {
   return folder
 }
 
+/** Hidden folders an import or copy is filling right now: never finished or removed from under it. */
+const filling = new Set<string>()
+
+/**
+ * A hidden folder an import or copy left holding a whole world (it stopped just before the folder took its own name)
+ * takes its name now, so the library lists it (review #21). Returns where it went; null when the folder isn't one, is
+ * still being filled, or can't be moved yet (it is tried again at the next listing).
+ */
+export function finishStaged(library: string, dirName: string): string | null {
+  const dir = join(library, dirName)
+  if (!STAGING.test(dirName) || filling.has(dir) || !existsSync(join(dir, 'world.db'))) return null
+  try {
+    let name = 'Imported world'
+    const d = new Database(join(dir, 'world.db'), { readonly: true, fileMustExist: true })
+    try {
+      name = repo.getMeta(d, 'name')?.trim() || name
+    } finally {
+      d.close()
+    }
+    const folder = freeFolder(library, name)
+    renameRetrySync(dir, folder)
+    return folder
+  } catch (e) {
+    console.warn('Could not finish an import left part way', dir, e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
 /** Removes hidden folders left in the library by an import or copy the app closed in the middle of. */
 export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   let names: string[]
@@ -218,8 +225,8 @@ export function removeStaleStaging(library: string, nowMs = Date.now()): void {
   for (const n of names) {
     if (!STAGING.test(n)) continue
     const dir = join(library, n)
-    // One stopped just before it took its own name is already a whole world (the library lists it): never removed.
-    if (existsSync(join(dir, 'world.db'))) continue
+    // One stopped just before it took its own name is already a whole world (the library finishes it): never removed.
+    if (filling.has(dir) || existsSync(join(dir, 'world.db'))) continue
     try {
       if (nowMs - statSync(dir).mtimeMs > STALE_MS) rmSync(dir, { recursive: true, force: true })
     } catch {
@@ -256,7 +263,6 @@ function makeOwnWorld(file: string, name: string, copy = false): ID {
 
 /** The finished staging folder takes its place in the library. */
 async function settle(staging: string, library: string, name: string): Promise<string> {
-  mkdirSync(join(staging, 'images'), { recursive: true })
   mkdirSync(join(staging, 'backups'), { recursive: true })
   const folder = freeFolder(library, name)
   await renameRetry(staging, folder)
@@ -342,15 +348,13 @@ export async function exportWorld(opts: ExportWorldOptions): Promise<{ history: 
       schemaVersion,
       history: history === 'carried'
     }
-    const images = await imageFiles(opts.source.folder)
     progress('Packing the file', 0)
     await writeZip(
       partial,
       [
         { name: 'manifest.json', data: strToU8(JSON.stringify(manifest, null, 2)) },
         { name: 'world.db', file: files.worldDb },
-        ...(history === 'carried' ? [{ name: 'history.db', file: files.historyDb }] : []),
-        ...images.map((rel) => ({ name: `images/${rel}`, file: join(opts.source.folder, 'images', ...rel.split('/')) }))
+        ...(history === 'carried' ? [{ name: 'history.db', file: files.historyDb }] : [])
       ],
       (f) => progress('Packing the file', f)
     )
@@ -369,18 +373,9 @@ export async function exportWorld(opts: ExportWorldOptions): Promise<{ history: 
 const NOT_OURS = "This file isn't an AI Write world file, or it is damaged. Check it's the .aiwrite file you exported, then try again."
 const DAMAGED = 'This world file is damaged, so it was not imported. Export the world again from the computer it came from, then import the new file.'
 
-const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i
-
-/** Where an entry of the zip goes in the staging folder, or null when it isn't one we take (or would land outside it). */
+/** The zip entries we take, by name; null for anything else (an older file's images/ folder included). */
 export function stagedName(name: string): string | null {
-  if (name === 'manifest.json' || name === 'world.db' || name === 'history.db') return name
-  if (!name.startsWith('images/') || name.endsWith('/')) return null
-  const parts = name.slice('images/'.length).split('/')
-  // Windows also drops a name's trailing dots and spaces, and opens a device for CON, NUL, COM1... (even "nul.png").
-  const unsafe = (p: string): boolean =>
-    !p || p === '.' || p === '..' || /[\\:*?"<>|\u0000-\u001f]/.test(p) || /[. ]$/.test(p) || WINDOWS_DEVICE.test(p)
-  if (parts.some(unsafe)) return null
-  return ['images', ...parts].join('/')
+  return name === 'manifest.json' || name === 'world.db' || name === 'history.db' ? name : null
 }
 
 /** Reads and checks a manifest: refuses another kind of file and one from a newer AI Write, in plain words. */
@@ -417,7 +412,7 @@ async function unpack(file: string, staging: string, appVersion: string, progres
     const name = stagedName(f.name)
     if (!name || failure) return
     // world.db and history.db land under other names until they are checked.
-    const target = join(staging, ...(name === 'world.db' || name === 'history.db' ? [`${name}.incoming`] : name.split('/')))
+    const target = join(staging, `${name}.incoming`)
     if (name === 'manifest.json') {
       const parts: Uint8Array[] = []
       f.ondata = (err, chunk, final) => {
@@ -432,7 +427,6 @@ async function unpack(file: string, staging: string, appVersion: string, progres
       }
     } else {
       if (!manifest) return void (failure ??= new UserError(NOT_OURS, 'not-a-world-file'))
-      mkdirSync(join(target, '..'), { recursive: true })
       const fd = openSync(target, 'w')
       let closed = false
       const close = (): void => {
@@ -522,6 +516,7 @@ export async function importWorld(opts: ImportWorldOptions): Promise<{ folder: s
   })
   removeStaleStaging(opts.library)
   const staging = join(opts.library, `.aiwrite-import-${newId()}`)
+  filling.add(staging)
   try {
     await mkdir(staging, { recursive: true })
     progress('Opening the file', 0)
@@ -548,6 +543,8 @@ export async function importWorld(opts: ImportWorldOptions): Promise<{ folder: s
   } catch (e) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     throw plainFileError(e, 'import the world')
+  } finally {
+    filling.delete(staging)
   }
 }
 
@@ -561,20 +558,16 @@ export interface CopyWorldOptions {
   progress?: Progress
 }
 
-/** Copies a world into a new folder in the library, with its history and images and a new id. */
+/** Copies a world into a new folder in the library, with its history and a new id. */
 export async function copyWorld(opts: CopyWorldOptions): Promise<{ folder: string; id: ID; history: HistoryCarried }> {
   const progress = opts.progress ?? (() => undefined)
   removeStaleStaging(opts.library)
   const staging = join(opts.library, `.aiwrite-copy-${newId()}`)
+  filling.add(staging)
   try {
     await mkdir(staging, { recursive: true })
     const incoming = join(staging, 'world.db.incoming')
     const history = await copyWorldFiles(opts.source, { worldDb: incoming, historyDb: join(staging, 'history.db') }, progress)
-    const images = join(opts.source.folder, 'images')
-    if (existsSync(images)) {
-      progress('Copying its pictures', null)
-      await cp(images, join(staging, 'images'), { recursive: true, errorOnExist: false, force: true })
-    }
     const id = makeOwnWorld(incoming, opts.name, true)
     await renameRetry(incoming, join(staging, 'world.db'))
     const folder = await settle(staging, opts.library, opts.name)
@@ -582,5 +575,7 @@ export async function copyWorld(opts: CopyWorldOptions): Promise<{ folder: strin
   } catch (e) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     throw plainFileError(e, 'copy the world')
+  } finally {
+    filling.delete(staging)
   }
 }

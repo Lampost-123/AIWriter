@@ -75,7 +75,7 @@ import { asksForIdeas, followUpsOf, QUICK_ACTIONS, readyWords, starterCards, typ
 import { setDensity, setToolsView, useAskPrefs, type Density } from './askPrefs'
 import { Choice } from './Choice'
 import { SceneEntries, SourcesRow } from './CiteChip'
-import { instantMotion } from './inputMode'
+import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { OutcomeLine } from './OutcomeLine'
 import { Proposals, useFailedOf } from './Proposals'
 import { ToolCalls } from './ToolCalls'
@@ -628,7 +628,7 @@ function TurnView({
   const streaming = turn.status === 'streaming'
   // Blocks that arrive while the answer is written fade in; an old chat's show at once (and so does all of it when
   // Adam works from the keyboard).
-  const [fades] = useState(() => streaming && !instantMotion())
+  const [fades] = useState(() => streaming && !(keyboardDriven() || reducedMotion()))
   // With the chat's question shown as buttons, its numbered options (also at the end of the text) don't show twice.
   const answer = useMemo(() => withoutChoice(turn.answer, turn.choice), [turn.answer, turn.choice])
   const hasAnswer = !!answer.trim()

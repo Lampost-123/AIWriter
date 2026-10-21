@@ -1,5 +1,5 @@
-// Each builder step's icon on the steps' rail and in the Review's cards (the app's icons: Phosphor's two-tone in the
-// New look, Lucide in Classic), by kind and step.
+// Each builder step's icon on the steps' rail and in the Review's cards (the app's icons: Phosphor's two-tone), by kind
+// and step.
 import {
   BadgeCheck,
   Drama,

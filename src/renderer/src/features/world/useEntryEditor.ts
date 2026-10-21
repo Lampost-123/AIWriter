@@ -13,9 +13,10 @@ import { deleteEntryWithUndo, toPatch } from './entryActions'
 import { kindNoun, mergeEntry, saveOverNewer } from './entryLogic'
 import { homesOf } from './FirstAppears'
 import { notesSource } from './memoryLogic'
-import { useEntryData } from './memory/useEntryData'
+import { entrySaved, useEntryData } from './memory/useEntryData'
 import { beforeOf, editedKeys, profileOf, reachStory, rebase, type Profile } from './reachLogic'
 import { useAutosave } from './parts/useAutosave'
+import { announcedOf, othersNeedToKnow } from './saveAnnounce'
 
 const sameList = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
 
@@ -68,10 +69,33 @@ export function useEntryEditor(
   const noteKeysRef = useRef(noteKeys)
   noteKeysRef.current = noteKeys
 
+  // What the rest of the app last heard about this entry, and whether a save since hasn't been announced (saveAnnounce.ts).
+  const announced = useRef(announcedOf(initial))
+  const unannounced = useRef(false)
+  const mounted = useRef(true)
+  const announce = useCallback((saved: Entry) => {
+    announced.current = announcedOf(saved)
+    unannounced.current = false
+    useApp.getState().bumpEntries()
+  }, [])
+  // Leaving the page tells everything else about the saves it kept quiet about (the codex, the checks, the Context tab).
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      if (unannounced.current) {
+        unannounced.current = false
+        useApp.getState().bumpEntries()
+      }
+    }
+  }, [])
+
   // Shows a newer saved copy of the entry, with `shown` (that copy, or it merged with Adam's edits) on the page.
   const adopt = useCallback((saved: Entry, shown: Entry) => {
     const before = draftRef.current
     base.current = saved
+    // A copy from elsewhere (the memory, a restore) was announced by whoever made it.
+    announced.current = announcedOf(saved)
     known.current = saved.updatedAt
     draftRef.current = shown
     setDraftState(shown)
@@ -112,6 +136,8 @@ export function useEntryEditor(
         put: (x) => api.updateEntry(x.id, toPatch(x))
       })
       confirmSaved(e)
+      // Taken before takeNewer, which counts the newer copy as heard of.
+      const heard = announced.current
       if (sent !== e) takeNewer(saved, e)
       else if (saved.updatedAt > known.current) {
         known.current = saved.updatedAt
@@ -119,7 +145,10 @@ export function useEntryEditor(
       }
       setOwner(ownership(saved))
       setSavedNames(namesOf(saved))
-      useApp.getState().bumpEntries()
+      entrySaved(saved.id)
+      // The page's own list already shows the save (onLiveChange); after the page has gone (the last save as it closes) there is none.
+      if (!mounted.current || othersNeedToKnow(heard, saved)) announce(saved)
+      else unannounced.current = true
     },
     { what: draft.name.trim() ? `"${draft.name.trim()}"` : `this ${kindNoun(kind)}` }
   )
@@ -257,5 +286,3 @@ export function useEntryEditor(
     keepFromHere
   }
 }
-
-export type EntryEditor = ReturnType<typeof useEntryEditor>

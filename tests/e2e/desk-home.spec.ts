@@ -115,12 +115,44 @@ test('the story home: Next scene ideas for the next planned scene, asked for onl
     await button.click()
     const ideas = win.getByRole('dialog', { name: 'Ideas for the next scene' })
     await expect(ideas).toContainText('Fog on the Quay · Chapter Two, scene 3 · planned')
-    await expect(ideas.locator('li')).toHaveCount(3)
-    await expect(ideas.locator('li').nth(1)).toContainText('A debt called in.')
+    await expect(ideas.locator('[data-idea]')).toHaveCount(3)
+    await expect(ideas.locator('[data-idea]').nth(1)).toContainText('A debt called in')
     expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
-    // Add to the plan: the story board, with the ideas beside it.
-    await ideas.getByRole('button', { name: 'Add to the plan' }).click()
+    // Choose one on the board: the story board, with the ideas beside it.
+    await ideas.getByRole('button', { name: 'Choose one on the board' }).click()
     await expect(rooms(win).getByRole('button', { name: /^Plan/ })).toHaveAttribute('aria-current', 'page')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('the story home: Next scene ideas can be stopped, close on Esc, and stay open when opened again at once', async ({ launch }) => {
+  const fake = await startFake()
+  try {
+    const { win } = await sampleWorld(launch)
+    await useFakeModel(win, fake, 'fake/slow')
+    const [story] = await invoke(win, 'listStories')
+    const { chapters } = await invoke(win, 'getOutline', story.id)
+    await invoke(win, 'createScene', chapters[1].id, { title: 'Fog on the Quay' })
+    await win.reload()
+    await expect(win.locator('.scene-prose')).toBeVisible()
+    await win.getByRole('button', { name: 'Story home' }).click()
+    await home(win).getByRole('button', { name: 'Next scene ideas' }).click()
+    const ideas = win.getByRole('dialog', { name: 'Ideas for the next scene' })
+    // While the ideas are written: Stop (review #5), and the ideas that arrived stay.
+    await ideas.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(ideas.getByRole('button', { name: /^(Three more ideas|Suggest three ideas)$/ })).toBeVisible()
+    await expect(ideas.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+    // Esc closes it (review #17).
+    await ideas.focus()
+    await win.keyboard.press('Escape')
+    await expect(ideas).toHaveCount(0)
+    // Closed and opened again straight away: it stays open.
+    await home(win).getByRole('button', { name: 'Next scene ideas' }).click()
+    await ideas.getByRole('button', { name: 'Close ideas' }).click()
+    await home(win).getByRole('button', { name: 'Next scene ideas' }).click()
+    await win.waitForTimeout(400)
+    await expect(ideas).toBeVisible()
   } finally {
     await fake.close()
   }

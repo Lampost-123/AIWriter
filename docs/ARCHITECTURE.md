@@ -39,7 +39,7 @@ src/main/        Electron main process
                  keyword and by meaning (its own file, search-index.db, and the search model in model/:
                  onnxruntime-node, or a TypeScript reader where that can't start)
   index.ts       Window, lifecycle, flush-on-close
-  world.ts       The open world (one folder: world.db, images/, backups/)
+  world.ts       The open world (one folder: world.db, history.db, backups/)
   db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
   settings.ts    App settings (userData/settings.json) and writing preferences (library folder)
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
@@ -393,7 +393,7 @@ is built on migrations 1 and 2.
 - **As of a point.** `AsOf` (shared/types.ts) is a story's start, the end of a scene (its own changes
   included) or a story's end, optionally seen along another story's line (`seenIn`, the "As seen in"
   picker). `memory/asOf.ts` works it out with the same line as drafting: `memoryAt`, `entryAsOf`,
-  `asOfStops`. The interface has `useAsOfStops`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
+  `asOfStops`. The interface has `useAsOfStopsState`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
   `features/views/`.
 - **Contracts.** Each part declares its calls, events and types in its own file in
   `src/shared/contracts/`; `AppApi` and `AppEvents` extend them. Each has its own handler file in
@@ -562,7 +562,8 @@ is built on migrations 1 and 2.
   had, wider than tall (`WIDE` in `layout.ts`, gap `MAP_GAP` in the contract). Characters already
   placed keep their places; only newcomers move. It is kept in the world's `meta` key `map_layout`
   (character id to `[x, y]`), with no migration.
-- Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
+- Map drawing (the panels' old map, removed with Classic in review #36; its rules are kept in `mapLogic.ts` with
+  its test, and the map on screen is `features/map/desk/`): names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
   overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
   opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
   `READABLE_ZOOM` or the cast is `SMALL_CAST` (12) or fewer, else at `OPENING_ZOOM` around the
@@ -1365,7 +1366,7 @@ page with an optional monthly limit; themes finished (accent colour, reduced mot
 full pass against the no-jank checks and the speed budgets. The data model stays frozen (migrations 1 and 2).
 
 - **A world travels with its history.** Export, import and Make a copy carry the world folder's `history.db`
-  with `world.db`, plus `images/`; never `backups/`, the speech server, its downloads or the audio cache, and
+  with `world.db` (portraits are in world.db); never `backups/`, the speech server, its downloads or the audio cache, and
   never API keys (`secrets.ts`). Character voices and "Say it as" are in world.db's `meta`, so they travel. A
   missing or damaged `history.db` never stops a world opening: History starts afresh. An imported or copied
   world gets a new id, so it never collides with the one it came from.
@@ -1381,7 +1382,7 @@ full pass against the no-jank checks and the speed budgets. The data model stays
 - A `.aiwrite` file (`worldFile.ts`) is a zip: `manifest.json` first (format `aiwrite-world`, `formatVersion`,
   the app's version, the world's name, when, world.db's `user_version`, whether history is in it), then `world.db`
   and `history.db` each copied with SQLite's online backup (the open world's own connection; another world's
-  read-only) and made self-contained, then `images/`. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
+  read-only) and made self-contained. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
   pieces, so the window never stalls and a big world never sits whole in memory. A history.db that can't be read
   is left out (the toast says so); the export still succeeds. The search index (`search-index.db`, story memory
   step 5) is never in it: it is made again from the world wherever it is opened.
@@ -1393,7 +1394,7 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   no manifest (`not-a-world-file`), a file cut short or a world.db failing `quick_check` (`damaged-world-file`),
   and a newer format, schema or app version (`newer-world-file`). A history.db in the file that isn't SQLite is
   dropped; deeper damage is handled by History's own open path (set aside, start afresh). Zip entries outside
-  `manifest.json`, `world.db`, `history.db` and `images/` are ignored (`stagedName`).
+  `manifest.json`, `world.db` and `history.db` are ignored (`stagedName`), an older file's `images/` included.
 - Manuscripts (`manuscript.ts`) are read from the stored editor documents (plain text for scenes without one):
   paragraphs with italics and bold, block quotes, and one scene break between scenes or where Adam put one. Deleted
   chapters and scenes never come in (`getOutline`), nor scenes with no words. Chapters keep their number in the
@@ -1565,8 +1566,8 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
   carry the keeper's fingerprints, so opening it never starts a paid memory run and it never looks unread.
 - It is found by the world meta key `sample_world`; `openSampleWorld` opens that one or makes it, so there is only ever
   one, and a deleted one is made again. Ways in: the first run's world step, the Welcome screen, the world switcher and the
-  palette ("Explore the sample world"). While it is open, `SampleWorldBar` says so and offers "Start my own world" (the
-  setup, or the New world dialog once Adam has worlds).
+  palette ("Explore the sample world"). While it is open, `SampleWorldChip` (the top bar) says so and offers "Start my own"
+  (the setup, or the New world dialog once Adam has worlds).
 
 **Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
@@ -1851,10 +1852,12 @@ other setting, and `updateSettings` never keeps anything else.
   the move from Classic and the notes. Specs reach the panels' places with the helpers in `tests/e2e/helpers.ts`:
   `openPage` (a page Classic's binder listed: its area on the rail, then its row), `openWrite` / `showTree` (back to
   the story's tree, which only the Write area's list holds), `areaButton`, `areaRow` and `sceneTitle`.
-- **Classic-only code awaits removal** (a later tidy-up): the `look === 'classic'` branches and the components and
-  CSS only they reach (`ClassicSettings`, `ClassicAppearance`, Classic's binder, map, timeline table and Consistency
-  page, the `look-classic:` variant, Classic's Literata and Lucide icons, the `classic` background colours in
-  `main/index.ts`). Nothing in the interface can reach them; don't change or fix them, and don't add to them.
+- **Classic-only code is mostly removed** (review #36, 2026-10-21): Classic's map, Lucide icons, `look-classic:`
+  variant, background colours, sample bar, first-run frame, usage page and the `useNewLook()` branches outside
+  Settings and the World pages are gone. What is left (`ClassicAppearance` and the branches in `features/settings/`
+  and `features/world/`, `useGenerate.ts`, and the checks of `<html data-look>` in plain code such as `arrival.ts`)
+  can't be reached either; don't change or fix it, and don't add to it. `'classic'` stays in `LOOKS` for the settings
+  that may still keep it.
 
 What follows is how the New look was built over Classic; read "Classic's values" as the tokens' fallbacks.
 
@@ -1864,7 +1867,7 @@ What follows is how the New look was built over Classic; read "Classic's values"
   `features/world/kindIcons.ts`), `--heading-font` (`font-heading`), `--r-card` (`rounded-card`) and motion
   (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`, `--dur-exit`; `ease-glide`, `ease-spring`,
   `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
-  with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
+  with the `look-new:` variant. Less motion sets every duration to 0.
 - **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps the motion it had, with no exits, but its
   presses are the New look's, below).
   `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`): what
@@ -1927,12 +1930,13 @@ What follows is how the New look was built over Classic; read "Classic's values"
     settle once accepted. The page follows the words with a time-based glide (`1 − e^(−dt/90 ms)` a frame, the
     same at 60 and 120 Hz; `features/editor/scrollGlide.ts`) for Add below and Continue alike; Adam scrolling,
     clicking or using the keys stops it. Less motion: no fade or settle, and the page keeps up in one step.
-- **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
-  Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
+- **Icons** come only from `components/ui/icons.tsx` (by the names Lucide gave them, or `<Icon name>`): Phosphor
+  two-tone, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
-- **Fonts.** Classic's prose is the static Literata it always had (`--serif-font`); the New look uses Literata's
-  variable font, whose optical sizes give the headings their display cut. Each look loads only its own.
-- **The New look's frame** (Classic renders today's binder and sample bar instead): the area rail
+- **Fonts.** The window draws Literata's variable font, whose optical sizes give the headings their display cut.
+  The static Literata (400 and 700) is still bundled only for PDF export, which finds its files beside the interface
+  (`src/main/transfer/pdf.ts`).
+- **The New look's frame**: the area rail
   (`layout/AreaRail.tsx`: Write, Plan, World, Check; Ask and Settings at its foot), the area's side list in the
   binder's pane (`layout/AreaList.tsx`; Write's is the binder without its World section), the trail in the top bar
   (`layout/Trail.tsx`) and the sample world as a chip. **Which area a screen belongs to is one table**,
@@ -2012,8 +2016,8 @@ choice in Settings › Appearance › Layout.
 
 ### The first run, Settings and moving work in and out (UI overhaul)
 
-The New look draws these its own way (both layouts). The pages Classic had stay behind a `look === 'classic'` branch
-in each until the tidy-up removes them (Classic is retired, so nothing reaches them).
+The New look draws these its own way (both layouts). Classic's first run is gone; its Settings pages still sit behind
+a `look === 'classic'` branch until the tidy-up removes them (Classic is retired, so nothing reaches them).
 - **First run**: `features/setup/SetupDesk.tsx` (the rail of steps, the step on a sheet, the finishing moment:
   `setupStore.finishing`, 900 ms, skipped with less motion) and `SetupScene.tsx` (the lighthouse picture, lit by `stage`;
   layers like the start screen's harbour, its colours `--sx-*` in `setupScene.css`). `ProviderMark.tsx` draws a service
@@ -3672,7 +3676,7 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   latest draft · 6 checks · 1 issue open", "none left open" once all are settled; what the check found until the issues
   are read), and under it when it ran ("5 minutes ago"). Each report keeps a fingerprint of the words its checks read
   (`CheckReport.textHash`, `reportHash`); `getCheckReport` says `changed` when the scene's words differ, and the card
-  then says "The scene changed since this check" (checked every few seconds while it shows, as the critique is; a report
+  then says "The scene changed since this check" (checked each time the open scene is saved while it shows; a report
   from before, or one with only the contract checked as a draft landed, never says so).
 - **Later**, beside Ignore (the Issues tab in both looks, Classic's Consistency page and the desk's Check room): the
   issue stays open but is hidden, and not counted on the badges or the tab, until the paragraph its words are in changes
@@ -3942,7 +3946,7 @@ chapter, and a scene's plot threads, picked from the codex with the scene card's
 codex doesn't have stands for itself, `codexNames.ts`, and gets a page when kept); `NodeEdit.card`, `setsUp` and
 `paysOff` go into `keepPlan`. **Suggest again** never drops what Adam hadn't decided on: the batch moves to
 `HelperSession.earlier` (newest first) and shows folded under the new ones as "Earlier suggestions"
-(`EarlierSuggestions.tsx`, on the outline helper's page, a chapter's plan and a recipe's plan), each batch with its own
+(`planHub/LineSuggestions.tsx` `EarlierBatches`, on the story page and a chapter's page in Build with AI), each batch with its own
 Keep, Edit, Discard and Undo (by its task id: `KeepOptions.runId`) and "Put these away" (`putAwayEarlier`, with Undo).
 
 **Writing style presets** (`src/shared/stylePresets.ts`, `features/style/StylePresets.tsx`): one click sets genres,
@@ -5255,8 +5259,8 @@ mid-story mock-up. Nothing goes into the story without a click.
 - **Where it is:** the Plan area's first link "Plan with AI" (the desk's Plan room too), the rail, the story menu, the
   binder's "Plan it with AI" / "Plan what happens next with AI", the board's blank story, the palette ("Plan with AI"), the
   Story builder's Plan step (with Back to the Story builder) and Next scene ideas / Interview me with no scene open (the
-  hub at the next scene). `openPlanHub(storyId, { at, back })` (`features/outline/open.ts`); `openOutlineHelper` is its
-  alias. A chapter's plan page stays as it was. Back goes where Adam came from.
+  hub at the next scene). `openPlanHub(storyId, { at, back })` (`features/outline/open.ts`).
+  A chapter's plan page stays as it was. Back goes where Adam came from.
 - **State**: what Adam wrote, the threads ticked, the chosen part and the open rows are kept while the app runs
   (`hubStore.ts`, one per story); the suggestions and a request still arriving are the outline helper's session, as before.
 - **Tests**: `features/planHub/hubLogic.test.ts`, `main/planHub/facts.test.ts`, `update.test.ts`, the hub requests in

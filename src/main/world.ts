@@ -3,15 +3,16 @@ import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { ID, World, WorldSummary } from '@shared/types'
 import { defaultStyleGuide } from '@shared/defaults'
-import { migrate, pendingMigrations } from './db/migrations'
+import { MIGRATIONS, migrate, pendingMigrations } from './db/migrations'
 import * as repo from './db/repo'
 import { getSettings, updateSettings } from './settings'
 import { newId, now, slugify, UserError } from './util'
 import { backupBeforeMigration } from './services/backups'
 import { isReservedName } from './library/names'
 import { recipesDir } from './recipes/paths'
+import { finishStaged } from './transfer/worldFile'
 
-// The open world: one folder in the library holding world.db, images/ and backups/.
+// The open world: one folder in the library holding world.db, history.db and backups/.
 
 export interface OpenWorld {
   id: ID
@@ -75,8 +76,14 @@ export function listWorlds(): WorldSummary[] {
   const out: WorldSummary[] = []
   for (const name of readdirSync(lib, { withFileTypes: true })) {
     if (!name.isDirectory()) continue
-    // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/).
-    if (name.name.startsWith('.aiwrite-')) continue
+    // A world file being imported or copied is unpacked into a hidden folder first (src/main/transfer/). One the app
+    // closed in the middle of, already holding a whole world, takes its own name here and is listed (review #21).
+    if (name.name.startsWith('.aiwrite-')) {
+      const finished = finishStaged(lib, name.name)
+      const s = finished ? readSummary(finished) : null
+      if (s) out.push(s)
+      continue
+    }
     // Deleted worlds wait one folder down, in Recently deleted (src/main/library/deleted.ts): that folder has no
     // world.db of its own, so readSummary passes it over like any folder that isn't a world.
     // Story recipes live beside the worlds, in a folder that is never one (src/main/recipes/paths.ts).
@@ -95,7 +102,9 @@ export function listWorlds(): WorldSummary[] {
  * A world folder copied by hand (Explorer's "My world - Copy") carries the same
  * world id as the original, so opening by id could open either. The copy is a
  * separate world from then on: it gets its own id and "(copy)" on its name.
- * The open world, or else the oldest folder, keeps the original id.
+ * The open world, or else the one saved last, keeps the original id; when both were saved at the same moment (a
+ * copy made by hand), the older folder does. A folder's own date alone can't decide: a cloud app downloading the real
+ * world again makes its folder the newer one (review #9).
  */
 function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
   const byId = new Map<ID, WorldSummary[]>()
@@ -112,7 +121,7 @@ function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
     }
     const keeper =
       group.find((w) => current && w.folder === current.folder) ??
-      [...group].sort((a, b) => age(a) - age(b) || a.folder.length - b.folder.length)[0]
+      [...group].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || age(a) - age(b) || a.folder.length - b.folder.length)[0]
     for (const w of group) {
       if (w === keeper) continue
       let d: Database.Database | null = null
@@ -180,13 +189,16 @@ function activate(folder: string): World {
   const d = openDatabase(worldDbPath(folder))
   let id: ID | null
   try {
+    // A layout this version doesn't know: writing into it would leave parts of the world out of step (review #8).
+    if ((d.pragma('user_version', { simple: true }) as number) > MIGRATIONS.length) {
+      throw new UserError('This world was saved by a newer version of AI Write. Update AI Write in Settings › About and updates, then open it again.', 'newer-world')
+    }
     if (pendingMigrations(d) > 0 && (d.pragma('user_version', { simple: true }) as number) > 0) {
       backupBeforeMigration(folder, d)
     }
     migrate(d)
     id = repo.getMeta(d, 'id')
     if (!id) throw new UserError('This folder does not hold an AI Write world.')
-    mkdirSync(join(folder, 'images'), { recursive: true })
     mkdirSync(join(folder, 'backups'), { recursive: true })
   } catch (e) {
     if (d.open) d.close()

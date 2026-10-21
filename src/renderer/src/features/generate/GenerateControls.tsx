@@ -18,32 +18,30 @@ import { cn } from '@/lib/cn'
 import { formatCost } from './format'
 import { AFTER_TEXT, GeneratePanels } from './GeneratePanels'
 import { useGenerate } from './useGenerate'
-import { useDesk, useNewLook } from '@/features/look/look'
+import { useDesk } from '@/features/look/look'
 import { DirectionLabel, useNextDirection } from '@/features/direction/DirectionLabel'
 
 /**
  * Below this header width the writer model's name is left out, so Generate always fits and the scene's
  * title stays whole beside the scene's tools (Variants, Beat by beat, History, Listen).
+ * Mark done keeps its words down to a narrow header, so the model name needs this much room.
  */
-const COMPACT_BELOW = 640
-/** The New look's Mark done keeps its words down to a narrower header, so the model name needs more room there. */
-const COMPACT_BELOW_NEW = 680
+const COMPACT_BELOW = 680
 
 /** True when the header around `ref` is too narrow for the model name next to Generate. */
 function useNarrowHeader(ref: RefObject<HTMLElement | null>): boolean {
   const [narrow, setNarrow] = useState(false)
-  const below = useNewLook() ? COMPACT_BELOW_NEW : COMPACT_BELOW
   // Measured before paint, so the header never shows one layout and then jumps to the other.
   useLayoutEffect(() => {
     const el = ref.current
     const host = el?.closest('header') ?? el?.parentElement
     if (!host) return
-    const measure = (): void => setNarrow(host.getBoundingClientRect().width < below)
+    const measure = (): void => setNarrow(host.getBoundingClientRect().width < COMPACT_BELOW)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(host)
     return () => ro.disconnect()
-  }, [ref, below])
+  }, [ref])
   return narrow
 }
 

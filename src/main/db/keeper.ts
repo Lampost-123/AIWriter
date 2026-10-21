@@ -194,11 +194,6 @@ export function scenesWithWords(db: DB, words: string[]): KeeperScene[] {
   return (db.prepare(`${LIVE_SCENES} AND (${like}) ${READING_ORDER}`).all(...args) as Row[]).map(toKeeperScene)
 }
 
-/** Every live scene id, in reading order. */
-export function liveSceneIds(db: DB): ID[] {
-  return (db.prepare(`${LIVE_IDS} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
-}
-
 /** A save moved the scene's text on: its memory is waiting to be read ("Memory not updated" stays until a read works). */
 export function noteSceneSaved(db: DB, sceneId: ID): void {
   db.prepare(
@@ -807,4 +802,9 @@ export function setSideStoryEnd(
   const r = db.prepare('SELECT end_at, end_ref_id FROM stories WHERE id = ?').get(storyId) as Row | undefined
   db.prepare('UPDATE stories SET end_at = ?, end_ref_id = ?, updated_at = ? WHERE id = ?').run(endAt, endRefId, now(), storyId)
   return { endAt: (r?.end_at as string | null) ?? null, endRefId: (r?.end_ref_id as string | null) ?? null }
+}
+
+/** How many rows this connection has written since the world opened: unchanged means nothing was written in between. */
+export function totalChanges(db: DB): number {
+  return (db.prepare('SELECT total_changes() AS n').get() as { n: number }).n
 }

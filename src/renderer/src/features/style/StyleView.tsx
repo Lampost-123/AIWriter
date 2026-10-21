@@ -5,13 +5,12 @@ import { cleanGenres } from '@shared/genres'
 import { cleanIntensity } from '@shared/intensity'
 import { effectiveStyle, STYLE_TEXT_KEYS } from '@shared/style'
 import type { Story, StyleGuide, World, WritingPrefs } from '@shared/types'
-import { Button, EmptyState, Field, Input, Notice, Spinner, Tabs, TabsContent, TabsList } from '@/components/ui'
+import { Button, EmptyState, Field, Input, Notice, Spinner, Tabs, TabsContent } from '@/components/ui'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { api } from '@/lib/api'
 import { registerDiscarder } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { createDraftCache } from '@/features/world/parts/draftCache'
 import { SaveNote } from '@/features/world/parts/SaveNote'
 import { useAutosave } from '@/features/world/parts/useAutosave'
@@ -45,7 +44,6 @@ const fullStyle = (s: Partial<StyleGuide> | undefined): StyleGuide => {
 
 /** The world's style guide and themes, and the open story's premise and overrides. */
 export function StyleView(): React.JSX.Element | null {
-  const isNew = useNewLook()
   const world = useApp((s) => s.world)
   const storyId = useApp((s) => s.storyId)
   const story = useApp((s) => s.stories.find((x) => x.id === s.storyId) ?? null)
@@ -98,24 +96,14 @@ export function StyleView(): React.JSX.Element | null {
           }}
           className="mt-5"
         >
-          {isNew ? (
-            <AppliesTo
-              tab={tab}
-              world={world.name}
-              onPick={(v) => {
-                lastTab = v
-                setTab(v)
-              }}
-            />
-          ) : (
-            <TabsList
-              className="mb-6 px-0!"
-              items={[
-                { value: 'world', label: 'World' },
-                { value: 'story', label: 'This story' }
-              ]}
-            />
-          )}
+          <AppliesTo
+            tab={tab}
+            world={world.name}
+            onPick={(v) => {
+              lastTab = v
+              setTab(v)
+            }}
+          />
           <TabsContent value="world">
             <WorldStyleForm key={world.id} world={world} prefs={prefs} />
           </TabsContent>

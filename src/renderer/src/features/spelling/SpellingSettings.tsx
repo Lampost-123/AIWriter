@@ -11,7 +11,7 @@ export function SpellingSettings(): React.JSX.Element | null {
   const turn = (spellCheck: boolean): void => {
     useApp
       .getState()
-      .updateSettings({ editor: { spellCheck } })
+      .updateSettings({ editor: { spellCheck } }, { quiet: true })
       .catch((e: Error) => toast(`That change couldn't be saved. ${e.message}`, { tone: 'danger' }))
   }
   return (

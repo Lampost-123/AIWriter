@@ -203,6 +203,35 @@ describe('story_so_far', () => {
     const { agent } = agentAt(w)
     expect(call(agent, 'story_so_far', {})).toContain('(no summary yet)')
   })
+
+  it('leaves out the earliest scenes when it is too long, and says how to read further back', () => {
+    switchOn('TOOLCHOICE', 'EXTRATOOLS')
+    const w = world()
+    const ch2 = repo.createChapter(w.db, w.story, { title: 'High Water' }).id
+    const more = Array.from({ length: 30 }, (_, i) => repo.createScene(w.db, ch2, { title: `Day ${i + 1}` }).id)
+    more.forEach((id, i) => mem.putSummary(w.db, { level: 'scene', targetId: id, text: `Day ${i + 1}: ${'The tide rose over the salt flats. '.repeat(14)}`, origin: 'adam' }))
+    const tools: ToolActivity[] = []
+    const agent = new EditorAgent(w.db, { storyId: w.story, sceneId: more[29], prefs: defaultWritingPrefs() }, () => undefined, () => undefined, undefined, (phase, c) => {
+      if (phase === 'end') tools.push(c)
+    })
+    const out = call(agent, 'story_so_far', {})
+    expect(out.length).toBeLessThanOrEqual(3_200)
+    expect(out).toContain('Day 30: The tide')
+    expect(out).toContain('(the open scene)')
+    expect(out).not.toContain('Ilse climbs to the gate')
+    expect(out).not.toContain('cut short')
+    expect(out).toMatch(/Left out to fit: Ch 1, Sc 1 “Arrival” to (Ch 2, Sc \d+ “Day \d+”)\. To read them, call again with `to_scene`: "\1"\./)
+    expect(out).toContain('Ch 2 “High Water”')
+  })
+
+  it('says a story with no scenes has nothing so far', () => {
+    switchOn('TOOLCHOICE', 'EXTRATOOLS')
+    const w = world()
+    const empty = repo.createStory(w.db, { title: 'Blank Pages', startStoryId: null })
+    for (const s of repo.getOutline(w.db, empty.id).scenes) repo.deleteScene(w.db, s.id)
+    const agent = new EditorAgent(w.db, { storyId: empty.id, sceneId: null, prefs: defaultWritingPrefs() }, () => undefined, () => undefined)
+    expect(call(agent, 'story_so_far', {})).toContain('Blank Pages has no scenes yet')
+  })
 })
 
 describe('compare_version', () => {

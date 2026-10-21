@@ -1,6 +1,6 @@
 // The export dialogs' format in the New look: a row of small file cards (a page with the file's kind on its corner),
 // one radio group, the arrow keys moving and picking as in Classic's segmented control (the same names: Word, EPUB...).
-// The chosen one's hint shows under the row (ExportDialogs.tsx). Classic keeps the segmented control.
+// The chosen one's hint shows under the row (ExportDialogs.tsx).
 import { useRef } from 'react'
 import { cn } from '@/lib/cn'
 import './transfer.css'

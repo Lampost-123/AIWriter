@@ -66,14 +66,21 @@ export function passageOf(text: string, o: { near?: string; part?: 'start' | 'en
     at = paras.findIndex((p) => fold(p).includes(want))
     if (at < 0) return null
   } else at = o.part === 'start' ? 0 : paras.length - 1
-  // Whole paragraphs out from the one found, the nearest first, while they fit.
+  // Whole paragraphs out from the one found, the nearest first, while they fit. Each side stops at the first that
+  // doesn't, so the passage never runs on across a paragraph left out.
   const take = new Set([at])
   let count = words(paras[at]).length
+  const sides = o.near ? [-1, 1] : o.part === 'start' ? [1] : [-1]
+  const stopped = new Set<number>()
   for (let d = 1; d < paras.length; d++) {
-    for (const i of o.near ? [at - d, at + d] : o.part === 'start' ? [at + d] : [at - d]) {
-      if (i < 0 || i >= paras.length) continue
+    for (const side of sides) {
+      const i = at + side * d
+      if (stopped.has(side) || i < 0 || i >= paras.length) continue
       const n = words(paras[i]).length
-      if (count + n > o.most) continue
+      if (count + n > o.most) {
+        stopped.add(side)
+        continue
+      }
       take.add(i)
       count += n
     }

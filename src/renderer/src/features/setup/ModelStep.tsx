@@ -33,7 +33,7 @@ export function ModelStep(): React.JSX.Element {
 
   const choose = async (choice: ModelChoice): Promise<void> => {
     try {
-      await useApp.getState().updateSettings({ models: { writer: choice } })
+      await useApp.getState().updateSettings({ models: { writer: choice } }, { quiet: true })
       setPicking(false)
       clearResult('writer')
     } catch (e) {

@@ -1,5 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { ID } from '@shared/types'
 import { useApp } from '@/lib/store'
+
+// An entry page's own saves don't move entriesRev (world/saveAnnounce.ts), but each one can add a version to its
+// "Earlier versions", so what is loaded about that one entry reloads when its page saves it.
+const savedRevs = new Map<ID, number>()
+const savedListeners = new Set<() => void>()
+const onSaved = (fn: () => void): (() => void) => {
+  savedListeners.add(fn)
+  return () => savedListeners.delete(fn)
+}
+
+/** An entry page saved this entry: what is loaded about it reloads. */
+export function entrySaved(id: ID): void {
+  savedRevs.set(id, (savedRevs.get(id) ?? 0) + 1)
+  for (const fn of savedListeners) fn()
+}
+
+/** The entry a key is about: keys of data about one entry end in `:<its id>` ('changes:<id>'). */
+const entryOfKey = (key: string): ID | null => {
+  const at = key.lastIndexOf(':')
+  return at < 0 ? null : key.slice(at + 1) || null
+}
 
 export interface EntryData<T> {
   /** Null until first loaded. Kept on screen while a reload is on its way, and after a reload fails. */
@@ -14,12 +36,15 @@ export interface EntryData<T> {
 /**
  * Something an entry page loads about its entry (its changes, where it first exists, the words its
  * facts came from). Reloads whenever the world's entries change (entriesRev, which also moves when
- * the memory keeper changes something), and only shows the newest answer. With `reloadOn`, it
- * reloads whenever that changes instead (for what an ordinary save of the entry can't change).
+ * the memory keeper changes something) and when the entry's page saves it (entrySaved), and only
+ * shows the newest answer. With `reloadOn`, it reloads whenever that changes instead (for what an
+ * ordinary save of the entry can't change).
  */
 export function useEntryData<T>(load: () => Promise<T>, key: string, enabled = true, reloadOn?: string | number): EntryData<T> {
   const entriesRev = useApp((s) => (reloadOn === undefined ? s.entriesRev : 0))
-  const rev = reloadOn ?? entriesRev
+  const ownId = reloadOn === undefined ? entryOfKey(key) : null
+  const savedRev = useSyncExternalStore(onSaved, () => (ownId ? (savedRevs.get(ownId) ?? 0) : 0))
+  const rev = reloadOn ?? `${entriesRev}|${savedRev}`
   const [state, setState] = useState<{ key: string; data: T | null; error: string | null }>({ key, data: null, error: null })
   const loadRef = useRef(load)
   loadRef.current = load

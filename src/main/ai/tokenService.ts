@@ -1,5 +1,5 @@
-// Counts tokens in a worker thread. If the worker can't start (or stops
-// answering), counting falls back to this thread so drafting still works.
+// Counts tokens in a worker thread. If the worker can't start (or crashes), counting falls back to this thread for the
+// rest of the session so drafting still works; a call it is slow to answer falls back for that call only (review #41).
 import type { Worker } from 'node:worker_threads'
 import createTokenWorker from './tokenWorker?nodeWorker'
 
@@ -50,8 +50,10 @@ function viaWorker(texts: string[]): Promise<number[]> {
     try {
       getWorker().postMessage({ id, texts })
     } catch (e) {
+      // It couldn't be started or sent to: not used again this session.
       clearTimeout(timer)
       waiting.delete(id)
+      broken = true
       reject(e as Error)
     }
   })
@@ -63,11 +65,14 @@ export async function countTokens(texts: string[]): Promise<number[]> {
     try {
       return await viaWorker(texts)
     } catch (e) {
-      console.warn('Token worker unavailable, counting in the main thread', e)
-      broken = true
-      const w = worker
-      worker = null
-      w?.terminate().catch(() => undefined)
+      // A timeout, or texts it couldn't count, falls back for this call only; a crash (failAll) or a worker that
+      // couldn't start has already set `broken`.
+      console.warn(broken ? 'Token worker unavailable, counting in the main thread' : 'Token worker slow or failed, counting this in the main thread', e)
+      if (broken) {
+        const w = worker
+        worker = null
+        w?.terminate().catch(() => undefined)
+      }
     }
   }
   const { countRaw } = await import('./tokens')

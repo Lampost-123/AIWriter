@@ -1,6 +1,6 @@
 import { dialog, shell, BrowserWindow, app } from 'electron'
-import { join } from 'node:path'
-import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+import { mkdirSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { Handlers } from './index'
 import type { RecoveryItem } from '@shared/types'
 import { mergeThreadLinks } from '@shared/threadLinks'
@@ -20,7 +20,29 @@ import { sweepGone } from '../db/checks'
 import { makingAt } from '../worldViews/eventHomes'
 
 const recoveryDir = (): string => join(userDataDir(), 'recovery')
-const recoveryFile = (sceneId: string): string => join(recoveryDir(), `${sceneId}.json`)
+// A scene id is plain letters, digits and dashes: anything else could reach a file outside the recovery folder (review #1).
+const recoveryFile = (sceneId: unknown): string => {
+  if (typeof sceneId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(sceneId)) throw new UserError('That scene could not be found. Reopen it and try again.')
+  return join(recoveryDir(), `${sceneId}.json`)
+}
+
+/** The folder is there (made if need be) and AI Write may write in it. */
+function usableFolder(path: string): boolean {
+  if (!ensureLibraryFolder(path)) return false
+  // A real write: on Windows a read-only folder still passes accessSync(W_OK).
+  const probe = join(path, `.aiwrite-write-check-${process.pid}`)
+  try {
+    writeFileSync(probe, '')
+    unlinkSync(probe)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** True when the path is one of these folders. */
+const oneOf = (path: string, folders: (string | null | undefined)[]): boolean =>
+  folders.some((folder) => !!folder && relative(resolve(folder), resolve(path)) === '')
 
 /** Writes and clears of one recovery file run one at a time, in the order they were asked for. */
 const recoveryQueue = new Map<string, Promise<void>>()
@@ -93,12 +115,21 @@ export const coreHandlers: Handlers<CoreMethods> = {
     const opts = { title: 'Choose your AI Write library folder', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] }
     const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (res.canceled || !res.filePaths[0]) return null
+    // The folder is checked (and made) before the world closes, so a folder that can't be used leaves Adam where he was (review #10).
+    if (!usableFolder(res.filePaths[0])) {
+      throw new UserError("AI Write can't use that folder. It may be on a drive that's disconnected or read-only. Choose another folder.")
+    }
     world.closeWorld()
-    mkdirSync(res.filePaths[0], { recursive: true })
     updateSettings({ libraryPath: res.filePaths[0], lastWorldId: null, lastStoryId: null, lastSceneId: null })
     return res.filePaths[0]
   },
+  // Only the library and the second backup folder (the two Show folder buttons): opening any other path would let a
+  // caller start any program on the computer (review #1).
   showInFolder: async (path) => {
+    const settings = getSettings()
+    if (typeof path !== 'string' || !oneOf(path, [settings.libraryPath, settings.backup?.extraFolder])) {
+      throw new UserError('AI Write only opens its library folder and backup folder.')
+    }
     await shell.openPath(path)
   },
   flushDone: () => resolveFlush(),

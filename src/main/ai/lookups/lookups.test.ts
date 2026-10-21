@@ -330,4 +330,11 @@ describe('reading passages and scene names', () => {
     expect(passageOf(text, { near: 'thirteen', most: 6 })).toBeNull()
     expect(passageOf('a b c d e f g h', { part: 'end', most: 3 })).toBe('… f g h')
   })
+
+  it('stops at the first paragraph that does not fit, never joining across a gap', () => {
+    const text = ['One two.', 'Three four five six seven eight nine ten.', 'Eleven.', 'Twelve.'].join('\n\n')
+    expect(passageOf(text, { part: 'start', most: 5 })).toBe('One two.')
+    expect(passageOf(text, { part: 'end', most: 5 })).toBe('Eleven.\n\nTwelve.')
+    expect(passageOf(text, { near: 'two', most: 5 })).toBe('One two.')
+  })
 })

@@ -162,15 +162,3 @@ export async function keepPremise(storyId: ID, text: string): Promise<void> {
     }
   })
 }
-
-export function discardPremise(storyId: ID): void {
-  const was = planOf(storyId)?.premise
-  if (!was) return
-  patchPlan(storyId, { premise: { ...was, status: 'discarded' } })
-  toast('Discarded the premise.', { action: { label: 'Undo', run: () => patchPlan(storyId, { premise: { ...was, status: 'open' } }) } })
-}
-
-export function editPremise(storyId: ID, text: string): void {
-  const was = planOf(storyId)?.premise
-  if (was) patchPlan(storyId, { premise: { ...was, text } })
-}

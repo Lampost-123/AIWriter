@@ -33,7 +33,7 @@ const OURS = (label: string): boolean => label.startsWith('settings:')
 
 async function save(patch: Partial<SpeechSettings>): Promise<void> {
   try {
-    await useApp.getState().updateSettings({ speech: patch })
+    await useApp.getState().updateSettings({ speech: patch }, { quiet: true })
   } catch (e) {
     toast(`That change couldn't be saved. ${(e as Error).message}`, { tone: 'danger' })
   }

@@ -10,9 +10,6 @@ export function openWorldBuilder(): void {
   useApp.getState().navigate({ kind: 'worldBuilder' })
 }
 
-/** The same: the world built from a summary, with no story. */
-export const openSummaryBuilder = openWorldBuilder
-
 /** Makes a new world and opens the World builder in it, so Adam can start it from a summary. */
 export async function createWorldAndBuild(name: string): Promise<void> {
   await useApp.getState().createWorld(name)

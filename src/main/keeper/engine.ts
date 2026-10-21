@@ -52,7 +52,8 @@ import {
   writeSceneSummary,
   type SummaryOptions
 } from './summaries'
-import { refreshSnapshots, storiesReading } from './snapshots'
+import { refreshSnapshots, SNAPSHOTS_AT_A_TIME, storiesReading } from './snapshots'
+import type { RecordRead } from '../memory/chapterRecord'
 import { DUE_SUMMARY_SCENES } from './sceneChange'
 import { summaryRefreshed } from './undo'
 import { loadShapeSafe, placeWords, scenesBefore } from './places'
@@ -161,6 +162,11 @@ export class Keeper {
   private readonly rollUpQuietMs: number
   /** Stories whose end-of-chapter snapshots may be out of date (fix 15), brought up to date before their roll-ups. */
   private readonly recordStories = new Set<ID>()
+  /**
+   * The memory read for the last few snapshots, while more are left (review #26): reused for the next few until anything
+   * is written to the world (its count of writes, after the snapshots' own) or a story's record changes.
+   */
+  private snapshotMemory: { read: RecordRead; writes: number } | null = null
   /** Scene summaries marked out of date before, brought up to date one at a time when there is nothing else to do. */
   private backlog: ID[] = []
   private nextBacklogAt = 0
@@ -395,6 +401,9 @@ export class Keeper {
     // A scene also waiting for its own new words stays queued for those.
     this.queue = this.queue.filter((x) => !drop.has(x) || kdb.needsReading(this.db, x))
     if (this.current && drop.has(this.current.sceneId) && !kdb.needsReading(this.db, this.current.sceneId)) this.current.controller.abort()
+    // Anyone waiting for a dropped scene is let go (the one being read settles when its run ends).
+    for (const id of ids)
+      if (!this.queue.includes(id) && !this.urgent.includes(id) && this.current?.sceneId !== id) this.settle(id)
     this.emitStatus()
   }
 
@@ -613,6 +622,7 @@ export class Keeper {
     this.summaryDue = []
     this.summaryNow = []
     this.recordStories.clear()
+    this.snapshotMemory = null
     this.backlog = []
     this.retries.clear()
     if (this.wakeTimer) clearTimeout(this.wakeTimer)
@@ -987,6 +997,7 @@ export class Keeper {
       console.warn('Could not tell which stories read this one', e)
     }
     const now = Date.now()
+    this.snapshotMemory = null
     for (const id of ids) {
       this.dirtyStories.add(id)
       this.recordStories.add(id)
@@ -1123,11 +1134,15 @@ export class Keeper {
     const storyId = this.recordStories.values().next().value as ID
     let more = false
     try {
-      more = refreshSnapshots(this.db, storyId).more
+      const kept = this.snapshotMemory?.writes === kdb.totalChanges(this.db) ? this.snapshotMemory.read : null
+      const done = refreshSnapshots(this.db, storyId, SNAPSHOTS_AT_A_TIME, kept)
+      more = done.more
+      this.snapshotMemory = more && done.read ? { read: done.read, writes: kdb.totalChanges(this.db) } : null
       if (!more && markOutOfDate(this.db, storyId, this.givenUp)) this.deps.emitChanged({ sceneId: null, entryIds: [] })
     } catch (e) {
       console.warn('Could not bring the end-of-chapter snapshots up to date', e)
       more = false
+      this.snapshotMemory = null
     }
     if (!more) this.recordStories.delete(storyId)
     // Lets anything waiting (a save, the window) go first before the next few.

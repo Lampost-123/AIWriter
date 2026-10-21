@@ -100,6 +100,21 @@ describe('the keeper’s re-read', () => {
     k.stop()
   })
 
+  it('Stop lets go of a draft waiting for a dropped scene', async () => {
+    const w = testWorld(2)
+    for (const s of w.scenes) saveParas(w.db, s, [['p1', 'The gulls were loud.']], false)
+    for (const s of w.scenes) kdb.markProcessed(w.db, s, kdb.keeperScene(w.db, s)!.textVersion, [])
+    const k = new Keeper({ db: w.db, model: () => fakeModel(fake), emitStatus: () => {}, emitChanged: () => {}, quietMs: 60_000, summaries: false, fetchImpl: shapedFetch({}) })
+    k.reread(w.scenes)
+    const waiting = k.whenRead(w.scenes[2]).then(() => 'let go')
+    k.stopReread()
+    const out = await Promise.race([waiting, new Promise((r) => setTimeout(() => r('still waiting'), 2000))])
+    expect(out).toBe('let go')
+    await k.whenIdle()
+    expect(k.status().catchingUp).toBeUndefined()
+    k.stop()
+  })
+
   it('waits, still asked for, while there is no model (the spending limit), and goes on when there is one', async () => {
     const w = testWorld(0)
     const [s1] = w.scenes

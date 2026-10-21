@@ -26,7 +26,6 @@ import {
   redoRecipePart,
   startPlanChat,
   startPlanRedo,
-  startStoryOutline,
   storyCodexChat,
   type StoryDeps
 } from '../storyBuilder/jobs'
@@ -102,10 +101,6 @@ export const storyBuilderHandlers: Handlers<keyof StoryBuilderApi> = {
     const recipe = recipeAsUsed(brief.recipe ? readRecipe(brief.recipe.id) : null, brief)
     const summary = buildSummary(briefText(brief, story), styleText(db, story, getWritingPrefs()), recipe?.parts.cast ?? '', items)
     startIn({ buildId: String(input?.buildId ?? ''), summary, storyId, plan: planOf(items) })
-  },
-  startStoryOutline: (input) => {
-    const { storyId, brief } = storyBrief(input?.storyId)
-    return startStoryOutline(deps(), { ...input, storyId }, brief)
   },
   startPlanChat: (input) => {
     const { storyId, brief } = storyBrief(input?.storyId)

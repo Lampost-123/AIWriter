@@ -1,12 +1,13 @@
 // The editor chat's tools: proposals that never overlap (one applied can't lose the words of another), a change
 // revised in place, a proposal that didn't go through saying so, and the last words listing what was proposed. These
 // hold the old tools (every chat overhaul switch off); agent.switches.test.ts covers them on, the default.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultWritingPrefs } from '@shared/defaults'
 import type { Proposal } from '@shared/contracts/ask'
 import { chatSwitches, memoryWorld } from '../../../tests/unit/helpers'
 import * as repo from '../db/repo'
 import * as mem from '../db/memory'
+import { searchIndex } from '../search'
 import { EditorAgent, LATER, markItalics, OPEN_MARK } from './agent'
 
 beforeEach(() => chatSwitches([]))
@@ -185,6 +186,18 @@ describe('the chat’s look-ups keep to this story’s point (rule C6)', () => {
     expect(found).toContain('Nothing matched all 2 words; these match 1 of 2.')
     expect(found).toContain('The Tower')
     expect(found).not.toContain('Harbour')
+  })
+
+  it('tries each word once and drops words with no hits, so many words stay a handful of searches', () => {
+    const w = twoStories()
+    const agent = agentAt(w, w.road, w.sc[0])
+    const searches = vi.spyOn(searchIndex(w.db), 'search')
+    const found = call(agent, 'search', { query: 'lantern zebra quokka narwhal okapi wombat ibis yak' })
+    expect(found).toContain('Nothing matched all 8 words; these match 1 of 8.')
+    expect(found).toContain('The Tower')
+    // All 8 together, then each word once; the one word with hits is the answer.
+    expect(searches.mock.calls.length).toBeLessThanOrEqual(9)
+    searches.mockRestore()
   })
 
   it('gives an entry as of the open scene, with the labels the briefing uses', () => {

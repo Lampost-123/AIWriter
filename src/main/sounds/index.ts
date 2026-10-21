@@ -9,7 +9,7 @@
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { ReadingPlan, ReadParagraph } from '@shared/contracts/readAloud'
-import type { SceneCue, SceneSounds, SoundEdits, SoundsStatus, LibrarySound, CueInput } from '@shared/contracts/sounds'
+import type { SceneCue, SceneSounds, SoundEdits, SoundsStatus, CueInput } from '@shared/contracts/sounds'
 import { defaultSpeechSettings } from '@shared/defaults'
 import type { ID, SpeechSettings } from '@shared/types'
 import * as repo from '../db/repo'
@@ -455,13 +455,6 @@ export function soundCueTimes(
   // Words are timed only when the server has a dictation model to hear them with (and is answering).
   timer ??= new CueTimer(cache, speechFetch, { canHear: () => !!server()?.aligner })
   return timer.times(o)
-}
-
-export function listSoundLibrary(): LibrarySound[] {
-  return library()
-    .list()
-    .sort((a, b) => Math.max(b.used, b.made, b.asked) - Math.max(a.used, a.made, a.asked))
-    .map(SoundLibrary.shown)
 }
 
 /** "Mute sounds in this scene", and back on: kept with Adam's other sound edits in the world. */

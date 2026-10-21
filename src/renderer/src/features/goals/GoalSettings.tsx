@@ -19,7 +19,7 @@ export function GoalSettings(): React.JSX.Element | null {
     if (next === daily) return
     useApp
       .getState()
-      .updateSettings({ goals: { daily: next } })
+      .updateSettings({ goals: { daily: next } }, { quiet: true })
       .catch((e: Error) => toast(`That change couldn't be saved. ${e.message}`, { tone: 'danger' }))
   }
   return (

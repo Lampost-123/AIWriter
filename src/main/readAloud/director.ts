@@ -49,8 +49,6 @@ export interface ScriptState {
 
 export const EMPTY_STATE: ScriptState = { present: [], lastSpeakers: [], newPeople: [] }
 
-/** Words a line is, that a character owns: read in their voice when the director names them. */
-export const OWNED: ReadonlySet<LineKind> = new Set(['speech', 'thought', 'text_message', 'chat', 'letter'])
 /** Written or thought, not said aloud: the kinds read as narration today. */
 export const UNSPOKEN: ReadonlySet<LineKind> = new Set(['thought', 'text_message', 'chat', 'letter'])
 

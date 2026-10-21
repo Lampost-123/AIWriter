@@ -5,14 +5,15 @@ import { Columns3, Sparkles, X } from '@/components/ui/icons'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Creativity, ID } from '@shared/types'
 import type { VariantCount } from '@shared/contracts/variants'
-import { AUTO_LENGTH, cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
+import { cardLength, CREATIVITY_PRESETS } from '@shared/defaults'
 import { Button, Card, IconButton, Notice } from '@/components/ui'
 import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
 import { BLANK_DRAFT_OPTIONS, draftLength, resolveDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { LengthField } from '@/features/generate/LengthField'
-import { CREATIVITY_HINTS, estimateDraftCost, shortModelName } from '@/features/generate/format'
+import { CREATIVITY_HINTS, shortModelName } from '@/features/generate/format'
+import { useDraftEstimate, useSceneCardInfo } from '@/features/generate/cardInfo'
 import { Segmented } from '@/components/ui'
 import { setSteer, steerTaken, useDeskStore } from '@/features/desk/deskStore'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
@@ -79,9 +80,7 @@ export function StartPanel({
 
   const [count, setCount] = useState<VariantCount>(lastCount)
   /** The scene card's length: a word count, null for Auto, undefined until loaded. */
-  const [cardWords, setCardWords] = useState<number | null | undefined>(undefined)
-  const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
-  const [estimate, setEstimate] = useState<number | null>(null)
+  const { cardWords, cardPlanned } = useSceneCardInfo(sceneId)
   const [starting, setStarting] = useState(false)
   /** Shown here before anything is sent: there is no writer model to write with. */
   const [needModel, setNeedModel] = useState(false)
@@ -109,22 +108,6 @@ export function StartPanel({
     useApp.getState().setDraftOptions(sceneId, patch)
     clearProblem(sceneId)
   }
-
-  useEffect(() => {
-    let live = true
-    api
-      .getScene(sceneId)
-      .then((s) => {
-        if (!live) return
-        const c = s.card
-        setCardWords(cardLength(c))
-        setCardPlanned(c.beats.some((b) => b.trim() !== '') || [c.goal, c.outcome, c.notes].some((t) => t.trim() !== ''))
-      })
-      .catch(() => undefined)
-    return () => {
-      live = false
-    }
-  }, [sceneId])
 
   useEffect(() => {
     if (writer) setNeedModel(false)
@@ -158,27 +141,7 @@ export function StartPanel({
   }, [shownProblem])
 
   // What the whole set should cost, for models with prices: the briefing and the length, once per variant.
-  const promptPrice = writer?.promptPrice ?? null
-  const completionPrice = writer?.completionPrice ?? null
-  const writerKey = writer ? `${writer.providerId}/${writer.modelId}/${writer.contextLength ?? ''}` : null
-  useEffect(() => {
-    if (!writerKey || promptPrice == null || completionPrice == null || cardWords === undefined) {
-      setEstimate(null)
-      return
-    }
-    let live = true
-    const t = setTimeout(() => {
-      api
-        .previewContext(sceneId, { direction, targetWords, creativity })
-        // Auto is estimated at a typical scene's length.
-        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords ?? AUTO_LENGTH.typical, { promptPrice, completionPrice })))
-        .catch(() => live && setEstimate(null))
-    }, 400)
-    return () => {
-      live = false
-      clearTimeout(t)
-    }
-  }, [sceneId, writerKey, promptPrice, completionPrice, cardWords, targetWords, direction, creativity])
+  const estimate = useDraftEstimate({ sceneId, writer, cardWords, targetWords, direction, creativity })
 
   const start = async (): Promise<void> => {
     if (starting || generating) return

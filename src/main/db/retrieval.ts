@@ -10,18 +10,23 @@ import { linkHealth, linksForFacts } from './history'
 type DB = Database.Database
 type Row = Record<string, unknown>
 
-/** Every live scene's words, by id (a scene in a deleted chapter or story is deleted with it). */
+// A scene counts as live only while its chapter and story are too: deleting a story or a chapter marks only that row
+// (repo.ts), and its scenes keep no deleted date of their own (review #20).
+const LIVE_SCENES = `SELECT s.id, s.text FROM scenes s
+  JOIN chapters c ON c.id = s.chapter_id AND c.deleted_at IS NULL
+  JOIN stories t ON t.id = c.story_id AND t.deleted_at IS NULL
+  WHERE s.deleted_at IS NULL`
+
+/** Every live scene's words, by id (none from a chapter or story in Recently deleted). */
 export function liveSceneTexts(db: DB): Map<ID, string> {
-  const rows = db.prepare('SELECT id, text FROM scenes WHERE deleted_at IS NULL').all() as Row[]
+  const rows = db.prepare(LIVE_SCENES).all() as Row[]
   return new Map(rows.map((r) => [r.id as string, (r.text as string) ?? '']))
 }
 
-/** These live scenes' words now, by id (a scene deleted meanwhile is left out). */
+/** These live scenes' words now, by id (a scene deleted meanwhile, or whose chapter or story was, is left out). */
 export function sceneTextsOf(db: DB, ids: ID[]): Map<ID, string> {
   if (!ids.length) return new Map()
-  const rows = db
-    .prepare('SELECT id, text FROM scenes WHERE id IN (SELECT value FROM json_each(?)) AND deleted_at IS NULL')
-    .all(JSON.stringify(ids)) as Row[]
+  const rows = db.prepare(`${LIVE_SCENES} AND s.id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)) as Row[]
   return new Map(rows.map((r) => [r.id as string, (r.text as string) ?? '']))
 }
 

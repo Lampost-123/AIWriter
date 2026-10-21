@@ -4,7 +4,6 @@ import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Entry, ID } from '@shared/types'
 import { cn } from '@/lib/cn'
 import { Portrait } from '@/features/views/Portrait'
-import { useNewLook } from '@/features/look/look'
 import { filterEntries, normalizeName } from '@/features/world/entryLogic'
 
 type Option = { type: 'entry'; entry: Entry } | { type: 'create'; name: string }
@@ -128,7 +127,6 @@ export const CastPicker = memo(function CastPicker({
     }
   }
 
-  const isNew = useNewLook()
   return (
     <P.Root open={open}>
       <P.Anchor asChild>
@@ -148,7 +146,7 @@ export const CastPicker = memo(function CastPicker({
               className="inline-flex max-w-full items-center gap-1 rounded bg-accent-soft py-0.5 pl-2 pr-0.5 text-[12.5px] font-medium text-accent look-new:gap-1.5 look-new:rounded-full look-new:bg-raise look-new:pl-0.5 look-new:text-fg look-new:shadow-e1"
             >
               {/* The New look: each person with their initial (or picture) in the characters' ink. */}
-              {isNew ? <Portrait entry={c} size={20} /> : null}
+              <Portrait entry={c} size={20} />
               {c.id === povId ? <Eye size={11} aria-label="Point of view" className="shrink-0 look-new:text-accent" /> : null}
               <span className="truncate">{nameOf(c)}</span>
               {aiIds?.has(c.id) ? (

@@ -8,7 +8,7 @@
 // (ChapterSize: Auto or a number; the length is its chapter card's target, so Write this chapter and every draft go by
 // it) above it.
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ChapterCard, ID } from '@shared/types'
 import { CHAPTER_PLAN_SCENES } from '@shared/contracts/outline'
 import { CHAPTER_TARGET_LIMITS, chapterShare } from '@shared/lengths'
@@ -30,18 +30,18 @@ import {
   setChapterSceneCount,
   stopOutline,
   treeOf,
-  useOutlineHelper
+  useOutlineHelper,
+  type HelperRun
 } from '@/features/outline/helperStore'
 import { WordTargetInput } from '@/features/inspector/WordTargetInput'
 import { usePrefs } from '@/features/style/prefsStore'
 import { announceChapterCard, chapterCardShown } from '@/features/chapterCard/chapterCardEvents'
-import { EarlierSuggestions } from '@/features/outline/EarlierSuggestions'
 import { PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { lastChapterAnswers, noteChapterStory, planChapter, startPlanInterview } from '@/features/outline/planInterviewStore'
-import { countNodes, totalOf, withoutGone } from '@/features/outline/tree'
+import { countNodes, totalOf, withoutGone, type TreeNode } from '@/features/outline/tree'
 import { suggestionLabels, type LineChapter } from './hubLogic'
 import { HubStatus } from './HubStatus'
-import { LineSuggestions, WaitingRows } from './LineSuggestions'
+import { EarlierBatches, LineSuggestions, WaitingRows } from './LineSuggestions'
 import { openPanel } from './hubStore'
 
 const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`
@@ -68,13 +68,16 @@ export function ChapterPlanPanel({ storyId, chapter, more }: { storyId: ID; chap
     void checkKept(storyId, chapter.id)
   }, [storyId, chapter.id])
 
-  // Named where they go: after the chapter's scenes that this batch didn't put there.
-  const labels = useMemo(() => {
-    if (!shown) return new Map<string, string>()
-    const keptIds = new Set(Object.values(shown.decisions).flatMap((d) => (d.status === 'kept' ? [d.id] : [])))
-    const before = chapter.scenes.filter((s) => !keptIds.has(s.id)).length
-    return suggestionLabels(scenes, shown.decisions, { acts: 0, chapters: 0, lead: { chapterNo: chapter.no, scenes: before } })
-  }, [shown, scenes, chapter.scenes, chapter.no])
+  // Named where they go: after the chapter's scenes that this batch didn't put there (an earlier batch's too).
+  const labelsOf = useCallback(
+    (batch: HelperRun, batchTree: TreeNode[]): Map<string, string> => {
+      const keptIds = new Set(Object.values(batch.decisions).flatMap((d) => (d.status === 'kept' ? [d.id] : [])))
+      const before = chapter.scenes.filter((s) => !keptIds.has(s.id)).length
+      return suggestionLabels(batchTree[0]?.children ?? [], batch.decisions, { acts: 0, chapters: 0, lead: { chapterNo: chapter.no, scenes: before } })
+    },
+    [chapter.scenes, chapter.no]
+  )
+  const labels = useMemo(() => (shown ? labelsOf(shown, tree) : new Map<string, string>()), [shown, tree, labelsOf])
 
   const suggest = (): void => void planChapter(chapter.id, lastChapterAnswers(chapter.id))
   const arrived = scenes.length
@@ -162,7 +165,7 @@ export function ChapterPlanPanel({ storyId, chapter, more }: { storyId: ID; chap
         </div>
       ) : null}
       <StoryBuildLine storyId={storyId} />
-      <EarlierSuggestions storyId={storyId} chapterId={chapter.id} className="mt-2 pt-3" />
+      {session ? <EarlierBatches storyId={storyId} chapterId={chapter.id} session={session} labelsOf={labelsOf} /> : null}
     </section>
   )
 }

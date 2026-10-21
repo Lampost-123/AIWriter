@@ -26,6 +26,7 @@ import * as cdb from '../db/checks'
 import { stillThere } from '../checks/quote'
 import { matchEntry } from '../outline/names'
 import type { NewProposal, SeenEntry, StoryView } from './agent'
+import { clip } from './history'
 
 type DB = Database.Database
 
@@ -191,7 +192,6 @@ export const SCENE_CARD_WITH_NAMES: ToolSpec = {
 
 const lower = (s: unknown): string => (typeof s === 'string' ? s.trim().toLocaleLowerCase() : '')
 const squash = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '')
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const quoted = (s: string, max = 300): string => `“${s.length > max ? `${s.slice(0, max - 1)}…` : s}”`
 
 /**

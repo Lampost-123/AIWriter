@@ -121,6 +121,44 @@ describe('streamChat', () => {
     expect(fake.requestCounts()['fake/drop']).toBe(1)
   })
 
+  it('takes a stream that closed after some words with no sign it had finished as dropped, keeping the text', async () => {
+    const chunk = (content: string) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`
+    const closedEarly = (async () =>
+      new Response(new Blob([chunk('The rain had not '), chunk('let up when Mara')]).stream(), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' }
+      })) as typeof fetch
+    const { outcome, retries } = await run('fake/writer', { fetchImpl: closedEarly })
+    expect(outcome.text).toBe('The rain had not let up when Mara')
+    expect(outcome.status).toBe('error')
+    expect(outcome.failure).toEqual({ type: 'dropped' })
+    expect(outcome.error).toContain('The text that arrived is kept')
+    expect(retries).toEqual([])
+  })
+
+  it('takes a stream that closes cleanly because Adam pressed Stop as stopped, not dropped', async () => {
+    const chunk = (content: string) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}
+
+`
+    const ctl = new AbortController()
+    const stoppedEarly = (async () => {
+      const words = new TextEncoder().encode(chunk('The rain had not '))
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(words)
+          // Stop is pressed, and the provider closes the stream cleanly.
+          setTimeout(() => {
+            ctl.abort()
+            c.close()
+          }, 5)
+        }
+      })
+      return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const { outcome } = await run('fake/writer', { fetchImpl: stoppedEarly, signal: ctl.signal })
+    expect(outcome.status).toBe('stopped')
+  })
+
   it('keeps the text when an error arrives mid-stream', async () => {
     const { outcome } = await run('fake/midstream-error')
     expect(outcome.status).toBe('error')

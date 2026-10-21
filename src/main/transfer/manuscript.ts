@@ -185,6 +185,3 @@ export function readBook(db: DB, storyId: ID, scope: ManuscriptScope, onScene?: 
   }
   return { title: outline.story.title.trim() || 'Untitled story', chapters }
 }
-
-/** The plain words of a paragraph's runs. */
-export const runsText = (runs: Run[]): string => runs.map((r) => r.text).join('')

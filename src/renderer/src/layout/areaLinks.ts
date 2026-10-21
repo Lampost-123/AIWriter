@@ -67,11 +67,6 @@ export interface LinkContext {
 const is = (view: View, kind: View['kind']): boolean => view.kind === kind
 const go = (view: View): void => useApp.getState().navigate(view)
 
-/** Opens the open scene's card in the scene panel beside the page (its ideas for what happens next and Interview me). */
-export function openSceneCard(): void {
-  openSceneTab('card')
-}
-
 /** Opens a tab of the scene panel beside the page (the desk's drawer), on the writing page. */
 export function openSceneTab(tab: InspectorTab): void {
   const app = useApp.getState()

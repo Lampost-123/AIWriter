@@ -805,6 +805,3 @@ export function stopAllTasks(): void {
     void stopTask(id).catch((e) => console.warn('Could not stop a task', e))
   }
 }
-
-/** For tests: forget every task (as a fresh start would). */
-export const resetTasksForTests = (): void => running.clear()

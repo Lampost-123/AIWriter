@@ -1,8 +1,8 @@
+import { useDesk } from '@/features/look/look'
 import { Plus, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { GlidePill } from '@/components/ui/GlidePill'
-import { useDesk, useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { CheckLine } from '@/features/consistency/CheckLine'
 import { ImportLine } from '@/features/importing/ImportLine'
@@ -44,12 +44,11 @@ function TreeSkeleton(): React.JSX.Element {
  * row is a raised pill that glides as another scene opens.
  */
 export function Binder({ world = true, switcher = true }: { world?: boolean; switcher?: boolean }): React.JSX.Element {
-  const isNew = useNewLook()
-  const desk = useDesk()
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
   const { outline, error, retry } = useOutline()
   const slow = useDelayed(!!storyId && !outline && !error, 300)
+  const desk = useDesk()
 
   useEffect(() => {
     if (storyId && sceneId) rememberScene(storyId, sceneId)
@@ -60,7 +59,7 @@ export function Binder({ world = true, switcher = true }: { world?: boolean; swi
       {/* The desk's flyout has the story's title in its own head (and the switcher in the top bar). */}
       {switcher ? <StorySwitcher /> : null}
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden look-new:relative">
-        {isNew && outline ? <GlidePill /> : null}
+        {outline ? <GlidePill /> : null}
         {outline ? (
           <StoryTree outline={outline} />
         ) : error ? (

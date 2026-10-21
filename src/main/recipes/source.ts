@@ -37,9 +37,6 @@ export function chapterText(c: SourceChapter): string {
   return c.scenes.map((s) => s.map((p) => (p ? p : '—')).join('\n\n')).join('\n\n* * *\n\n')
 }
 
-/** All of the story's text (for the checks against it). */
-export const sourceText = (s: RecipeSource): string => s.chapters.map(chapterText).join('\n\n')
-
 /** Words inside quotation marks: “…”, "…" and ‘…’ when they open after a space. */
 const QUOTED = /“[^”]*”?|"[^"\n]*"?|(?:^|\s)‘[^’]*’/g
 

@@ -42,7 +42,7 @@ export function EntryVoice({ entry, at }: { entry: Entry; at: 'top' | 'bottom' }
 /** Turn on read aloud, from a character's page: the same switch as Settings › Read aloud and dictation. */
 async function turnOnReadAloud(): Promise<void> {
   try {
-    await useApp.getState().updateSettings({ speech: { readAloud: true } })
+    await useApp.getState().updateSettings({ speech: { readAloud: true } }, { quiet: true })
     toast('Read aloud is on. Listen is in the scene’s toolbar.', {
       tone: 'success',
       action: { label: 'Settings', run: openSpeechSettings }

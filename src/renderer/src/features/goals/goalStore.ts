@@ -32,7 +32,7 @@ async function save(): Promise<void> {
   if (!dirty || !days) return
   dirty = false
   try {
-    await useApp.getState().updateSettings({ goals: { days } })
+    await useApp.getState().updateSettings({ goals: { days } }, { quiet: true })
   } catch {
     // Tried again with the next change, or on closing.
     dirty = true

@@ -118,17 +118,6 @@ export function StepRail({ steps, icons }: { steps: PlanStep[]; icons: Record<st
   )
 }
 
-/** A small heading in a column: small capitals, a hairline, and anything beside it. */
-export function ColumnHead({ title, children, className }: { title: ReactNode; children?: ReactNode; className?: string }): React.JSX.Element {
-  return (
-    <div className={cn('plan-colhead', className)}>
-      <h2 className="plan-colhead-t">{title}</h2>
-      <span className="plan-colhead-rule" aria-hidden />
-      {children}
-    </div>
-  )
-}
-
 /** The right column before the AI has done anything: a picture of what will come, what it is, and an example. */
 export function ResultsEmpty({ title, children, example }: { title: string; children: ReactNode; example?: ReactNode }): React.JSX.Element {
   return (

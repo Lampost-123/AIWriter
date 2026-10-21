@@ -9,7 +9,7 @@ import { ToolButton } from '@/features/editor/ToolButton'
 /** Turns "Show speakers and tone" on or off (saved at once). */
 export async function setShowSpeakers(on: boolean): Promise<void> {
   try {
-    await useApp.getState().updateSettings({ speech: { showSpeakers: on } })
+    await useApp.getState().updateSettings({ speech: { showSpeakers: on } }, { quiet: true })
   } catch (e) {
     toast(`That change couldn't be saved. ${(e as Error).message}`, { tone: 'danger' })
   }

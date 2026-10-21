@@ -52,9 +52,6 @@ export function parseFeel(text: string): RecipeFeel {
   return { genres: cleanGenres(genres), intensity: cleanIntensity(intensity) }
 }
 
-/** True when the part sets a genre or a level. */
-export const feelFound = (f: RecipeFeel): boolean => f.genres.length > 0 || Object.keys(f.intensity).length > 0
-
 /** The part in its own form ('' when nothing is set). */
 export function feelText(f: RecipeFeel): string {
   const g = genresOf(f.genres)

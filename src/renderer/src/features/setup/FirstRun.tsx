@@ -6,17 +6,16 @@
 
 import { BookOpen, Feather, WandSparkles } from '@/components/ui/icons'
 import { useRef, useState, type ReactNode } from 'react'
-import { SETUP_STEPS, type SetupStep } from '@shared/contracts/setup'
+import type { SetupStep } from '@shared/contracts/setup'
 import { Button, Field, Input, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { useLookStore, useNewLook } from '@/features/look/look'
 import { reducedMotion } from '@/features/look/motion'
 import { useApp } from '@/lib/store'
 import { requestEditorFocus } from '@/features/editor/focusRequest'
 import { openWorldBuilder } from '@/features/worldBuilder/open'
 import { WelcomeActionButtons, WELCOME_ACTIONS, type WelcomeAction } from '@/features/welcome/welcomeActions'
-import { nextStep, previousStep, STEP_NAMES, stepNumber } from './setupLogic'
+import { nextStep, previousStep } from './setupLogic'
 import { goBack, StepFrame } from './StepFrame'
 import { openSampleWorld, useSetup } from './setupStore'
 import { ConnectStep } from './ConnectStep'
@@ -28,7 +27,6 @@ import { SampleBook } from './SampleBook'
 
 export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
-  const isNew = useNewLook()
   if (!step) return null
   // The step itself: a new one fades in; the page never jumps sideways.
   const content = (
@@ -41,58 +39,8 @@ export function FirstRun(): React.JSX.Element | null {
       {step === 'builder' && <BuilderStep />}
     </div>
   )
-  // The New look: the rail of steps, the step on a sheet, and the lighthouse being lit beside it (SetupDesk.tsx).
-  if (isNew) return <SetupDesk step={step}>{content}</SetupDesk>
-  return (
-    <div className="flex h-full justify-center overflow-y-auto bg-bg px-6 pb-16 pt-[7vh] [scrollbar-gutter:stable_both-edges] look-new:bg-transparent">
-      <div className="w-full max-w-[600px]">
-        <div className="mb-7 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-fg">
-            <BookOpen size={20} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-serif text-[22px] font-semibold leading-tight text-fg">Welcome to AI Write</h1>
-            <p className="text-[13px] text-muted">A few steps and you’re writing. Everything saves as you go.</p>
-          </div>
-        </div>
-        <Progress step={step} />
-        {content}
-      </div>
-    </div>
-  )
-}
-
-/** Where Adam is: a calm line of six segments, and the step in words. */
-function Progress({ step }: { step: SetupStep }): React.JSX.Element {
-  const n = stepNumber(step)
-  const isNew = useNewLook()
-  return (
-    <div className="mb-6">
-      <div className="flex gap-1.5" aria-hidden>
-        {SETUP_STEPS.map((s, i) => (
-          <span
-            key={s}
-            className={cn(
-              'h-1 flex-1 rounded-full transition-colors duration-200',
-              i < n ? 'bg-accent' : 'bg-line',
-              // The New look: a fuller line, the step reached filling in from the left.
-              'look-new:relative look-new:h-[5px] look-new:overflow-hidden look-new:bg-line-strong'
-            )}
-          >
-            {isNew && i < n ? (
-              <span
-                aria-hidden
-                className={cn('absolute inset-0 origin-left bg-accent', i === n - 1 && 'animate-[fill-x_700ms_var(--motion-glide)_150ms_both]')}
-              />
-            ) : null}
-          </span>
-        ))}
-      </div>
-      <p className="mt-2 text-[12px] text-faint">
-        Step {n} of {SETUP_STEPS.length} · {STEP_NAMES[step]}
-      </p>
-    </div>
-  )
+  // The rail of steps, the step on a sheet, and the lighthouse being lit beside it (SetupDesk.tsx).
+  return <SetupDesk step={step}>{content}</SetupDesk>
 }
 
 // ---------- 1. The world ----------
@@ -104,7 +52,6 @@ function WorldStep(): React.JSX.Element {
   const made = !!worldId && world?.id === worldId ? world : null
   const [name, setName] = useState(made?.name ?? '')
   const [busy, setBusy] = useState<false | 'create' | 'sample'>(false)
-  const isNew = useNewLook()
 
   const next = async (): Promise<void> => {
     const clean = name.trim()
@@ -156,23 +103,7 @@ function WorldStep(): React.JSX.Element {
           )}
         </Field>
       </form>
-      {made ? null : isNew ? (
-        <SampleWorldCard busy={busy} onExplore={() => void explore()} />
-      ) : (
-        <div className="mt-6 rounded-xl border border-line bg-surface px-4 py-3.5">
-          <p className="text-[13px] font-medium text-fg">Not sure yet?</p>
-          <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
-            Look round a small finished world first: a short story with its characters, places and memory filled in. Nothing in it costs
-            anything.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button icon={<BookOpen size={15} />} loading={busy === 'sample'} disabled={!!busy} onClick={() => void explore()}>
-              Explore a sample world first
-            </Button>
-          </div>
-          {WELCOME_ACTIONS.length ? <WelcomeActionButtons className="mt-2" actions={FROM_SETUP} /> : null}
-        </div>
-      )}
+      {made ? null : <SampleWorldCard busy={busy} onExplore={() => void explore()} />}
     </StepFrame>
   )
 }
@@ -318,8 +249,8 @@ const FINISH_MS = 900
  */
 async function finishSetup(build: boolean): Promise<void> {
   // The New look: the lamp is lit on the picture and the sheet says so for a moment (900 ms, while the first scene is
-  // made); at once with less motion, and never in Classic.
-  const moment = useLookStore.getState().look === 'new' && !reducedMotion()
+  // made); at once with less motion.
+  const moment = !reducedMotion()
   if (moment) useSetup.setState({ finishing: build ? 'build' : 'write' })
   let made: Awaited<ReturnType<typeof api.finishSetup>>
   try {

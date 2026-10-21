@@ -21,9 +21,6 @@ export const closeStoryFill = (): void => useStoryFill.setState({ ask: null })
 const n = (k: number, one: string, many: string): string => `${k.toLocaleString('en-US')} ${k === 1 ? one : many}`
 const named = (title: string): string => (title.trim() ? `“${title.trim()}”` : 'this story')
 
-/** What it does, in a sentence or two. */
-export const FILL_WHAT = 'What people wear and carry, any injuries, and where everyone ends up, worked out for every scene.'
-
 /** What the dialog says it does. */
 export function fillIntro(title: string): string {
   return `The memory reads each scene of ${named(title)} it hasn’t read for these yet, one after another in the background: what people wear and carry, any injuries, and where everyone ends up. The AI then keeps them straight anywhere in the story. Keep writing meanwhile; you can stop it at any time.`

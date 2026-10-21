@@ -8,7 +8,7 @@ import { useApp } from '@/lib/store'
 /** Turns "Show beats" on or off (saved at once). */
 export async function setShowBeats(on: boolean): Promise<void> {
   try {
-    await useApp.getState().updateSettings({ editor: { showBeats: on } })
+    await useApp.getState().updateSettings({ editor: { showBeats: on } }, { quiet: true })
   } catch (e) {
     toast(`That change couldn't be saved. ${(e as Error).message}`, { tone: 'danger' })
   }

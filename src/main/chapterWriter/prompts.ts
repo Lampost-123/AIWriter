@@ -11,8 +11,6 @@ import { packList } from '../ai/packs'
 
 export const CHAPTER_MARKER = '[AIWRITE-CHAPTER v1]'
 
-export type ChapterJob = 'plan' | 'fix'
-
 /** The planner judges and plans: low creativity. */
 export const PLAN_TEMPERATURE = 0.3
 /** Room for the planner's replies (the plan for a long chapter is its longest). */

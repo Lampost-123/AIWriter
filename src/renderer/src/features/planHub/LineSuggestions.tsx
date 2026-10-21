@@ -429,15 +429,20 @@ function firstKeptScene(run: HelperRun, nodes: TreeNode[]): ID | null {
   return null
 }
 
-/** "Earlier suggestions": the batches Adam hadn't decided on when he asked again, folded away until he opens them. */
+/**
+ * "Earlier suggestions": the batches Adam hadn't decided on when he asked again, folded away until he opens them. The
+ * same on the story page and a chapter's page (`chapterId`: that chapter's own session).
+ */
 export function EarlierBatches({
   storyId,
   session,
-  labelsOf
+  labelsOf,
+  chapterId = null
 }: {
   storyId: ID
   session: HelperSession
   labelsOf: (run: HelperRun, tree: TreeNode[]) => Map<string, string>
+  chapterId?: ID | null
 }): React.JSX.Element | null {
   const batches = useMemo(() => earlierShown(session).map((run) => ({ run, tree: treeOf(run) })), [session])
   const [open, setOpen] = useState(false)
@@ -459,18 +464,18 @@ export function EarlierBatches({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => putAwayEarlier(storyId, run.taskId)}
+                  onClick={() => putAwayEarlier(storyId, run.taskId, chapterId)}
                   title="Discard everything still to decide in these. Undo brings them back."
                 >
                   Put these away
                 </Button>
               </div>
-              <LineSuggestions storyId={storyId} run={run} tree={tree} labels={labelsOf(run, tree)} earlier />
+              <LineSuggestions storyId={storyId} run={run} tree={tree} labels={labelsOf(run, tree)} chapterId={chapterId} earlier />
             </div>
           ))}
         </div>
       ) : (
-        <p className="hub-earlier-s">What you hadn’t decided on when you planned again. Nothing here goes into the story until you keep it.</p>
+        <p className="hub-earlier-s">What you hadn’t decided on when you {chapterId ? 'suggested scene cards' : 'planned'} again. Nothing here goes into the story until you keep it.</p>
       )}
     </section>
   )

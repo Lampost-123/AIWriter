@@ -2,7 +2,7 @@
 // what was good and where there were issues, one line per check. Collapsed by default: a line saying how it was
 // checked and how many issues are open now (`open`, the scene's issues as they are, so it follows every fix), and under
 // it when it ran and, once the scene's words have changed since, that they have (findings that stay current,
-// 2026-10-16: checked against the saved words every few seconds while it shows, as the critique is); opened, each check
+// 2026-10-16: checked against the saved words each time the scene is saved while it shows); opened, each check
 // with what it compared. Comes back after every check (a draft landing, Mark done, or Check this scene). Since long story
 // memory fix 13 it also says how the latest draft kept to its scene's contract, item by item (from the check as the
 // draft landed, or the chapter writer's checks).
@@ -13,6 +13,7 @@ import { ChevronDown, ChevronRight, CircleAlert, CircleCheck } from '@/component
 import { api, onEvent } from '@/lib/api'
 import { Fold } from '@/components/ui/Fold'
 import { cn } from '@/lib/cn'
+import { useApp } from '@/lib/store'
 import {
   CHECK_WORDS,
   CONTRACT_DETAIL,
@@ -24,9 +25,6 @@ import {
   reportHeadline,
   reportWhen
 } from './issuesLogic'
-
-/** How often a report that still matches the scene's words is checked against them (a cheap call: no AI). */
-const CHANGED_CHECK_MS = 2500
 
 export function CheckReportCard({ sceneId, openIssues = null }: { sceneId: ID; openIssues?: number | null }): React.JSX.Element | null {
   const [report, setReport] = useState<CheckReport | null>(null)
@@ -55,22 +53,23 @@ export function CheckReportCard({ sceneId, openIssues = null }: { sceneId: ID; o
     }
   }, [sceneId])
 
-  // While the report still matches the scene's words, it is checked against them every few seconds (once they have
-  // changed it stays so until the next check).
+  // While the report still matches the scene's words, it is checked against them each time the open scene is saved (a
+  // cheap call: no AI; review #45, in place of asking every few seconds). Once they have changed it stays so until the
+  // next check.
   const watching = !!report?.textHash && !report.changed
   useEffect(() => {
     if (!watching) return
     let live = true
-    const t = setInterval(() => {
-      if (document.visibilityState !== 'visible') return
+    const off = useApp.subscribe((s, was) => {
+      if (s.saveState !== 'saved' || was.saveState === 'saved' || s.sceneId !== sceneId) return
       void api
         .getCheckReport(sceneId)
         .then((r) => live && setReport(r))
         .catch(() => undefined)
-    }, CHANGED_CHECK_MS)
+    })
     return () => {
       live = false
-      clearInterval(t)
+      off()
     }
   }, [sceneId, watching])
   useEffect(() => {

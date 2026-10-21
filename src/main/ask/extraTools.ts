@@ -21,6 +21,7 @@ import { keptStateBefore, storedState, storedStateAt } from '../continuity/track
 import { findInStory } from '../find/story'
 import { numbered, paraRef, type Para } from './anchor'
 import type { NewProposal, SceneWords, StoryView } from './agent'
+import { clip } from './history'
 
 type DB = Database.Database
 
@@ -135,7 +136,6 @@ export function extraProposeTools(): ToolSpec[] {
 
 const lower = (s: unknown): string => (typeof s === 'string' ? s.trim().toLocaleLowerCase() : '')
 const squash = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '')
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const short = (s: string, max = SIDE_CHARS): string => {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
@@ -241,48 +241,78 @@ function storySoFar(ctx: ExtraCtx, a: Record<string, unknown>): [string, string]
   if (!ctx.storyId) ctx.fail('No story is open, so there is no story so far.')
   const o = ctx.outline()
   const ids = o.scenes.map((s) => s.id)
+  if (!ids.length) {
+    ctx.mark({ summary: 'the whole story', outcome: 'no scenes yet' })
+    return ['Reading the story so far', `${o.story.title} has no scenes yet, so nothing has happened in it so far.`]
+  }
   const openAt = ctx.sceneId ? ids.indexOf(ctx.sceneId) : -1
   const fromAsked = squash(a.from_scene)
   const toAsked = squash(a.to_scene)
   const from = fromAsked ? ids.indexOf(ctx.scene(fromAsked)) : 0
   const to = toAsked ? ids.indexOf(ctx.scene(toAsked)) : openAt >= 0 ? openAt : ids.length - 1
   if (from > to) ctx.fail('`from_scene` comes after `to_scene`: give the earlier scene first.')
-  const out: string[] = []
+  const before: string[] = []
   const v = ctx.view()
   // What the earlier stories on this story's line left off with (as drafting's briefing has them), from the start only.
   if (!fromAsked) {
     for (const st of v.point.storySoFar?.stories ?? []) {
       if (!st.text.trim()) continue
-      out.push(`Before this story, ${st.title}${st.meanwhile ? ' (meanwhile)' : ''}${st.cut ? ' (up to where this story leaves it)' : ''}: ${short(st.text, 600)}`)
+      before.push(`Before this story, ${st.title}${st.meanwhile ? ' (meanwhile)' : ''}${st.cut ? ' (up to where this story leaves it)' : ''}: ${short(st.text, 600)}`)
     }
   }
-  let n = 0
-  let missing = 0
-  let stale = 0
-  let chapter = ''
+  const lines: { id: ID; chapter: string; head: string; line: string; summary: 'none' | 'fresh' | 'stale' }[] = []
   for (let i = Math.max(0, from); i <= to && i < ids.length; i++) {
     const id = ids[i]
     const sc = o.scenes[i]
     const ch = o.chapters.findIndex((c) => c.id === sc.chapterId)
-    if (sc.chapterId !== chapter) {
-      chapter = sc.chapterId
-      out.push('', `Ch ${ch + 1}${o.chapters[ch]?.title.trim() ? ` “${o.chapters[ch].title.trim()}”` : ''}`)
-    }
     const sum = mem.getSummary(ctx.db, 'scene', id)
     const text = sum?.text.trim() ?? ''
     const mark = id === ctx.sceneId ? ' (the open scene)' : openAt >= 0 && i > openAt ? ` (${ctx.later})` : ''
-    if (!text) missing++
-    else {
-      n++
-      if (sum!.stale) stale++
-    }
-    out.push(`- ${ctx.sceneLabel(id)}${mark}: ${text ? short(text, 700) : '(no summary yet)'}${text && sum!.stale ? ' (may be out of date: the scene changed since)' : ''}`)
+    lines.push({
+      id,
+      chapter: sc.chapterId,
+      head: `Ch ${ch + 1}${o.chapters[ch]?.title.trim() ? ` “${o.chapters[ch].title.trim()}”` : ''}`,
+      line: `- ${ctx.sceneLabel(id)}${mark}: ${text ? short(text, 700) : '(no summary yet)'}${text && sum!.stale ? ' (may be out of date: the scene changed since)' : ''}`,
+      summary: !text ? 'none' : sum!.stale ? 'stale' : 'fresh'
+    })
   }
+  const body = (start: number, withBefore: boolean): string => {
+    const out = withBefore ? [...before] : []
+    let chapter = ''
+    for (const l of lines.slice(start)) {
+      if (l.chapter !== chapter) {
+        chapter = l.chapter
+        out.push('', l.head)
+      }
+      out.push(l.line)
+    }
+    return out.join('\n').trim()
+  }
+  // Too long to give whole: the earliest scenes are left out, not the latest (a recap is read for what just happened).
+  // Measured as the lines add up from the end, so a long story isn't joined over and over.
+  const room = EXTRA_CHARS - 600
+  let start = lines.length
+  for (let used = 0; start > 0; start--) {
+    const l = lines[start - 1]
+    used += l.line.length + 1 + (lines[start - 2]?.chapter !== l.chapter ? l.head.length + 2 : 0)
+    if (used > room && start < lines.length) break
+  }
+  const withBefore = start === 0 && body(0, true).length <= room
+  const shown = lines.slice(start)
+  const n = shown.filter((l) => l.summary !== 'none').length
+  const missing = shown.length - n
+  const stale = shown.filter((l) => l.summary === 'stale').length
   const range = fromAsked || toAsked ? `${ctx.sceneLabel(ids[Math.max(0, from)])} to ${ctx.sceneLabel(ids[to])}` : openAt >= 0 ? 'up to the open scene' : 'the whole story'
   ctx.mark({ summary: range, outcome: n ? counted(n, 'summary', 'summaries') : 'no summaries yet' })
+  const lastLeft = start > 0 ? ctx.sceneLabel(lines[start - 1].id) : ''
+  const left = start
+    ? `\n(Left out to fit: ${ctx.sceneLabel(lines[0].id)} to ${lastLeft}. To read them, call again with \`to_scene\`: "${lastLeft}".)`
+    : before.length && !withBefore
+      ? '\n(What the earlier stories on this line left off with is left out to fit.)'
+      : ''
   const tail = missing ? `\n${counted(missing, 'scene')} with no summary yet: read_scene reads one.` : ''
   const head = `The story so far in ${o.story.title}, ${range}, from the stored summaries${stale ? ` (${stale} may be out of date)` : ''}:`
-  return ['Reading the story so far', clip(`${head}\n${out.join('\n').trim()}${tail}`, EXTRA_CHARS)]
+  return ['Reading the story so far', clip(`${head}${left}\n${body(start, withBefore)}${tail}`, EXTRA_CHARS)]
 }
 
 // ---------- compare_version ----------

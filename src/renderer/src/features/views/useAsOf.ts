@@ -45,12 +45,6 @@ export function useAsOfStopsState(
   return { stops: state.stops, error: state.key === key ? state.error : null, reload }
 }
 
-/** The stops of a story's as-of slider (null until loaded, empty when they couldn't be loaded). */
-export function useAsOfStops(storyId: ID | null, entryId?: ID | null): AsOfStop[] | null {
-  const { stops, error } = useAsOfStopsState(storyId, entryId)
-  return stops ?? (error ? [] : null)
-}
-
 /** An entry as of a point (null until first loaded, or when `at` is null). Keeps the last answer while the next loads. */
 export function useEntryAsOf(
   entryId: ID | null,

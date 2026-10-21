@@ -90,10 +90,6 @@ export async function loadSceneNames(sceneId: ID): Promise<void> {
   }
 }
 
-/** The names of one scene from the cache (null until loaded), without asking for them. */
-export const cachedNames = (sceneId: ID | null): SceneNames | null =>
-  sceneId ? (useNamesStore.getState().scenes[sceneId]?.data ?? null) : null
-
 export interface SceneNamesResult {
   data: SceneNames | null
   /** The data is for the world as it is now (false while a newer answer loads). */

@@ -75,11 +75,8 @@ function startLook(): Look {
   }
 }
 
-/** Each theme's --bg colour in styles.css, in each look. */
-const BACKGROUND_COLOUR: Record<Look, Record<PaintedTheme, string>> = {
-  classic: { light: '#f6f4f0', dark: '#161514', sepia: '#ece3cf' },
-  new: { light: '#ebe5da', dark: '#12110f', sepia: '#e5d9c0' }
-}
+/** Each theme's --bg colour in the New look (styles.css). */
+const BACKGROUND_COLOUR: Record<PaintedTheme, string> = { light: '#ebe5da', dark: '#12110f', sepia: '#e5d9c0' }
 
 /** Shows the window if it is still hidden (the fallback when the interface never asks). */
 function showMainWindow(): void {
@@ -112,7 +109,7 @@ function createWindow(): void {
     show: false,
     ...(BACKGROUND ? { skipTaskbar: true } : {}),
     title: 'AI Write',
-    backgroundColor: BACKGROUND_COLOUR[look][theme],
+    backgroundColor: BACKGROUND_COLOUR[theme],
     icon: join(__dirname, '../../resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

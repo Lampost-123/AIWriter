@@ -302,9 +302,6 @@ export function closeRunsFor(db: DB): void {
   }
 }
 
-/** The runs going or waiting (for tests). */
-export const runsNow = (): { active: ID | null; waiting: ID[] } => ({ active: active?.id ?? null, waiting: waiting.map((r) => r.id) })
-
 /** For tests: forget every run. */
 export function resetRunsForTests(): void {
   active = null

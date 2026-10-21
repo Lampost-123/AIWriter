@@ -303,9 +303,6 @@ export function routeOfFact(f: Pick<PlacedFact, 'kind' | 'entryId' | 'slot' | 'v
   return { a: f.entryId, b: m[1], hours, unit: m[4] as 'hour' | 'day', hedged: !!m[5], mode: (m[2] || null) as TravelMode | null, how, words: f.quote }
 }
 
-/** Where a route came from, for the facts: Adam's own place entry ('hand'), the memory's, or the story's words. */
-export type RouteOrigin = Extract<IndexOrigin, 'hand' | 'memory' | 'words'>
-
 // ---------- How long a route needs ----------
 
 /**

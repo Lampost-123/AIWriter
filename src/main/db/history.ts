@@ -64,14 +64,6 @@ export function getVersion(db: DB, id: ID): FactVersion | null {
   return r ? toVersion(r) : null
 }
 
-/** The version before the latest one of a fact (what an undo goes back to), or null. */
-export function previousVersion(db: DB, factKind: FactVersion['factKind'], factId: ID): FactVersion | null {
-  const r = db
-    .prepare('SELECT * FROM fact_versions WHERE fact_kind = ? AND fact_id = ? ORDER BY version DESC LIMIT 1 OFFSET 1')
-    .get(factKind, factId) as Row | undefined
-  return r ? toVersion(r) : null
-}
-
 // ---------- Source links ----------
 
 const toLink = (r: Row): SourceLink => ({

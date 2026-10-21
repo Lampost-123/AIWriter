@@ -7,15 +7,13 @@ import { useState } from 'react'
 import { Notice } from '@/components/ui'
 import { OpenRouterCard, OtherProviders, PRESETS, useConnectionTests } from '@/features/settings/ModelsSettings'
 import { ProviderMark } from '@/features/settings/ProviderMark'
-import { useNewLook } from '@/features/look/look'
 import { goBack, goNext, StepFrame } from './StepFrame'
 
 export function ConnectStep(): React.JSX.Element {
   const { providers, loadError, reload, results, test, clearResult } = useConnectionTests()
   const [other, setOther] = useState(false)
-  // The New look: the service picked from the marks, filled in on the form.
+  // The service picked from the marks, filled in on the form.
   const [preset, setPreset] = useState<string | undefined>(undefined)
-  const isNew = useNewLook()
   const openrouter = providers?.find((p) => p.kind === 'openrouter') ?? null
   const custom = providers?.filter((p) => p.kind === 'custom') ?? []
   // Something to write with: a saved OpenRouter key, or another provider (one on this computer needs no key).
@@ -74,20 +72,13 @@ export function ConnectStep(): React.JSX.Element {
               startAdding={other && !custom.length}
               startPreset={preset}
             />
-          ) : isNew ? (
+          ) : (
             <OtherServices
               onPick={(name) => {
                 setPreset(name)
                 setOther(true)
               }}
             />
-          ) : (
-            <div>
-              <button type="button" className="text-[13px] text-accent hover:underline" onClick={() => setOther(true)}>
-                Use another provider
-              </button>
-              <span className="text-[12.5px] text-faint"> such as OpenAI, DeepSeek, or LM Studio on this computer</span>
-            </div>
           )}
         </div>
       )}

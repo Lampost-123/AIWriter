@@ -10,6 +10,8 @@ interface BoardState {
   marksRev: number
   ideasFor: ID | null
   ideasInstant: boolean
+  /** Bumped each time the drawer is asked to open, so opening it again while it closes keeps it open. */
+  ideasOpened: number
   flyFrom: { sceneId: ID; rect: DOMRect } | null
   /** A plot thread to pick out when the board opens ("Open on the story board", from the plot threads board). */
   focusThread: ID | null
@@ -28,6 +30,7 @@ export const useBoardStore = create<BoardState>(() => ({
   marksRev: 0,
   ideasFor: null,
   ideasInstant: false,
+  ideasOpened: 0,
   flyFrom: null,
   focusThread: null,
   ideasWish: null,

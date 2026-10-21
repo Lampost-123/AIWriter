@@ -11,9 +11,8 @@ import { TopBar } from '@/layout/TopBar'
 import { Inspector } from '@/layout/Inspector'
 import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
 import { StartScreen } from '@/features/start/StartScreen'
-import { Binder } from '@/features/binder/Binder'
 import { SceneView } from '@/features/editor/SceneView'
-import { sceneHeaderHeight } from '@/features/editor/SceneHeader'
+import { SCENE_HEADER_HEIGHT } from '@/features/editor/SceneHeader'
 import { EntriesView } from '@/features/world/EntriesView'
 import { StyleView } from '@/features/style/StyleView'
 import { SettingsView } from '@/features/settings/SettingsView'
@@ -23,7 +22,6 @@ import { installMemoryEvents } from '@/features/memory/events'
 import { CodexView } from '@/features/codex/CodexView'
 import { BuilderView } from '@/features/builder/BuilderView'
 import { TimelineView } from '@/features/timeline/TimelineView'
-import { RelationshipMap } from '@/features/map/RelationshipMap'
 import { DeskMap } from '@/features/map/desk/DeskMap'
 import { ThreadsBoard } from '@/features/threads/ThreadsBoard'
 import { StorySettings } from '@/features/stories/StorySettings'
@@ -48,7 +46,7 @@ import { ScenePlanReview } from '@/features/planReview/ScenePlanReview'
 import { SpendWatch } from '@/features/usage/SpendWatch'
 import { ImportView } from '@/features/importing/ImportView'
 import { useAccent } from '@/features/look/accents'
-import { useArrangementSetting, useDesk, useLookSetting, useNewLook } from '@/features/look/look'
+import { useArrangementSetting, useDesk, useLookSetting } from '@/features/look/look'
 import { AreaRail } from '@/layout/AreaRail'
 import { AreaList } from '@/layout/AreaList'
 import { LookNote } from '@/features/look/LookNote'
@@ -56,7 +54,6 @@ import { useFocusMode } from '@/features/look/focusMode'
 import { FocusLayer } from '@/features/look/FocusLayer'
 import { FindLayer } from '@/features/find/FindLayer'
 import { FirstRun } from '@/features/setup/FirstRun'
-import { SampleWorldBar } from '@/features/setup/SampleWorldBar'
 import { useSetup } from '@/features/setup/setupStore'
 // Story recipes
 import { RecipesView } from '@/features/recipes/RecipesView'
@@ -225,9 +222,8 @@ const deskGallery = (view: View): boolean => view.kind === 'codex' || view.kind 
 /** Which page a view is, on the desk: its kind, with the World room's gallery one page whichever tab shows. */
 const deskPageKey = (view: View): string => (deskGallery(view) ? 'world-gallery' : view.kind)
 
-/** Every page but the writing page, by the view showing (the same in both layouts and Classic, but the desk's World room). */
+/** Every page but the writing page, by the view showing (the same in both layouts, but the desk's World room). */
 function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JSX.Element {
-  const isNew = useNewLook()
   if (desk && deskGallery(view)) return <WorldRoom />
   return (
     <>
@@ -239,8 +235,8 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
       {view.kind === 'codex' && <CodexView />}
       {view.kind === 'builder' && <BuilderView kind={view.entryKind} entryId={view.entryId} start={view.start} />}
       {view.kind === 'timeline' && <TimelineView />}
-      {/* The New look's map (on the desk and in the panels); Classic keeps its own. */}
-      {view.kind === 'map' && (isNew ? <DeskMap /> : <RelationshipMap />)}
+      {/* The map (on the desk and in the panels). */}
+      {view.kind === 'map' && <DeskMap />}
       {view.kind === 'threads' && <ThreadsBoard />}
       {view.kind === 'story' && <StorySettings key={view.storyId} storyId={view.storyId} />}
       {view.kind === 'history' && <HistoryView key={view.sceneId} sceneId={view.sceneId} snapshotId={view.snapshotId} />}
@@ -282,13 +278,11 @@ function Workspace(): React.JSX.Element {
   const focus = useFocusMode((s) => s.on)
   const focusMoving = useFocusMode((s) => s.moving)
   const focusPanel = focus && (askOpen || peeking)
-  // The New look: the area rail, then the area's list where Classic has the binder (and no sample bar: a chip in the top bar).
-  const isNew = useNewLook()
   // The New look's desk layout (Settings › Appearance › Layout): the same page in the middle, other pieces around it.
   const desk = useDesk()
   const overPage = focus && (!focusMoving || focusPanel)
   const { layout } = settings
-  // The desk's story home and story board are the desk's own; in the panels and Classic they are the writing page.
+  // The desk's story home and story board are the desk's own; in the panels they are the writing page.
   const writing = view.kind === 'write' || (!desk && (view.kind === 'storyHome' || view.kind === 'board'))
   // Ask the world (milestone 4) shows in this panel too, even with no scene open; so does a chapter's card.
   const chapterCardId = useApp((s) => s.chapterCardId)
@@ -297,7 +291,7 @@ function Workspace(): React.JSX.Element {
   // Adam's chosen widths are kept and come back when the window is wider.
   const shown = useWindowWidth()
   // The panels share what the rail leaves.
-  const win = isNew && !desk ? { ...shown, width: shown.width - RAIL } : shown
+  const win = !desk ? { ...shown, width: shown.width - RAIL } : shown
   // The scene panel comes and goes with the writing page (it isn't there on other pages). When it
   // does, the binder takes its new width at once too, rather than easing while the page swaps.
   const hadScenePanel = useRef(scenePanel)
@@ -313,8 +307,8 @@ function Workspace(): React.JSX.Element {
   // (The desk has no binder beside the page: its flyout decides for itself.)
   const floats = !desk && binderFloats(win.width, BINDER.floor, right, pageMin)
   const floating = useFloatingPane(floats)
-  // The New look: Settings has a list of its own beside the rail, so the area's list steps aside there.
-  const listAside = isNew && view.kind === 'settings'
+  // Settings has a list of its own beside the rail, so the area's list steps aside there.
+  const listAside = view.kind === 'settings'
   const left = { open: !focus && !listAside && layout.binderOpen && !floats, width: layout.binderWidth, floor: BINDER.floor }
   const fit = fitPanels(win.width, left, right, pageMin)
   // A panel squeezed narrower than its own minimum is dragged from where it shows, and the width
@@ -328,15 +322,11 @@ function Workspace(): React.JSX.Element {
 
   return (
     <>
-      {/* The desk has its own top bar (rooms in the middle, the status island); the panels and Classic share TopBar. */}
+      {/* The desk has its own top bar (rooms in the middle, the status island); the panels have TopBar. */}
       {desk ? <DeskTopBar /> : <TopBar />}
-      {isNew ? null : (
-        <div data-focus-chrome>
-          <SampleWorldBar />
-        </div>
-      )}
       <div className="relative flex min-h-0 flex-1">
-        {isNew && !desk ? (
+        {/* The panels: the area rail, then the area's list. */}
+        {!desk ? (
           <div className="contents" inert={focus}>
             <AreaRail />
           </div>
@@ -358,13 +348,13 @@ function Workspace(): React.JSX.Element {
               width={left.open ? fit.left : layout.binderWidth}
               open={focus || listAside ? false : floats ? floating.open : layout.binderOpen}
               // On the writing page it opens below the scene's toolbar, so Done, the tools and Generate stay in reach.
-              floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? sceneHeaderHeight(isNew) : undefined } : null}
+              floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? SCENE_HEADER_HEIGHT : undefined } : null}
               min={binderMin}
               max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
               instant={!focusMoving && (win.resizing || pageSwap)}
               onResize={(w) => void update({ layout: { binderWidth: chosenWidthFor(w, win.width, 'left', left, right, BINDER.max, pageMin) } })}
             >
-              {isNew ? <AreaList /> : <Binder />}
+              <AreaList />
             </ResizablePane>
           </div>
         )}
