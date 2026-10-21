@@ -1888,7 +1888,8 @@ export class EditorAgent {
     const find = hay.slice(from, to)
     replace = hay.slice(from, at) + replace + hay.slice(atEnd, to)
     const revises = this.revising(a, ['text'], 'words')
-    const clash = this.clashWith(id, s, at, atEnd, revises)
+    // By the widened words: those are what the page looks for when this change is applied.
+    const clash = this.clashWith(id, s, from, to, revises)
     if (clash?.kind === 'text') {
       throw new Mistake(
         `Those words overlap change ${clash.id} (“${clip(clash.find, 120)}”): once one is applied, the other's words are gone. Make one change covering both, with \`revises\`: "${clash.id}".`
