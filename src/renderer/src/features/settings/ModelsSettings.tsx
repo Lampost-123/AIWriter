@@ -17,7 +17,7 @@ import { BriefSettings } from '@/features/brief/BriefSettings'
 import { DirectorSettings } from '@/features/director/DirectorSettings'
 import { WriteInSettings } from '@/features/receipt/WriteInSettings'
 import { cn } from '@/lib/cn'
-import { CREATIVITY_HINTS, THINKING_LABELS, filterModels, formatContext, pricePerMillion } from '@/features/generate/format'
+import { CREATIVITY_HINTS, THINKING_LABELS, filterModels } from '@/features/generate/format'
 import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
 import { RepairSettings } from '@/features/repair/RepairSettings'
 import { AutoCheckSettings } from './AutoCheckSettings'
@@ -26,6 +26,8 @@ import { useNewLook } from '@/features/look/look'
 import { ProviderMark } from './ProviderMark'
 import { FindByMeaningSettings } from '@/features/retrieval/FindByMeaningSettings'
 import { WritingTemperature } from './WritingTemperature'
+import { aboutWords, pricePerMillionWords, shortWords } from './words'
+import { registerFlusher } from '@/lib/flush'
 
 export type TestResult = { state: 'testing' } | { state: 'done'; ok: boolean; message: string }
 
@@ -1006,9 +1008,9 @@ export function ChosenModel({
           </div>
           <div className="mt-0.5 text-[12.5px] text-muted">
             {provider.name}
-            {choice.contextLength ? ` · reads up to ${formatContext(choice.contextLength)} tokens` : ''}
+            {choice.contextLength ? ` · reads ${aboutWords(choice.contextLength)} at once` : ''}
             {choice.promptPrice != null && choice.completionPrice != null
-              ? ` · ${pricePerMillion(choice.promptPrice)} in, ${pricePerMillion(choice.completionPrice)} out per million tokens`
+              ? ` · ${pricePerMillionWords(choice.promptPrice)} a million words read, ${pricePerMillionWords(choice.completionPrice)} written`
               : ''}
           </div>
           {extra}
@@ -1034,32 +1036,67 @@ export function ChosenModel({
   )
 }
 
+/** How long typing must pause before the number is saved. */
+const TYPING_PAUSE_MS = 700
+
 function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: ModelChoice; baseUrl: string }): React.JSX.Element {
   const update = useApp((s) => s.updateSettings)
   const [text, setText] = useState(choice.contextLength != null ? String(choice.contextLength) : '')
   const [error, setError] = useState<string | null>(null)
   // What the model's maker says it reads (DeepSeek's own API), when the provider's list doesn't: AI Write uses that.
   const published = publishedReadingLimit(baseUrl, choice.modelId)
-  const commit = (): void => {
+  const editing = useRef(false)
+  const kept = useRef(choice.contextLength)
+  kept.current = choice.contextLength
+  const keep = (value: number | null): void => {
+    if (value === kept.current) return
+    kept.current = value
+    void update(setModel(job, { ...choice, contextLength: value })).catch(() => undefined)
+  }
+  /** `final`: Enter or leaving the box (says what's wrong, tidies the box); otherwise a pause, a close or a page change. */
+  const commit = (final: boolean): void => {
     const digits = text.replace(/[^\d]/g, '')
     if (!digits) {
-      setError(null)
       // Cleared: back to what the maker says, when it says; otherwise "not known", which AI Write treats as 16,000.
+      if (!final) return
+      editing.current = false
+      setError(null)
       const back = published?.tokens ?? null
       if (back != null) setText(String(back))
-      if (choice.contextLength !== back) void update(setModel(job, { ...choice, contextLength: back })).catch(() => undefined)
+      keep(back)
       return
     }
     const n = parseInt(digits, 10)
     if (n < 1000) {
-      setError('That looks too small. Models read at least a few thousand tokens, like 8000 or 32000.')
+      if (final) setError('That looks too small. Models read at least a few thousand, like 8000 or 32000.')
       return
     }
-    setError(null)
     const value = Math.min(n, 10_000_000)
-    setText(String(value))
-    if (value !== choice.contextLength) void update(setModel(job, { ...choice, contextLength: value })).catch(() => undefined)
+    if (final) {
+      editing.current = false
+      setError(null)
+      setText(String(value))
+    }
+    keep(value)
   }
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  useEffect(() => {
+    if (!editing.current) return
+    const t = setTimeout(() => commitRef.current(false), TYPING_PAUSE_MS)
+    return () => clearTimeout(t)
+  }, [text])
+  // A number still being typed is kept before the window closes or the world changes, and when the page goes.
+  useEffect(() => {
+    const off = registerFlusher(() => {
+      if (editing.current) commitRef.current(false)
+    })
+    return () => {
+      off()
+      if (editing.current) commitRef.current(false)
+    }
+  }, [])
+  const typed = parseInt(text, 10)
   return (
     <div className="mt-4 border-t border-line pt-4 pl-12">
       <Field
@@ -1067,9 +1104,9 @@ function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: M
         error={error}
         hint={
           choice.contextLength == null
-            ? "This provider doesn't say, so AI Write assumes 16,000 tokens, and the AI is told less of your story than it could read. Check the model's page and type the number here."
+            ? "This provider doesn't say, so AI Write assumes about 12,000 words, and the AI is told less of your story than it could read. Type the context length from the model's page here, like 128000."
             : published && choice.contextLength === published.tokens
-              ? `${published.by} says this model reads up to ${formatContext(published.tokens)} tokens, so AI Write uses that. Type a smaller number if you'd like it to read less.`
+              ? `${published.by} says this model reads ${aboutWords(published.tokens)} at once, so AI Write uses that. Type a smaller number if you'd like it to read less.`
             : job === 'writer'
               ? "AI Write fits each briefing to this. Change it if the model's page says it can read more or less."
               : job === 'memory'
@@ -1088,21 +1125,22 @@ function ContextLengthField({ job, choice, baseUrl }: { job: ModelJob; choice: M
         }
       >
         {(id) => (
-          <div className="relative w-[200px]">
+          <div className="flex items-center gap-3">
             <Input
               id={id}
               inputMode="numeric"
               value={text}
               placeholder="16000"
               onChange={(e) => {
+                editing.current = true
                 setText(e.target.value.replace(/[^\d]/g, '').slice(0, 8))
                 setError(null)
               }}
-              onBlur={commit}
-              onKeyDown={(e) => e.key === 'Enter' && commit()}
-              className="pr-14 tabular-nums"
+              onBlur={() => commit(true)}
+              onKeyDown={(e) => e.key === 'Enter' && commit(true)}
+              className="w-[160px] tabular-nums"
             />
-            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-faint">tokens</span>
+            <span className="text-[12.5px] tabular-nums text-muted">{typed >= 1000 ? `Reads ${aboutWords(Math.min(typed, 10_000_000))}` : ''}</span>
           </div>
         )}
       </Field>
@@ -1202,10 +1240,10 @@ export function ModelPicker({
           </Button>
         ) : null}
       </div>
-      <div className="grid grid-cols-[1fr_72px_150px] gap-3 border-b border-line bg-surface-2/60 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
+      <div className="grid grid-cols-[1fr_64px_170px] gap-3 border-b border-line bg-surface-2/60 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-faint">
         <span className="pl-6">Model</span>
-        <span className="text-right">Reads</span>
-        <span className="text-right">Per million tokens</span>
+        <span className="text-right">Words</span>
+        <span className="text-right">A million words</span>
       </div>
       <div className="h-[340px] overflow-auto" role="listbox" aria-label="Models">
         {error ? (
@@ -1239,7 +1277,7 @@ export function ModelPicker({
                   aria-selected={selected}
                   onClick={() => pick(m)}
                   className={cn(
-                    'grid w-full grid-cols-[1fr_72px_150px] items-center gap-3 border-b border-line/60 px-4 py-2 text-left transition-colors duration-100 last:border-b-0 hover:bg-surface-2',
+                    'grid w-full grid-cols-[1fr_64px_170px] items-center gap-3 border-b border-line/60 px-4 py-2 text-left transition-colors duration-(--dur-quick) last:border-b-0 hover:bg-surface-2',
                     selected && 'bg-accent-soft hover:bg-accent-soft'
                   )}
                 >
@@ -1250,12 +1288,14 @@ export function ModelPicker({
                       {m.name !== m.id ? <span className="block truncate font-mono text-[11px] text-faint">{m.id}</span> : null}
                     </span>
                   </span>
-                  <span className="text-right text-[12.5px] tabular-nums text-muted">{formatContext(m.contextLength)}</span>
+                  <span className="text-right text-[12.5px] tabular-nums text-muted" title={m.contextLength ? `Reads ${aboutWords(m.contextLength)} at once` : undefined}>
+                    {shortWords(m.contextLength)}
+                  </span>
                   <span className="text-right text-[12.5px] tabular-nums text-muted">
                     {m.promptPrice != null && m.completionPrice != null
                       ? m.promptPrice === 0 && m.completionPrice === 0
                         ? 'Free'
-                        : `${pricePerMillion(m.promptPrice)} in · ${pricePerMillion(m.completionPrice)} out`
+                        : `${pricePerMillionWords(m.promptPrice)} read · ${pricePerMillionWords(m.completionPrice)} written`
                       : '—'}
                   </span>
                 </button>
@@ -1292,7 +1332,7 @@ function TypedRow({ name, onPick }: { name: string; onPick: () => void }): React
     <button
       type="button"
       onClick={onPick}
-      className="flex w-full items-center gap-2 border-b border-line/60 px-4 py-2.5 text-left text-[13.5px] text-accent transition-colors duration-100 hover:bg-surface-2"
+      className="flex w-full items-center gap-2 border-b border-line/60 px-4 py-2.5 text-left text-[13.5px] text-accent transition-colors duration-(--dur-quick) hover:bg-surface-2"
     >
       <Plus size={14} className="shrink-0" />
       <span className="min-w-0 truncate">

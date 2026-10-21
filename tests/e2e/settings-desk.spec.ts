@@ -139,6 +139,20 @@ test('Settings on the desk: grouped pages with pictures, Find a setting, and App
   await expect(words).toHaveAttribute('style', new RegExp(`font-size: ${now}px`))
   await expect(preview).toContainText(`${now}px text`)
   await expect(preview).toContainText('spaced paragraphs')
+  // Dragging a slider shows the change at once (its label and the preview) and saves once, when it is let go.
+  const width = win.getByLabel(/^Page width:/)
+  const widthWas = (await invoke(win, 'getSettings')).editor.pageWidth
+  await width.scrollIntoViewIfNeeded()
+  const box = await width.boundingBox()
+  if (!box) throw new Error('no Page width slider')
+  await win.mouse.move(box.x + 10, box.y + box.height / 2)
+  await win.mouse.down()
+  for (let x = 10; x <= box.width - 4; x += 8) await win.mouse.move(box.x + x, box.y + box.height / 2)
+  await expect(preview).toContainText('90 characters a line')
+  expect((await invoke(win, 'getSettings')).editor.pageWidth).toBe(widthWas)
+  await win.mouse.up()
+  await expect.poll(async () => (await invoke(win, 'getSettings')).editor.pageWidth).toBe(90)
+  await expect(win.locator('[data-settings-section]', { hasText: 'Page width' }).getByText('Saved')).toBeVisible()
   // The theme as pictures: Dark paints the window at once.
   await win.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Dark' }).click()
   await expect.poll(() => win.evaluate('document.documentElement.dataset.theme')).toBe('dark')

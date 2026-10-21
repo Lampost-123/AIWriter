@@ -67,7 +67,7 @@ function SaveIndicator(): React.JSX.Element {
     <span
       aria-live="polite"
       className={cn(
-        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-300 look-new:min-w-[64px]',
+        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-(--dur-base) look-new:min-w-[64px]',
         state === 'error' ? 'text-danger' : 'text-faint',
         !label && 'opacity-0'
       )}

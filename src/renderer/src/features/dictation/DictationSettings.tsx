@@ -207,7 +207,7 @@ function KeyPicker(): React.JSX.Element {
 function notReadyHere(status: SpeechStatus | null): string | null {
   if (!status || status.dictationReady) return null
   if (status.server === 'starting') return 'The speech engine is starting. Dictation can be used as soon as it is ready.'
-  if (status.server === 'connected') return 'Dictation needs a dictation model: pick Parakeet or Whisper at the top of this page.'
+  if (status.server === 'connected') return 'Dictation needs a dictation model: pick Sharper or Smaller under Dictation at the top of this page.'
   return "Dictation needs the speech engine, which isn't running. Start it at the top of this page."
 }
 

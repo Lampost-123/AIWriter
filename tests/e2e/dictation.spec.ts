@@ -551,7 +551,7 @@ test('the microphone Test shows a live level and writes what it heard in the try
 
     // Until dictation is ready (the speech engine answers, with no dictation model yet), Settings says so
     // plainly, with the way to it.
-    await expect(win.getByText('Dictation needs a dictation model: pick Parakeet or Whisper at the top of this page.')).toBeVisible()
+    await expect(win.getByText('Dictation needs a dictation model: pick Sharper or Smaller under Dictation at the top of this page.')).toBeVisible()
     await expect(win.getByRole('button', { name: 'Go to the speech engine' })).toBeVisible()
 
     // The Test still shows the level then, and says that was all it could test, and why. The line about

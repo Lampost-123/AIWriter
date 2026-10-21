@@ -61,8 +61,8 @@
   font-weight: 500;
 }
 .st-row:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .st-row-icon {
   color: var(--muted);
@@ -357,7 +357,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- Appearance: the theme as four small pictures, and the sliders ---------- */
+/* ---------- Appearance: the theme as four small pictures ---------- */
 .ap-theme {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -395,7 +395,7 @@
     inset 0 0 0 2px var(--accent);
 }
 .ap-theme button:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--accent) 60%, transparent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .ap-swatch {
@@ -406,55 +406,46 @@
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
 }
-.ap-swatch i {
+/* Each face is painted by its theme's own tokens (AppearanceSettings.tsx sets data-theme and the rest on it). */
+.ap-face {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+}
+.ap-face.is-second {
+  clip-path: polygon(62% 0, 100% 0, 100% 100%, 38% 100%);
+}
+.ap-face i {
   position: absolute;
   left: 22%;
   right: 12%;
   top: 9px;
   bottom: 0;
   border-radius: 5px 5px 0 0;
+  background: var(--page);
+  box-shadow: 0 0 0 1px var(--line);
 }
-.ap-swatch b {
+.ap-face b {
   position: absolute;
+  left: 30%;
   height: 3px;
   border-radius: 2px;
-  left: 30%;
 }
-.st-range {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 20px;
-  background: transparent;
+.ap-face b.is-title {
+  top: 17px;
+  width: 34%;
+  background: var(--fg);
+  opacity: 0.8;
 }
-.st-range::-webkit-slider-runnable-track {
-  height: 5px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent) var(--fill, 50%), var(--surface-3) var(--fill, 50%));
+.ap-face b.is-line {
+  top: 25px;
+  width: 46%;
+  background: var(--line-strong);
 }
-.st-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  margin-top: -6.5px;
-  border-radius: 50%;
-  background: var(--raise);
-  box-shadow:
-    var(--elev-2),
-    inset 0 0 0 1.5px color-mix(in oklab, var(--accent) 70%, var(--line-strong));
-  transition: scale var(--dur-quick) var(--motion-glide);
-}
-.st-range:active::-webkit-slider-thumb {
-  scale: 1.12;
-}
-.st-range:focus-visible {
-  outline: none;
-}
-.st-range:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    var(--elev-2),
-    inset 0 0 0 1.5px var(--accent),
-    0 0 0 4px color-mix(in oklab, var(--accent) 22%, transparent);
+.ap-face b.is-link {
+  top: 31px;
+  width: 22%;
+  background: var(--accent);
 }
 
 /* ---------- Backups (BackupCards.tsx): cards down a timeline, by day ---------- */

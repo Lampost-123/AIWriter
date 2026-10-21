@@ -1,9 +1,10 @@
 import { forwardRef, useId, useRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { cn } from '@/lib/cn'
 import { useFitHeight } from './useFitHeight'
+import { DISABLED, FOCUS_RING, RADIUS } from './controls'
 
-const control =
-  'w-full rounded-md border border-line bg-page px-2.5 text-[13.5px] text-fg placeholder:text-faint transition-[border-color,box-shadow] duration-150 hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60'
+// The accent edge says where you're typing; the ring is every control's (controls.ts).
+const control = `w-full ${RADIUS.md} border border-line bg-page px-2.5 text-[13.5px] text-fg placeholder:text-faint transition-[border-color,box-shadow] duration-(--dur-quick) hover:border-line-strong focus:border-accent ${FOCUS_RING} ${DISABLED}`
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
   return <input ref={ref} className={cn(control, 'h-8', className)} {...rest} />
