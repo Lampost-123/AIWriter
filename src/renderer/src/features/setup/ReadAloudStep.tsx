@@ -67,7 +67,7 @@ export function ReadAloudStep(): React.JSX.Element {
           <Card className="divide-y divide-line">
             {status.installed.voices ? null : (
               <Part icon={<AudioLines size={16} />} title="The voices" size={KINDS.voices.size}>
-                A voice of their own for the narrator and each character, made from a description (Breeze TTS 2).
+                A voice of their own for the narrator and each character, made from a description.
               </Part>
             )}
             <Part icon={<Users size={16} />} title="The studio voices" size={KINDS.studio.size}>

@@ -169,7 +169,7 @@ test('Settings on the desk: grouped pages with pictures, Find a setting, and App
   }
 })
 
-test('Usage and cost: the day’s bars by model, the split by model and by world, in dollars or tokens', async ({ launch }) => {
+test('Usage and cost: the day’s bars by model, the split by model and by world, in dollars or words', async ({ launch }) => {
   const fake = await startFake()
   try {
     const { win, app } = await sampleWorld(launch)
@@ -198,9 +198,9 @@ test('Usage and cost: the day’s bars by model, the split by model and by world
     await expect(win.getByRole('heading', { name: 'By world' })).toBeVisible()
     await expect(win.getByRole('list', { name: 'By world' })).toContainText('Sample world: Gullhaven')
     await expect(win.getByRole('heading', { name: 'By job' })).toBeVisible()
-    // Tokens: the scale counts tokens, not dollars.
-    await win.getByRole('radiogroup', { name: 'Show the charts in' }).getByRole('radio', { name: 'Tokens' }).click()
-    await expect(win.locator('.uc-bars [role="img"]')).toHaveAttribute('aria-label', /^Tokens day by day/)
+    // Words: the scale counts words read and written, not dollars.
+    await win.getByRole('radiogroup', { name: 'Show the charts in' }).getByRole('radio', { name: 'Words' }).click()
+    await expect(win.locator('.uc-bars [role="img"]')).toHaveAttribute('aria-label', /^Words read and written day by day/)
     await win.getByRole('radio', { name: 'All time' }).click()
     await expect(win.locator('.uc-bars [role="img"]')).toHaveAttribute('aria-label', /month by month/)
   } finally {

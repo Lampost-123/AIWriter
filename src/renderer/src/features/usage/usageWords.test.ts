@@ -2,23 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { callsAndTokens, costNotes, labelledBars, shareOf, tokensWithCache, tokenWords } from './usageWords'
 
 describe('the usage page’s words', () => {
-  it('says tokens briefly', () => {
-    expect(tokenWords(1)).toBe('1 token')
-    expect(tokenWords(950)).toBe('950 tokens')
-    expect(tokenWords(12_340)).toBe('12.3k tokens')
-    expect(tokenWords(250_000)).toBe('250k tokens')
-    expect(tokenWords(2_400_000)).toBe('2.4M tokens')
-    expect(callsAndTokens({ calls: 1, promptTokens: 600, completionTokens: 400 })).toBe('1 call · 1k tokens')
+  it('says tokens as words, briefly', () => {
+    expect(tokenWords(1)).toBe('1 word')
+    expect(tokenWords(950)).toBe('713 words')
+    expect(tokenWords(12_340)).toBe('9.3k words')
+    expect(tokenWords(250_000)).toBe('188k words')
+    expect(tokenWords(2_400_000)).toBe('1.8M words')
+    expect(callsAndTokens({ calls: 1, promptTokens: 600, completionTokens: 400 })).toBe('1 call · 750 words')
   })
 
   it('says how many tokens came from the cache, only when some did', () => {
     expect(tokensWithCache({ promptTokens: 30_000, cachedTokens: 12_000, completionTokens: 11_200 })).toBe(
-      '41.2k tokens, 12k from the cache'
+      '30.9k words, 9k from the cache'
     )
-    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 1, completionTokens: 100 })).toBe('1k tokens, 1 from the cache')
-    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 0, completionTokens: 100 })).toBe('1k tokens')
+    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 2, completionTokens: 100 })).toBe('750 words, 2 from the cache')
+    expect(tokensWithCache({ promptTokens: 900, cachedTokens: 0, completionTokens: 100 })).toBe('750 words')
     expect(callsAndTokens({ calls: 37, promptTokens: 30_000, cachedTokens: 640, completionTokens: 11_200 })).toBe(
-      '37 calls · 41.2k tokens, 640 from the cache'
+      '37 calls · 30.9k words, 480 from the cache'
     )
   })
 

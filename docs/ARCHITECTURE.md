@@ -3944,7 +3944,7 @@ content levels, point of view, tense and prose style (and the tone, in the Story
 AI"); its page, its steps bar and its Done step are gone, and a `storyBuilder` view lands in the matching section.
 Before that, **where it was:** the Plan area's "The idea, cast and world", the hub's header link of the same name and the command
 palette ("The idea, cast and world"); the board's blank story opens the Plan hub's start; the
-New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
+New story dialog's "Build it with AI next"; the start screen's **Build a story with AI…** tile (picks a world,
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
 
@@ -5075,7 +5075,7 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   planned scene's tool, else the story line at the next scene; Plan a chapter), the palette ("Build with AI", "Your
   idea, cast and world"; its "Ideas for this scene" and "Interview me about this scene" stay the writing page's own,
   on the scene's card), the binder's
-  chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with the AI next" (Your
+  chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with AI next" (Your
   idea), Story settings' premise, the chapter card's report, the top bar's "The chapter plan is ready for you".
 - **Removed**: the Story builder's page (`StoryBuilderView.tsx`, its steps bar and `DoneStep.tsx`), the chapter's plan
   page (`ChapterPlanner.tsx`), a recipe story's plan page (`RecipePlan.tsx`), Write the chapter's start dialog

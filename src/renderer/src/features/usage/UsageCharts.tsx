@@ -15,7 +15,7 @@ export type Measure = 'cost' | 'tokens'
 /** A short number for the scale: "$0.40", "$12", "250k", "1.5M". */
 function scaleWords(v: number, measure: Measure): string {
   if (measure === 'cost') return v === 0 ? '$0' : v >= 10 ? `$${Math.round(v)}` : dollars(v)
-  return v === 0 ? '0' : tokenWords(v).replace(/ tokens?$/, '')
+  return v === 0 ? '0' : tokenWords(v).replace(/ words?$/, '')
 }
 
 const PLOT_H = 196
@@ -40,7 +40,7 @@ export function SpendBars({
   const labels = labelledBars(bars.length)
   const tip = hover != null ? bars[hover] : null
   const most = bars.reduce((best, b, i) => (value(b) > value(bars[best] ?? b) ? i : best), 0)
-  const summary = `${measure === 'cost' ? 'Spending' : 'Tokens'} ${unit === 'day' ? 'day by day' : 'month by month'}: the most in one ${unit} was ${
+  const summary = `${measure === 'cost' ? 'Spending' : 'Words read and written'} ${unit === 'day' ? 'day by day' : 'month by month'}: the most in one ${unit} was ${
     measure === 'cost' ? dollars(top) : tokenWords(top)
   }${bars[most] && top > 0 ? `, on ${bars[most].label}` : ''}.`
   // A new stretch of time or measure: the bars grow again from the baseline. New figures in the same stretch (a call
@@ -180,10 +180,10 @@ export function ModelSplit({ models, measure }: { models: UsageModelRow[]; measu
           })}
         </g>
         <text x="60" y="57" textAnchor="middle" className="uc-ring-total">
-          {measure === 'cost' ? dollars(total) : tokenWords(total).replace(/ tokens?$/, '')}
+          {measure === 'cost' ? dollars(total) : tokenWords(total).replace(/ words?$/, '')}
         </text>
         <text x="60" y="73" textAnchor="middle" className="uc-ring-sub">
-          {measure === 'cost' ? 'in all' : 'tokens'}
+          {measure === 'cost' ? 'in all' : 'words'}
         </text>
       </svg>
       <ul aria-label="By model" className="flex w-full min-w-0 flex-col">

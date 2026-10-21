@@ -23,7 +23,7 @@ cover, **Continue writing**, the last lines you wrote, the chapters, open thread
 
 **Build with AI** is one page for building every part of a story with the AI. Open it from the **Plan** room (its
 first link), the story menu (the arrow beside the story's name), or search for it with Ctrl+K. To start a brand-new
-story there, tick **Build it with the AI next** when you make it, or choose **Build a story with AI…** on the start
+story there, tick **Build it with AI next** when you make it, or choose **Build a story with AI…** on the start
 screen.
 
 The page has four parts, listed along its top (or down its left side on a wide screen). Click one to jump to it:
