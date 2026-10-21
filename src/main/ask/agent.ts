@@ -84,6 +84,8 @@ const RESULT_CHARS = 8_000
 const SHORT_CHARS = 3_000
 /** The most search results listed. */
 const SEARCH_HITS = 12
+/** When nothing has every word asked, the most words (each with hits of its own) whose groups are tried. */
+const FALLBACK_WORDS = 5
 
 // ---------- The runaway guard (chat Phase 3): no change too long for one reply ----------
 
@@ -1603,15 +1605,23 @@ export class EditorAgent {
     const scope = v.point.story
       ? `Searched ${v.point.story.title} as of ${v.point.label}${v.point.sceneId ? ' (the open scene)' : ''}, along its own line only.`
       : 'Searched the world as it was set up (no story is open).'
+    const queryOf = (some: Term[]): string => `${some.map((t) => t.word).join(' ')}${some[some.length - 1].prefix ? '' : ' '}`
     let hits = this.searchFor(q, terms, q)
     let note = ''
-    for (let k = terms.length - 1; !hits.length && k >= 1; k--) {
+    // Each word once first: words with no hits here are dropped and at most FALLBACK_WORDS kept, so the groups tried
+    // stay a handful of searches however many words were asked (each search reads the whole story).
+    const alone = new Map<Term, { key: string; line: string }[]>()
+    if (!hits.length && terms.length > 1)
+      for (const t of terms) {
+        const found = this.searchFor(queryOf([t]), [t], q)
+        if (found.length) alone.set(t, found)
+      }
+    const kept = terms.filter((t) => alone.has(t)).slice(0, FALLBACK_WORDS)
+    for (let k = Math.min(kept.length, terms.length - 1); !hits.length && k >= 1; k--) {
       const seen = new Set<string>()
-      let tried = 0
-      for (const some of subsets(terms, k)) {
-        if (tried++ >= 40 || hits.length >= SEARCH_HITS) break
-        const query = `${some.map((t) => t.word).join(' ')}${some[some.length - 1].prefix ? '' : ' '}`
-        for (const h of this.searchFor(query, some, q)) {
+      for (const some of subsets(kept, k)) {
+        if (hits.length >= SEARCH_HITS) break
+        for (const h of k === 1 ? (alone.get(some[0]) ?? []) : this.searchFor(queryOf(some), some, q)) {
           if (seen.has(h.key)) continue
           seen.add(h.key)
           hits.push({ key: h.key, line: `${h.line} [has: ${some.map((t) => t.word).join(', ')}]` })
