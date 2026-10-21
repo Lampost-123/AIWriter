@@ -457,13 +457,6 @@ export function soundCueTimes(
   return timer.times(o)
 }
 
-export function listSoundLibrary(): LibrarySound[] {
-  return library()
-    .list()
-    .sort((a, b) => Math.max(b.used, b.made, b.asked) - Math.max(a.used, a.made, a.asked))
-    .map(SoundLibrary.shown)
-}
-
 /** "Mute sounds in this scene", and back on: kept with Adam's other sound edits in the world. */
 export function muteSceneSounds(sceneId: ID, muted: unknown): void {
   const w = world.currentWorld()

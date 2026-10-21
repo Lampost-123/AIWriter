@@ -1,5 +1,5 @@
 // The library's Recently deleted folder (the start screen): a deleted world's whole folder (world.db,
-// history.db, images/, backups/) is moved into `<library>/Recently deleted/`, with a small deleted.json inside
+// history.db, backups/) is moved into `<library>/Recently deleted/`, with a small deleted.json inside
 // saying what it was, kept for 30 days and then removed for good. Only ever touches folders inside Recently
 // deleted, and only those that hold a world. No Electron imports: every function takes the library folder.
 //
