@@ -10,7 +10,6 @@ import type { CodexCard } from '@shared/contracts/entryViews'
 import { Badge, Button, EmptyState, IconButton, Input, Notice, Select, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { KIND_INK, KIND_ICONS } from '@/features/world/kindIcons'
 import { useApp } from '@/lib/store'
 import { Skeleton, useDelayed } from '@/features/generate/parts'
@@ -309,8 +308,6 @@ function FilterSelect({
   )
 }
 
-const KIND_CHOICES: Choice[] = CODEX_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k].many }))
-
 /** Search and filters. Stays at the top while the cards scroll under it. */
 function Toolbar({
   tags,
@@ -334,7 +331,6 @@ function Toolbar({
 }): React.JSX.Element {
   const filters = useCodex((s) => s.filters)
   const setFilters = useCodex((s) => s.setFilters)
-  const isNew = useNewLook()
   return (
     <div data-codex-toolbar className="sticky top-0 z-10 -mx-2 flex flex-wrap items-center gap-x-4 gap-y-2 bg-bg px-2 pb-3 pt-4">
       <div className="relative w-[220px]">
@@ -364,40 +360,29 @@ function Toolbar({
           </IconButton>
         ) : null}
       </div>
-      {isNew ? (
-        // The New look: the kinds as a row of pills, the chosen one filled.
-        <div role="group" aria-label="Kind" className="order-first flex w-full flex-wrap gap-1.5">
-          {[null, ...kinds].map((k) => {
-            const on = filters.kind === k
-            const Icon = k ? KIND_ICONS[k] : null
-            return (
-              <button
-                key={k ?? 'all'}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setFilters({ kind: k as typeof filters.kind })}
-                className={cn(
-                  'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform,scale] duration-(--dur-quick) ease-glide active:duration-(--dur-press) active:scale-[0.96]',
-                  Icon && 'pl-2.5',
-                  on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
-                )}
-              >
-                {Icon ? <Icon size={15} selected={on} /> : null}
-                {k ? KIND_LABELS[k].many : 'All'}
-              </button>
-            )
-          })}
-        </div>
-      ) : (
-        <FilterSelect
-          label="Kind"
-          value={filters.kind}
-          onChange={(kind) => setFilters({ kind: kind as typeof filters.kind })}
-          options={KIND_CHOICES}
-          none="All kinds"
-          width={140}
-        />
-      )}
+      {/* The kinds as a row of pills, the chosen one filled. */}
+      <div role="group" aria-label="Kind" className="order-first flex w-full flex-wrap gap-1.5">
+        {[null, ...kinds].map((k) => {
+          const on = filters.kind === k
+          const Icon = k ? KIND_ICONS[k] : null
+          return (
+            <button
+              key={k ?? 'all'}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setFilters({ kind: k as typeof filters.kind })}
+              className={cn(
+                'inline-flex h-[30px] items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium transition-[background-color,color,transform,scale] duration-(--dur-quick) ease-glide active:duration-(--dur-press) active:scale-[0.96]',
+                Icon && 'pl-2.5',
+                on ? 'bg-fg text-bg' : 'bg-surface text-muted shadow-[inset_0_0_0_1px_var(--line)] hover:text-fg'
+              )}
+            >
+              {Icon ? <Icon size={15} selected={on} /> : null}
+              {k ? KIND_LABELS[k].many : 'All'}
+            </button>
+          )
+        })}
+      </div>
       {tags.length ? (
         <FilterSelect label="Tag" value={filters.tag} onChange={(tag) => setFilters({ tag })} options={tags} none="Any tag" />
       ) : null}
@@ -458,7 +443,6 @@ const Group = memo(function Group({
   onOpen: (c: CodexCard) => void
 }): React.JSX.Element {
   const id = useId()
-  const isNew = useNewLook()
   const Icon = KIND_ICONS[kind]
   return (
     <section aria-labelledby={id} className="mt-4">
@@ -466,11 +450,9 @@ const Group = memo(function Group({
         id={id}
         className="mb-2.5 flex items-baseline gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint look-new:mb-3 look-new:mt-6 look-new:items-center look-new:font-heading look-new:text-[17px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg"
       >
-        {isNew ? (
-          <span aria-hidden className={cn('grid h-7 w-7 place-items-center rounded-lg', KIND_INK[kind].tile)}>
-            <Icon size={16} />
-          </span>
-        ) : null}
+        <span aria-hidden className={cn('grid h-7 w-7 place-items-center rounded-lg', KIND_INK[kind].tile)}>
+          <Icon size={16} />
+        </span>
         {label}
         <span className="font-normal tabular-nums look-new:font-sans look-new:text-[12.5px] look-new:text-faint">{cards.length}</span>
         {/* The New look: a quiet rule runs on from the heading. */}
@@ -498,7 +480,6 @@ const MAX_TAGS = 3
 
 const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c: CodexCard) => void }): React.JSX.Element {
   const ids = { rule: useId(), ai: useId(), role: useId(), about: useId() }
-  const isNew = useNewLook()
   const ink = KIND_INK[card.kind]
   const name = displayName(card)
   const role = card.kind === 'character' && card.role ? card.role[0].toLocaleUpperCase() + card.role.slice(1) : ''
@@ -520,7 +501,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
         'look-new:transition-[transform,translate,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:hover:-translate-y-0.5 look-new:hover:bg-page look-new:hover:shadow-[var(--elev-2),inset_0_0_0_1px_var(--line)] look-new:active:translate-y-0 look-new:active:scale-[0.985] look-new:active:duration-(--dur-press)'
       )}
     >
-      {isNew ? <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} /> : null}
+      <span aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px] opacity-70', ink.edge)} />
       <Portrait entry={card} size={48} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -542,7 +523,7 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
           {role ? (
             <span
               id={ids.role}
-              className={cn('ml-auto shrink-0 pl-1 text-[11.5px] text-faint', isNew && cn('rounded-full px-2 py-px text-[11px] font-medium', ink.soft, ink.text))}
+              className={cn('ml-auto shrink-0 pl-1 text-[11.5px] text-faint', 'rounded-full px-2 py-px text-[11px] font-medium', ink.soft, ink.text)}
             >
               {role}
             </span>
@@ -562,8 +543,8 @@ const Card = memo(function Card({ card, onOpen }: { card: CodexCard; onOpen: (c:
               {more > 0 ? <span className="self-center text-[11.5px] text-faint">+{more}</span> : null}
             </span>
           ) : null}
-          {isNew && card.scenes && card.last ? (
-            // The New look: where it appears, as small chips.
+          {card.scenes && card.last ? (
+            // Where it appears, as small chips.
             <span className="mt-2 flex flex-wrap gap-1.5">
               <span className="rounded-md bg-surface px-1.5 py-px text-[11px] tabular-nums text-faint">
                 {card.scenes} {card.scenes === 1 ? 'scene' : 'scenes'}

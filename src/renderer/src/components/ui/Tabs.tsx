@@ -1,7 +1,6 @@
 import * as T from '@radix-ui/react-tabs'
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { GlidePill } from './GlidePill'
 
 export const Tabs = T.Root
@@ -22,7 +21,6 @@ export function TabsList({
   tall?: boolean
 }): React.JSX.Element {
   // The New look: a soft segmented track, with a raised pill that slides to the chosen tab.
-  const isNew = useNewLook()
   return (
     <T.List
       className={cn(
@@ -31,7 +29,7 @@ export function TabsList({
         className
       )}
     >
-      {isNew ? <GlidePill className="rounded-[7px] shadow-e1" /> : null}
+      <GlidePill className="rounded-[7px] shadow-e1" />
       {items.map((it) => (
         <T.Trigger
           key={it.value}

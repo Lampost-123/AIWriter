@@ -13,8 +13,8 @@ const iconsFile = join(root, 'src/renderer/src/components/ui/icons.tsx')
 const outFile = join(root, 'src/renderer/src/components/ui/phosphorShapes.ts')
 const defs = join(root, 'node_modules/@phosphor-icons/react/dist/defs')
 
-// The Phosphor names ICONS uses: `Name: [L.Name, 'PhosphorName'` (and `, true]` when mirrored).
-const names = [...new Set([...readFileSync(iconsFile, 'utf8').matchAll(/\[L\.\w+, '(\w+)'/g)].map((m) => m[1]))].sort()
+// The Phosphor names ICONS uses: `Name: ['PhosphorName'` (and `, true]` when mirrored).
+const names = [...new Set([...readFileSync(iconsFile, 'utf8').matchAll(/^ {2}\w+: \['(\w+)'/gm)].map((m) => m[1]))].sort()
 if (!names.length) throw new Error('No Phosphor names found in icons.tsx')
 
 /** A React element tree as plain [tag, attributes, children?] lists. */

@@ -12,7 +12,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { CatchUpEstimate, Manuscript } from '@shared/contracts/importing'
 import type { ID } from '@shared/types'
 import { DrawnTick } from '@/components/ui/DrawnTick'
-import { Button, Card, IconButton, Input, Notice, Select, useToastsAbove, type SelectOption } from '@/components/ui'
+import { Button, Card, IconButton, Input, Select, useToastsAbove, type SelectOption } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -45,7 +45,6 @@ import {
   type Role
 } from './split'
 import { catchUpWords, costWords } from './importLogic'
-import { useNewLook } from '@/features/look/look'
 import { DropZone, Imported, InkProgress } from './ImportArt'
 
 export function ImportView(): React.JSX.Element {
@@ -120,24 +119,8 @@ function FilePage(): React.JSX.Element {
 }
 
 function Choose({ reading }: { reading: boolean }): React.JSX.Element {
-  const isNew = useNewLook()
-  // The New look: a drop zone with a manuscript drawn on it (a file can be dropped there too).
-  if (isNew) return <DropZone reading={reading} onChoose={() => void chooseFile()} onDrop={(path) => void chooseFile(path)} />
-  return (
-    <Card className="mt-6 flex flex-col items-center px-6 py-10 text-center">
-      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">
-        <FileText size={20} />
-      </div>
-      <p className="mt-3 text-[14px] font-medium text-fg">Word, Markdown or plain text</p>
-      <p className="mt-1 max-w-[380px] text-[13px] leading-relaxed text-muted">
-        A .docx, .md or .txt file. Chapters are found by their headings (“Chapter 12”, “Prologue”, Word’s heading styles), and scenes by
-        breaks like * * *.
-      </p>
-      <Button variant="primary" size="lg" className="mt-5" icon={<FileUp size={15} />} loading={reading} onClick={() => void chooseFile()}>
-        {reading ? 'Reading the file…' : 'Choose a file…'}
-      </Button>
-    </Card>
-  )
+  // A drop zone with a manuscript drawn on it (a file can be dropped there too).
+  return <DropZone reading={reading} onChoose={() => void chooseFile()} onDrop={(path) => void chooseFile(path)} />
 }
 
 function Preview({ manuscript }: { manuscript: Manuscript }): React.JSX.Element {
@@ -512,7 +495,6 @@ function MemoryPage(): React.JSX.Element {
   const storyId = useImport((s) => s.memoryStoryId)
   const story = useApp((s) => s.stories.find((x) => x.id === storyId) ?? null)
   const title = story?.title ?? result?.title ?? ''
-  const isNew = useNewLook()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
       <div className="mx-auto w-full max-w-[680px] px-8 pb-16 pt-10">
@@ -521,8 +503,8 @@ function MemoryPage(): React.JSX.Element {
             Back to writing
           </Button>
         </div>
-        {page === 'done' && result && isNew ? (
-          // The New look: what came in, as cards, and the way to it.
+        {page === 'done' && result ? (
+          // What came in, as cards, and the way to it.
           <>
             <Heading>Imported</Heading>
             <Imported title={title} result={result} />
@@ -536,27 +518,6 @@ function MemoryPage(): React.JSX.Element {
               <Button size="sm" onClick={() => void openImported(result.storyId)}>
                 Open the story
               </Button>
-            </div>
-          </>
-        ) : page === 'done' && result ? (
-          <>
-            <Heading>Imported</Heading>
-            <div className="mt-4">
-              <Notice
-                tone="success"
-                action={
-                  <Button size="sm" onClick={() => void openImported(result.storyId)}>
-                    Open the story
-                  </Button>
-                }
-              >
-                <span className="flex items-start gap-2">
-                  <CircleCheck size={16} className="mt-0.5 shrink-0 text-success" />
-                  <span>
-                    “{title}” is in your world: {countsText(result.acts, result.chapters, result.scenes)}, {wordsText(result.words)}.
-                  </span>
-                </span>
-              </Notice>
             </div>
           </>
         ) : (
@@ -644,8 +605,6 @@ function MemoryOffer({ storyId }: { storyId: ID }): React.JSX.Element {
 function CatchUpProgressBlock({ storyId }: { storyId: ID }): React.JSX.Element | null {
   const run = useImport((s) => (s.catchUp.running?.storyId === storyId ? s.catchUp.running : null))
   if (!run) return null
-  const share = run.scenes ? Math.min(1, run.read / run.scenes) : 0
-  const isNew = useNewLook()
   if (run.status === 'paused') {
     return (
       <div className="mt-4">
@@ -661,15 +620,9 @@ function CatchUpProgressBlock({ storyId }: { storyId: ID }): React.JSX.Element |
           Stop
         </Button>
       </div>
-      {isNew ? (
-        <div className="mt-3">
-          <InkProgress run={run} />
-        </div>
-      ) : (
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" aria-hidden>
-          <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(share * 100)}%` }} />
-        </div>
-      )}
+      <div className="mt-3">
+        <InkProgress run={run} />
+      </div>
       <p className="mt-1.5 text-[12px] tabular-nums text-faint">
         {run.read.toLocaleString('en-US')} of {run.scenes.toLocaleString('en-US')} scenes read
       </p>

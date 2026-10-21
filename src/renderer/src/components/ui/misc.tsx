@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { EmptyArt, type EmptyArtName } from '@/components/art/EmptyArt'
 
 export function EmptyState({
@@ -19,16 +18,9 @@ export function EmptyState({
   actions?: ReactNode
   className?: string
 }): React.JSX.Element {
-  const isNew = useNewLook()
   return (
     <div className={cn('mx-auto flex max-w-sm flex-col items-center px-6 py-12 text-center animate-fade-in', className)}>
-      {art && isNew ? (
-        <EmptyArt name={art} className="mb-5" />
-      ) : icon && isNew ? (
-        <SpotArt>{icon}</SpotArt>
-      ) : icon ? (
-        <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface-2 text-muted">{icon}</div>
-      ) : null}
+      {art ? <EmptyArt name={art} className="mb-5" /> : icon ? <SpotArt>{icon}</SpotArt> : null}
       <h3 className="text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[19px] look-new:tracking-[-0.01em]">{title}</h3>
       {children ? <div className="mt-1.5 text-[13px] leading-relaxed text-muted">{children}</div> : null}
       {actions ? <div className="mt-4 flex flex-wrap justify-center gap-2">{actions}</div> : null}

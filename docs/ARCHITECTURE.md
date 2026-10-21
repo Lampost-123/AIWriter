@@ -556,7 +556,8 @@ is built on migrations 1 and 2.
   had, wider than tall (`WIDE` in `layout.ts`, gap `MAP_GAP` in the contract). Characters already
   placed keep their places; only newcomers move. It is kept in the world's `meta` key `map_layout`
   (character id to `[x, y]`), with no migration.
-- Map drawing: names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
+- Map drawing (the panels' old map, removed with Classic in review #36; its rules are kept in `mapLogic.ts` with
+  its test, and the map on screen is `features/map/desk/`): names and line words stay full size at any zoom and `mapLogic.labelsAt` hides what would
   overlap, best-connected first; portraits shrink with the map but never overlap (`portraitScale`). It
   opens fitted to `RelationshipMap.everyone` (or a group's `allMemberIds`) when that zoom is at least
   `READABLE_ZOOM` or the cast is `SMALL_CAST` (12) or fewer, else at `OPENING_ZOOM` around the
@@ -1559,8 +1560,8 @@ Each part also owns its tests. Shared files (`src/shared/types.ts`, `api.ts`, `d
   carry the keeper's fingerprints, so opening it never starts a paid memory run and it never looks unread.
 - It is found by the world meta key `sample_world`; `openSampleWorld` opens that one or makes it, so there is only ever
   one, and a deleted one is made again. Ways in: the first run's world step, the Welcome screen, the world switcher and the
-  palette ("Explore the sample world"). While it is open, `SampleWorldBar` says so and offers "Start my own world" (the
-  setup, or the New world dialog once Adam has worlds).
+  palette ("Explore the sample world"). While it is open, `SampleWorldChip` (the top bar) says so and offers "Start my own"
+  (the setup, or the New world dialog once Adam has worlds).
 
 **Welcome actions** (`features/welcome/welcomeActions.tsx`): `WELCOME_ACTIONS` lists other ways to start, shown on the
 Welcome screen and the setup's world step; empty (nothing shows) until "Import a manuscript…" and "Import a world file…"
@@ -1845,10 +1846,12 @@ other setting, and `updateSettings` never keeps anything else.
   the move from Classic and the notes. Specs reach the panels' places with the helpers in `tests/e2e/helpers.ts`:
   `openPage` (a page Classic's binder listed: its area on the rail, then its row), `openWrite` / `showTree` (back to
   the story's tree, which only the Write area's list holds), `areaButton`, `areaRow` and `sceneTitle`.
-- **Classic-only code awaits removal** (a later tidy-up): the `look === 'classic'` branches and the components and
-  CSS only they reach (`ClassicSettings`, `ClassicAppearance`, Classic's binder, map, timeline table and Consistency
-  page, the `look-classic:` variant, Classic's Literata and Lucide icons, the `classic` background colours in
-  `main/index.ts`). Nothing in the interface can reach them; don't change or fix them, and don't add to them.
+- **Classic-only code is mostly removed** (review #36, 2026-10-21): Classic's map, Lucide icons, `look-classic:`
+  variant, background colours, sample bar, first-run frame, usage page and the `useNewLook()` branches outside
+  Settings and the World pages are gone. What is left (`ClassicAppearance` and the branches in `features/settings/`
+  and `features/world/`, `useGenerate.ts`, and the checks of `<html data-look>` in plain code such as `arrival.ts`)
+  can't be reached either; don't change or fix it, and don't add to it. `'classic'` stays in `LOOKS` for the settings
+  that may still keep it.
 
 What follows is how the New look was built over Classic; read "Classic's values" as the tokens' fallbacks.
 
@@ -1858,7 +1861,7 @@ What follows is how the New look was built over Classic; read "Classic's values"
   `features/world/kindIcons.ts`), `--heading-font` (`font-heading`), `--r-card` (`rounded-card`) and motion
   (`--dur-press`, `--dur-quick`, `--dur-base`, `--dur-view`, `--dur-exit`; `ease-glide`, `ease-spring`,
   `ease-drawer`). The New look sets its own per theme under `[data-look='new']`. Where a shape differs, a class says so
-  with the `look-new:` variant (or `look-classic:`). Less motion sets every duration to 0.
+  with the `look-new:` variant. Less motion sets every duration to 0.
 - **Motion in the New look** (the speeds are in Rules, Motion; Classic keeps the motion it had, with no exits, but its
   presses are the New look's, below).
   `features/look/motion.ts` keeps track of whether Adam is on the keyboard or the pointer (`keyboardDriven()`): what
@@ -1921,12 +1924,13 @@ What follows is how the New look was built over Classic; read "Classic's values"
     settle once accepted. The page follows the words with a time-based glide (`1 − e^(−dt/90 ms)` a frame, the
     same at 60 and 120 Hz; `features/editor/scrollGlide.ts`) for Add below and Continue alike; Adam scrolling,
     clicking or using the keys stops it. Less motion: no fade or settle, and the page keeps up in one step.
-- **Icons** come only from `components/ui/icons.tsx` (by their Lucide names, or `<Icon name>`): Lucide in Classic,
-  Phosphor two-tone in the New look, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
+- **Icons** come only from `components/ui/icons.tsx` (by the names Lucide gave them, or `<Icon name>`): Phosphor
+  two-tone, filled when `selected`. Only the two Phosphor weights the app draws are kept, in
   `phosphorShapes.ts`, written by `node build/phosphor-icons.mjs` from ICONS.
-- **Fonts.** Classic's prose is the static Literata it always had (`--serif-font`); the New look uses Literata's
-  variable font, whose optical sizes give the headings their display cut. Each look loads only its own.
-- **The New look's frame** (Classic renders today's binder and sample bar instead): the area rail
+- **Fonts.** The window draws Literata's variable font, whose optical sizes give the headings their display cut.
+  The static Literata (400 and 700) is still bundled only for PDF export, which finds its files beside the interface
+  (`src/main/transfer/pdf.ts`).
+- **The New look's frame**: the area rail
   (`layout/AreaRail.tsx`: Write, Plan, World, Check; Ask and Settings at its foot), the area's side list in the
   binder's pane (`layout/AreaList.tsx`; Write's is the binder without its World section), the trail in the top bar
   (`layout/Trail.tsx`) and the sample world as a chip. **Which area a screen belongs to is one table**,
@@ -2006,8 +2010,8 @@ choice in Settings › Appearance › Layout.
 
 ### The first run, Settings and moving work in and out (UI overhaul)
 
-The New look draws these its own way (both layouts). The pages Classic had stay behind a `look === 'classic'` branch
-in each until the tidy-up removes them (Classic is retired, so nothing reaches them).
+The New look draws these its own way (both layouts). Classic's first run is gone; its Settings pages still sit behind
+a `look === 'classic'` branch until the tidy-up removes them (Classic is retired, so nothing reaches them).
 - **First run**: `features/setup/SetupDesk.tsx` (the rail of steps, the step on a sheet, the finishing moment:
   `setupStore.finishing`, 900 ms, skipped with less motion) and `SetupScene.tsx` (the lighthouse picture, lit by `stage`;
   layers like the start screen's harbour, its colours `--sx-*` in `setupScene.css`). `ProviderMark.tsx` draws a service

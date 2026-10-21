@@ -28,7 +28,6 @@ import { canBuildMemory, offerMemory, startImport, useImport } from '@/features/
 import { rereadStory } from '@/features/memory/reread'
 import * as actions from './actions'
 import { useOutline } from './outlineStore'
-import { useNewLook } from '@/features/look/look'
 import { InlineTitle } from './InlineTitle'
 
 const item = 'flex h-8 items-center gap-2 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
@@ -46,7 +45,6 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
   const shelf = useMemo(() => inShelfOrder(stories, order), [stories, order])
   const [renaming, setRenaming] = useState(false)
   // `bar`: the desk's top bar, where the story is its name in the serif beside the world's, with a chevron.
-  const isNew = useNewLook() && !bar
   const { outline } = useOutline()
   const holds = outline && outline.story.id === storyId ? holdsLine(outline.chapters.length, outline.scenes.length) : ''
   // Milestone 6: the story has scenes the memory hasn't read since they were imported.
@@ -116,14 +114,14 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
               }
             >
               {bar ? null : <BookOpen size={14} className="shrink-0 text-muted look-new:hidden" />}
-              {isNew ? (
+              {bar ? null : (
                 <span
                   aria-hidden
                   className="grid h-[38px] w-[30px] shrink-0 place-items-center rounded-[4px_6px_6px_4px] bg-[linear-gradient(160deg,#2f4e78,#1d304c)] text-[#f3d9a4] shadow-[inset_3px_0_0_rgb(0_0_0/0.25),var(--elev-1)]"
                 >
                   <BookOpen size={14} />
                 </span>
-              ) : null}
+              )}
               <span className="min-w-0 flex-1">
                 <span
                   className={cn(
@@ -135,7 +133,7 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
                 >
                   {story?.title ?? 'No story yet'}
                 </span>
-                {isNew && holds ? <span className="block truncate text-[11.5px] text-faint">{holds}</span> : null}
+                {!bar && holds ? <span className="block truncate text-[11.5px] text-faint">{holds}</span> : null}
               </span>
               {bar ? <ChevronDown size={12} className="shrink-0 text-faint" /> : <ChevronsUpDown size={13} className="shrink-0 text-faint" />}
             </M.Trigger>

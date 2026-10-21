@@ -1,11 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter'
-// Literata: Classic's (as it always was), and the variable font with its optical sizes for the New look (the
-// display size for headings). Each look loads only its own.
+// Literata's static files are not drawn in the window: they are bundled for PDF export, which finds them beside the
+// interface (src/main/transfer/pdf.ts, 400 and 700). The window draws the variable font with its optical sizes (the
+// display size for headings).
 import '@fontsource/literata/400.css'
 import '@fontsource/literata/400-italic.css'
-import '@fontsource/literata/600.css'
 import '@fontsource/literata/700.css'
 import '@fontsource-variable/literata/opsz.css'
 import '@fontsource-variable/literata/opsz-italic.css'
@@ -16,7 +16,7 @@ import { App } from './App'
 document.documentElement.dataset.theme = window.aiwrite.initialTheme
 // And in the accent colour Adam picked (milestone 6), if any.
 if (window.aiwrite.initialAccent) document.documentElement.dataset.accent = window.aiwrite.initialAccent
-// And in the look Adam chose (the New look or Classic).
+// And in the New look (Classic is retired).
 document.documentElement.dataset.look = window.aiwrite.initialLook ?? 'new'
 
 createRoot(document.getElementById('root')!).render(

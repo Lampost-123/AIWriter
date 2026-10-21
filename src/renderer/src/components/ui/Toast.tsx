@@ -5,7 +5,6 @@ import { DrawnTick } from './DrawnTick'
 import { Spinner } from './Spinner'
 import './toast.css'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { reducedMotion } from '@/features/look/motion'
 import { addToast, type ToastInput, type ToastItem } from './toastQueue'
 
@@ -89,8 +88,7 @@ const SETTLE_MS = 220
 export function Toaster(): React.JSX.Element {
   const items = useToasts((s) => s.items)
   const lift = useToasts((s) => s.lift)
-  const isNew = useNewLook()
-  const moving = isNew && !reducedMotion()
+  const moving = !reducedMotion()
   // The New look: a toast that goes stays a moment, in its place, to leave the way it came (its "ghost"). Worked out
   // while drawing, so the toast is never taken off the page in between: the same element plays its way out.
   const [ghosts, setGhosts] = useState<{ t: ToastItem; at: number }[]>([])
@@ -143,9 +141,9 @@ export function Toaster(): React.JSX.Element {
       data-toaster
       className={cn(
         'pointer-events-none fixed bottom-4 right-[calc(1rem_+_var(--toast-right,0px))] z-[60] flex w-[360px] flex-col gap-2',
-        isNew ? 'transition-transform duration-(--dur-base) ease-glide' : 'transition-[bottom] duration-200'
+        'transition-transform duration-(--dur-base) ease-glide'
       )}
-      style={lift ? (isNew ? { transform: `translateY(${-(lift + 8 - 16)}px)` } : { bottom: lift + 8 }) : undefined}
+      style={lift ? { transform: `translateY(${-(lift + 8 - 16)}px)` } : undefined}
       aria-live="polite"
     >
       {shown.map(({ t, leaving }) => (
@@ -161,7 +159,6 @@ export function Toaster(): React.JSX.Element {
  */
 function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean; onGone?: (id: number) => void }): React.JSX.Element {
   const dismiss = useToasts((s) => s.dismiss)
-  const isNew = useNewLook()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const paused = hovered || focused
@@ -218,7 +215,7 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
       )}
     >
       {/* The New look: a mark for how it went (a tick drawing itself, or a warning), or a long job under way. */}
-      {isNew && (t.tone !== 'neutral' || t.progress !== undefined) ? <ToneMark t={t} /> : null}
+      {t.tone !== 'neutral' || t.progress !== undefined ? <ToneMark t={t} /> : null}
       {/* A long file path or web address wraps inside the toast rather than running off the window. */}
       <p className="min-w-0 flex-1 leading-relaxed text-fg [overflow-wrap:anywhere]">{t.message}</p>
       {t.secondary ? (
@@ -241,7 +238,7 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
         <X size={14} />
       </button>
       {/* The New look: a long job's progress, as ink filling along the toast's foot. */}
-      {isNew && t.progress !== undefined ? (
+      {t.progress !== undefined ? (
         <span aria-hidden className="toast-progress" data-known={t.progress != null || undefined}>
           <i style={t.progress != null ? { transform: `scaleX(${Math.max(0.02, Math.min(1, t.progress))})` } : undefined} />
         </span>

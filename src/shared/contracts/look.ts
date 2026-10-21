@@ -20,8 +20,9 @@ export const accentIdOf = (value: unknown): AccentId | null =>
 /**
  * The looks. Classic (the app as it was before the New look, "Lamplight") was retired on 19 October 2026 (Adam: "retire
  * classic gui and no longer update it from now on"): the New look is the only look. It is still kept in Settings as
- * `look` and painted as <html data-look> (always 'new'); 'classic' stays in the type only for the Classic code that
- * awaits removal. See docs/ARCHITECTURE.md, "The New look (Classic retired)".
+ * `look` and painted as <html data-look> (always 'new'). 'classic' stays a name here because settings may still keep
+ * it: src/main/settings.ts moves it to the New look (and shows the one-time note), and AIWRITE_LOOK=classic in a test
+ * still counts as a look. See docs/ARCHITECTURE.md, "The New look (Classic retired)".
  */
 export const LOOKS = ['new', 'classic'] as const
 export type Look = (typeof LOOKS)[number]

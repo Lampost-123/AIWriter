@@ -2,7 +2,7 @@
 // heading. Write: the story's chapters and scenes (the binder), the style guide and the story's settings. Plan: the
 // outline, each chapter's plan, ideas and the interview on a scene's card, the plot threads and story recipes.
 // World: everything in the world by kind, the relationship map, the timeline and building from a summary. Check:
-// consistency, what the memory changed and the scene's issues. Classic keeps today's binder instead (Binder.tsx).
+// consistency, what the memory changed and the scene's issues. Write's list is the binder (Binder.tsx).
 // The links themselves are layout/areaLinks.ts (the desk's room frame shows the same ones).
 import type { ReactNode } from 'react'
 import { ENTRY_KINDS } from '@shared/fields'
