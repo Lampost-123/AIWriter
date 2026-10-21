@@ -129,7 +129,7 @@ export interface ChapterWriterProgress {
   runId: ID
   chapterId: ID
   /** The chapter's story, so the window opens the plan there whichever story is open. */
-  storyId?: ID
+  storyId: ID
   stage: ChapterWriterStage
   /**
    * The progress card (2026-10-20), each left out by runs before it: what it is doing now; each scene with its words;

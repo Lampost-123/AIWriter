@@ -560,7 +560,7 @@ export function AllDecided({
           Everything is decided. What you kept is in the binder{sceneId ? ', with each scene’s card filled in' : ''}.
         </p>
         {chapterId && sceneId ? (
-          <Button size="sm" variant="ghost" onClick={() => openChapterWriter(chapterId)} title="Write the whole chapter with AI, from its scene cards">
+          <Button size="sm" variant="ghost" onClick={() => openChapterWriter(chapterId, storyId)} title="Write the whole chapter with AI, from its scene cards">
             Write this chapter
           </Button>
         ) : null}
