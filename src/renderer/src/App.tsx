@@ -13,7 +13,7 @@ import { ChapterCardPanel } from '@/features/chapterCard/ChapterCardPanel'
 import { StartScreen } from '@/features/start/StartScreen'
 import { Binder } from '@/features/binder/Binder'
 import { SceneView } from '@/features/editor/SceneView'
-import { sceneHeaderHeight } from '@/features/editor/SceneHeader'
+import { SCENE_HEADER_HEIGHT } from '@/features/editor/SceneHeader'
 import { EntriesView } from '@/features/world/EntriesView'
 import { StyleView } from '@/features/style/StyleView'
 import { SettingsView } from '@/features/settings/SettingsView'
@@ -356,7 +356,7 @@ function Workspace(): React.JSX.Element {
               width={left.open ? fit.left : layout.binderWidth}
               open={focus || listAside ? false : floats ? floating.open : layout.binderOpen}
               // On the writing page it opens below the scene's toolbar, so Done, the tools and Generate stay in reach.
-              floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? sceneHeaderHeight(isNew) : undefined } : null}
+              floating={floats ? { onClose: floating.close, toggle: BINDER_BUTTON, top: writing && sceneId ? SCENE_HEADER_HEIGHT : undefined } : null}
               min={binderMin}
               max={dragMax(win.width, fit.right, binderMin, BINDER.max, pageMin)}
               instant={!focusMoving && (win.resizing || pageSwap)}

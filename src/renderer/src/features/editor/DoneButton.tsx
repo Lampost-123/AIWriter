@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { ID, SceneStatus } from '@shared/types'
 import { Spinner, toast } from '@/components/ui'
 import { DrawnTick } from '@/components/ui/DrawnTick'
-import { useNewLook } from '@/features/look/look'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { layerOpen } from '@/lib/layers'
@@ -46,7 +45,6 @@ export function useMarkDoneKeys(sceneId: ID, done: boolean, run: (fn: () => Prom
 
 export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStatus }): React.JSX.Element {
   const done = status === 'done'
-  const isNew = useNewLook()
   // The New look: the tick draws itself when the scene is marked done (not when it opens done).
   const [justDone, setJustDone] = useState(false)
   const was = useRef({ done, sceneId })
@@ -104,28 +102,15 @@ export function DoneButton({ sceneId, status }: { sceneId: ID; status: SceneStat
         <Spinner size={14} />
       ) : done ? (
         <>
-          {isNew ? (
-            <DrawnTick size={15} draw={justDone} className="text-success" />
-          ) : (
-            <Check size={14} className="group-hover:hidden group-focus-visible:hidden" aria-hidden />
-          )}
+          <DrawnTick size={15} draw={justDone} className="text-success" />
           <RotateCcw size={13} className="hidden group-hover:block group-focus-visible:block look-new:hidden!" aria-hidden />
         </>
       ) : (
         <Check size={14} aria-hidden />
       )}
       <span className="hidden @min-[860px]:inline look-new:@min-[540px]:inline">
-        {done && isNew ? (
-          // The New look: the status pill beside it says Done, so this says what it does.
-          'Reopen'
-        ) : done ? (
-          <>
-            <span className="group-hover:hidden group-focus-visible:hidden">Done</span>
-            <span className="hidden group-hover:inline group-focus-visible:inline">Reopen</span>
-          </>
-        ) : (
-          'Mark done'
-        )}
+        {/* The status pill beside it says Done, so this says what it does. */}
+        {done ? 'Reopen' : 'Mark done'}
       </span>
     </button>
   )
