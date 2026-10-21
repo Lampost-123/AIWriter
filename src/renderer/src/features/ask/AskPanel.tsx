@@ -40,6 +40,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
+import { editorBridge } from '@/lib/editorBridge'
 import { settingsAction } from '@/features/builder/parts'
 import { MicButton } from '@/features/dictation/MicButton'
 import { insertIntoBox } from '@/features/dictation/insertText'
@@ -164,7 +165,17 @@ export function AskPanel({ sceneId, onClose }: { sceneId: ID | null; onClose: ()
         // and so does an entry shown here (Esc there goes back to the chat, and the answer goes on).
         if (!isShortcut(e, 'stopAnswer') || e.defaultPrevented || e.nativeEvent.isComposing) return
         if (!e.currentTarget.contains(e.target as Node)) return
-        if (!useAsk.getState().running) return
+        if (!useAsk.getState().running) {
+          // With nothing typed, Esc in the box closes Ask as it closes the other panels, and the keyboard goes back to
+          // the page. Words in the box stay put (Esc never throws away a question being written).
+          const box = e.target instanceof HTMLElement && e.target.matches('[data-ask-box]')
+          if (!box || useAsk.getState().draft.trim()) return
+          e.preventDefault()
+          e.stopPropagation()
+          close()
+          editorBridge()?.editor?.view.focus()
+          return
+        }
         e.preventDefault()
         e.stopPropagation()
         stopAnswer()
@@ -788,11 +799,10 @@ const chip = `${chipBase} px-2`
  */
 function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) => void }): React.JSX.Element {
   const quote = quoteIn(draft, useAsk((s) => s.quote))
-  const compact = useAskPrefs((s) => s.density) === 'compact'
   return (
-    // The quick actions always fit on the row, never scrolling sideways (chat Phase 4): their full words where there is
-    // room (Comfortable only), short words in a narrow panel or Compact, and icons alone in the narrowest (each named
-    // in full for a screen reader, its tooltip saying the question it starts).
+    // The quick actions always fit on the row, never scrolling sideways (chat Phase 4): their names (the same as the
+    // empty state's cards) where there is room, and icons alone in a narrower row (each named for a screen reader, its
+    // tooltip saying the question it starts).
     <div className="@container/ctx flex h-8 min-w-0 items-center gap-1 overflow-hidden px-2 pt-1.5" data-context-row>
       {quote ? (
         <span className={cn(chip, 'min-w-0 max-w-full border-accent/40 bg-accent-soft pr-0.5 text-fg')} data-quote-chip title={quote.text}>
@@ -822,14 +832,9 @@ function ContextRow({ draft, onFill }: { draft: string; onFill: (text: string) =
               className={cn(chipBase, 'group/quick shrink-0 border-line px-1.5 text-muted hover:border-line-strong hover:bg-surface-2 hover:text-fg')}
             >
               <Icon size={11} aria-hidden className={cn('shrink-0', STARTER_TEXT[q.kind])} />
-              {/* The row's room (inside its padding), measured: the full words take about 24.5rem, the short ones 17rem. */}
-              {compact ? null : (
-                <span aria-hidden className="hidden @[25rem]/ctx:inline">
-                  {q.label}
-                </span>
-              )}
-              <span aria-hidden className={cn('hidden @[17.5rem]/ctx:inline', !compact && '@[25rem]/ctx:hidden')}>
-                {q.short}
+              {/* The row's room (inside its padding), measured: the four names take about 17rem. */}
+              <span aria-hidden className="hidden @[17.5rem]/ctx:inline">
+                {q.label}
               </span>
             </button>
           )

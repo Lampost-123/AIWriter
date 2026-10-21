@@ -66,7 +66,7 @@ describe('where the desk’s pieces go for a window size', () => {
     expect(ts.left).toBe(1320 - 776 - MARGIN_RESERVE)
     expect(ts.left).toBeGreaterThanOrEqual(SHEET_LEFT_MIN)
     // The column's note fits inside the window: the sheet's right edge, less the overlap, plus the note's width.
-    expect(ts.left + 776 - MARGIN.overlap + MARGIN.width).toBeLessThanOrEqual(1320 - GUTTER)
+    expect(ts.left + 776 + MARGIN.gap + MARGIN.width).toBeLessThanOrEqual(1320 - GUTTER)
     // Tabs: centred in the window as before.
     const tabs = sheetSides(deskFit(1100, COLUMN, false))
     expect(tabs.left).toBe((1100 - 776) / 2)

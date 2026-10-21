@@ -1,6 +1,7 @@
 import * as M from '@radix-ui/react-dropdown-menu'
 import { ChevronRight } from '@/components/ui/icons'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/cn'
 
 /**
@@ -24,9 +25,14 @@ export function RowMenu({
   if (!at) return null
   return (
     <M.Root open modal={false} onOpenChange={(o) => !o && onClose()}>
-      <M.Trigger asChild>
-        <span aria-hidden className="pointer-events-none fixed h-px w-px" style={{ left: at.x, top: at.y }} />
-      </M.Trigger>
+      {/* The point it opens at, put straight in the page's body: inside the desk's spine (a panel moved into place) a
+          fixed point is measured from the panel, and the menu would open below and right of the click. */}
+      {createPortal(
+        <M.Trigger asChild>
+          <span aria-hidden className="pointer-events-none fixed h-px w-px" style={{ left: at.x, top: at.y }} />
+        </M.Trigger>,
+        document.body
+      )}
       <M.Portal>
         <M.Content
           aria-label={label}

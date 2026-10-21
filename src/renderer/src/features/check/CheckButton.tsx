@@ -23,6 +23,8 @@ export function CheckButton(): React.JSX.Element | null {
   const hasWorld = useApp((s) => !!s.world)
   const run = useChecks((s) => s.run)
   const live = useChecks((s) => (s.run ? (s.runs[s.run.runId] ?? null) : null))
+  // The Check room of the story being checked shows the check's progress itself: the button stays still there.
+  const roomShows = useApp((s) => !!run && s.view.kind === 'consistency' && s.view.storyId === run.storyId)
   const reading = useCritiqueStore((s) => Object.keys(s.runs).length > 0)
   const craft = useCheckPrefs((s) => s.craft)
   const setCraft = useCheckPrefs((s) => s.setCraft)
@@ -47,7 +49,7 @@ export function CheckButton(): React.JSX.Element | null {
           'desk-drawer-toggle desk:h-9 desk:rounded-[11px] desk:px-2.5 desk:text-[13px] desk:focus-visible:ring-0'
         )}
       >
-        {busy ? <Spinner size={14} className="shrink-0" /> : <ListChecks size={16} className="shrink-0" />}
+        {busy && !(roomShows && !reading) ? <Spinner size={14} className="shrink-0" /> : <ListChecks size={16} className="shrink-0" />}
         {/* The word when the bar has room for it (the desk's is fuller: the word goes sooner there); its name says it always. */}
         <span className="max-[1279px]:hidden desk:max-[1679px]:hidden">Check</span>
         <ChevronDown size={13} className="shrink-0 opacity-70 desk:max-[1599px]:hidden" aria-hidden />
