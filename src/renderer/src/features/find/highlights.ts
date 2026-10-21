@@ -28,8 +28,6 @@ export interface FindInputs {
 
 let inputs: FindInputs = { active: false, query: '', opts: {} }
 
-export const findInputs = (): FindInputs => inputs
-
 export interface FindState {
   matches: FoundMatch[]
   /** The current match's index, or -1 when there are none. */

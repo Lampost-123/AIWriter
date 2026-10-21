@@ -11,9 +11,6 @@ import { Portrait } from '@/features/views/Portrait'
 import type { LaneMode } from './timelineLogic'
 import { skyOf, STATUS_WORDS, type LanePath, type RiverItem, type Told } from './riverLogic'
 
-/** A lane's ink, by its place among the lanes shown: eight inks from the desk's kind colours (never amber, the AI's). */
-export const laneInk = (k: number): string => `var(--tl-ink-${k % 8})`
-
 /** The little sky on a card: the sun low for dawn and dusk, high for the day, the moon for the night. */
 export function Sky({ sky }: { sky: ReturnType<typeof skyOf> }): React.JSX.Element | null {
   if (!sky) return null

@@ -9,7 +9,7 @@
 import { join } from 'node:path'
 import type Database from 'better-sqlite3'
 import type { ReadingPlan, ReadParagraph } from '@shared/contracts/readAloud'
-import type { SceneCue, SceneSounds, SoundEdits, SoundsStatus, LibrarySound, CueInput } from '@shared/contracts/sounds'
+import type { SceneCue, SceneSounds, SoundEdits, SoundsStatus, CueInput } from '@shared/contracts/sounds'
 import { defaultSpeechSettings } from '@shared/defaults'
 import type { ID, SpeechSettings } from '@shared/types'
 import * as repo from '../db/repo'

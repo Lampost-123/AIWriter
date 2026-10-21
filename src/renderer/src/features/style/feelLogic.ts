@@ -2,7 +2,7 @@
 // how picking a genre tile changes the picks, what the tiles and intensity controls show on the World and
 // This story tabs (a story with nothing of its own shows the world's), and how a written sample is kept.
 import { cleanGenres, genreLabel, MAX_GENRES } from '@shared/genres'
-import { cleanIntensity, INTENSITY, intensityStep, type IntensityScale } from '@shared/intensity'
+import { cleanIntensity, INTENSITY, type IntensityScale } from '@shared/intensity'
 import type { ContentIntensity, IntensityLevel, StyleGuide } from '@shared/types'
 
 export type FeelMode = 'world' | 'story'
@@ -92,12 +92,6 @@ export function intensityIntro(mode: FeelMode, below: ContentIntensity): string 
   if (set === INTENSITY.length) return "Pick a level to change it for this story. Click it again to use the world's."
   if (!set) return 'Pick a level to change it for this story, or leave it to the genre. Click a picked level again to clear it.'
   return "Pick a level to change it for this story. Click it again to use the world's, or the genre where the world hasn't set one."
-}
-
-/** The step's words, for a screen reader: "Romance: Fade to black". */
-export const levelName = (scale: IntensityScale, level: IntensityLevel): string => {
-  const info = INTENSITY.find((i) => i.scale === scale)!
-  return `${info.label}: ${intensityStep({ [scale]: level }, scale)!.label}`
 }
 
 /** A plain style guide (no sources or preferences) to send with "Write a sample for me". */

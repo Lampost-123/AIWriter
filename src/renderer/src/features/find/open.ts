@@ -41,8 +41,3 @@ export function openFindInStory(): void {
   const s = useFind.getState()
   s.set({ storyOpen: true, focusTick: s.focusTick + 1, ...(words ? { query: words } : {}) })
 }
-
-/** Closes the bar over the open scene. */
-export function closeFindInScene(): void {
-  useFind.getState().set({ sceneOpen: false })
-}

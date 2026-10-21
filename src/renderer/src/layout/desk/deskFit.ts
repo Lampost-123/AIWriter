@@ -16,8 +16,6 @@ import { keyboardDriven } from '@/features/look/motion'
 export const SPINE = { left: 20, top: 20, width: 48, bottom: 24 } as const
 /** The full spine: the same capsule opened out to hold the whole story. */
 export const STORY = { left: 20, width: 320 } as const
-/** The flyout beside the slim spine. */
-export const FLYOUT = { left: 76, width: 300 } as const
 /** The scene drawer: down the right edge, with the spine's insets, so the two read as a pair. */
 export const DRAWER = { right: 20, top: 20, bottom: 24 } as const
 /** The sheet never comes nearer the left edge than this (clear of the spine), nor the right edge than GUTTER. */

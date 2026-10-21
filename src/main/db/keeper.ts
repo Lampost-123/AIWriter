@@ -194,11 +194,6 @@ export function scenesWithWords(db: DB, words: string[]): KeeperScene[] {
   return (db.prepare(`${LIVE_SCENES} AND (${like}) ${READING_ORDER}`).all(...args) as Row[]).map(toKeeperScene)
 }
 
-/** Every live scene id, in reading order. */
-export function liveSceneIds(db: DB): ID[] {
-  return (db.prepare(`${LIVE_IDS} ${READING_ORDER}`).all() as Row[]).map((r) => r.id as string)
-}
-
 /** A save moved the scene's text on: its memory is waiting to be read ("Memory not updated" stays until a read works). */
 export function noteSceneSaved(db: DB, sceneId: ID): void {
   db.prepare(

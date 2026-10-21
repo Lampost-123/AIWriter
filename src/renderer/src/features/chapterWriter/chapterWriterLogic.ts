@@ -1,6 +1,6 @@
 // Write the whole chapter: the words the window shows for a run (contracts/chapterWriter.ts). Pure, so it is unit-tested.
 
-import { CHAPTER_WRITER_LIMITS, type ChapterWriterPlan, type ChapterWriterProgress, type ChapterWriterReport } from '@shared/contracts/chapterWriter'
+import { CHAPTER_WRITER_LIMITS, type ChapterWriterPlan, type ChapterWriterReport } from '@shared/contracts/chapterWriter'
 
 const n = (k: number, one: string, many: string): string => `${k.toLocaleString('en-US')} ${k === 1 ? one : many}`
 
@@ -10,9 +10,6 @@ export function costWords(cost: number): string {
   if (cost < 0.01) return 'less than a cent so far'
   return `$${cost.toFixed(2)} so far`
 }
-
-/** The top bar's line while a run goes on: "Fixing Sc 2 “The ferry”, round 2…". */
-export const progressLine = (p: ChapterWriterProgress): string => `${p.note || 'Writing the chapter'}…`
 
 const LATEST = CHAPTER_WRITER_LIMITS.minutes === 60 ? 'an hour' : `${CHAPTER_WRITER_LIMITS.minutes} minutes`
 

@@ -387,7 +387,7 @@ is built on migrations 1 and 2.
 - **As of a point.** `AsOf` (shared/types.ts) is a story's start, the end of a scene (its own changes
   included) or a story's end, optionally seen along another story's line (`seenIn`, the "As seen in"
   picker). `memory/asOf.ts` works it out with the same line as drafting: `memoryAt`, `entryAsOf`,
-  `asOfStops`. The interface has `useAsOfStops`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
+  `asOfStops`. The interface has `useAsOfStopsState`, `useEntryAsOf`, `AsOfSlider` and `AsSeenIn` in
   `features/views/`.
 - **Contracts.** Each part declares its calls, events and types in its own file in
   `src/shared/contracts/`; `AppApi` and `AppEvents` extend them. Each has its own handler file in
@@ -5250,8 +5250,8 @@ mid-story mock-up. Nothing goes into the story without a click.
 - **Where it is:** the Plan area's first link "Plan with AI" (the desk's Plan room too), the rail, the story menu, the
   binder's "Plan it with AI" / "Plan what happens next with AI", the board's blank story, the palette ("Plan with AI"), the
   Story builder's Plan step (with Back to the Story builder) and Next scene ideas / Interview me with no scene open (the
-  hub at the next scene). `openPlanHub(storyId, { at, back })` (`features/outline/open.ts`); `openOutlineHelper` is its
-  alias. A chapter's plan page stays as it was. Back goes where Adam came from.
+  hub at the next scene). `openPlanHub(storyId, { at, back })` (`features/outline/open.ts`).
+  A chapter's plan page stays as it was. Back goes where Adam came from.
 - **State**: what Adam wrote, the threads ticked, the chosen part and the open rows are kept while the app runs
   (`hubStore.ts`, one per story); the suggestions and a request still arriving are the outline helper's session, as before.
 - **Tests**: `features/planHub/hubLogic.test.ts`, `main/planHub/facts.test.ts`, `update.test.ts`, the hub requests in

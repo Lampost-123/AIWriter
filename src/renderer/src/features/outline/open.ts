@@ -40,14 +40,6 @@ export function openPlanHub(storyId: ID, o: BuildAt = {}): void {
 /** Build with AI: its name since 2026-10-20 (the Plan hub before). */
 export const openBuild = openPlanHub
 
-/** The outline helper: Build with AI's story line now (2026-10-20). */
-export const openOutlineHelper = (storyId: ID): void => openPlanHub(storyId, { section: 'line' })
-
-/** The Story builder's first steps: Build with AI's Your idea now. */
-export function openStoryBuilderFor(storyId: ID): void {
-  openPlanHub(storyId, { section: 'idea' })
-}
-
 /** "Interview me about this chapter": the chapter's own page in Build with AI, at its plan, the first question on its way. */
 export function openChapterInterview(storyId: ID, chapterId: ID): void {
   noteChapterStory(chapterId, storyId)

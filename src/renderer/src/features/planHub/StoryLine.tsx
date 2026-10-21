@@ -16,7 +16,7 @@ import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
-import { runBusy, treeOf, type HelperRun, type HelperSession } from '@/features/outline/helperStore'
+import { runBusy, type HelperRun, type HelperSession } from '@/features/outline/helperStore'
 import { countNodes, totalOf, type TreeNode } from '@/features/outline/tree'
 import { chapterName, rowForPlace, sceneName, shownTitle, type HubMode, type LineChapter, type LineRow, type LineScene } from './hubLogic'
 import { writeStep } from './buildLogic'
@@ -488,9 +488,4 @@ function DriftNote({ drift, lit, inline = false }: { drift: HubDrift; lit: boole
       <span className="hub-drift-label">{drift.label}:</span> {drift.text}
     </p>
   )
-}
-
-/** The newest batch's tree, read once per change of the run. */
-export function useRunTree(run: HelperRun | null): TreeNode[] {
-  return useMemo(() => (run ? treeOf(run) : []), [run])
 }

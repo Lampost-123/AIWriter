@@ -467,12 +467,6 @@ export async function keepInLine(storyId: ID, keys: string[] | 'all', o: { runId
   })
 }
 
-/** Whether the story's suggestions have a request arriving (the hub's buttons wait for it). */
-export function hubBusy(storyId: ID): boolean {
-  const run = useOutlineHelper.getState().sessions[helperKey(useApp.getState().world?.id, storyId)]?.run
-  return !!run && (run.status === 'running' || run.stage?.status === 'running')
-}
-
 /** The hub opened for a story: the outline helper's session, and whether the story has anything planned yet. */
 export function openHub(storyId: ID): void {
   openHelper(storyId)

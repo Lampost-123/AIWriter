@@ -286,5 +286,3 @@ export function useEntryEditor(
     keepFromHere
   }
 }
-
-export type EntryEditor = ReturnType<typeof useEntryEditor>

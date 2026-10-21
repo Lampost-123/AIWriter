@@ -161,9 +161,6 @@ export function sceneParagraphs(doc: unknown, text: string): Para[] {
   return docParas(doc) ?? textParas(text)
 }
 
-/** The paragraphs' words, as the scene's plain text holds them. */
-export const parasText = (ps: Pick<Para, 'text'>[]): string => ps.map((p) => p.text).join('\n\n')
-
 // ---------- What changed ----------
 
 export interface ParagraphDiff {
@@ -317,9 +314,6 @@ export function findQuote(text: string, quote: string): { start: number; end: nu
   if (i < 0) return null
   return { start: t.from[i], end: t.to[i + pq.length - 1] }
 }
-
-/** True when the quote is in the text (ignoring curly quotes, dashes, case and spacing). */
-export const hasQuote = (text: string, quote: string): boolean => findQuote(text, quote) !== null
 
 /**
  * Where the quote is in the text when only punctuation, capitals, spacing or one small typo differ

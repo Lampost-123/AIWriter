@@ -21,9 +21,6 @@ const opening = (): Look => {
 /** The layout shown until settings load: the panels (the window stays hidden until they have). */
 export const useLookStore = create<{ look: Look; arrangement: Arrangement }>(() => ({ look: opening(), arrangement: 'panels' }))
 
-/** The look on screen now. */
-export const useLook = (): Look => useLookStore((s) => s.look)
-
 /** True in the New look. */
 export const useNewLook = (): boolean => useLookStore((s) => s.look === 'new')
 

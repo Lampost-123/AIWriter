@@ -16,6 +16,3 @@ export function recipesDir(library: string): string {
   const main = join(library, RECIPES_FOLDER)
   return existsSync(join(main, 'world.db')) ? join(library, RECIPES_FALLBACK) : main
 }
-
-/** True for a folder name in the library that holds recipes, never a world. */
-export const isRecipesFolder = (name: string): boolean => /^(recipes|story recipes)$/i.test(name.trim())

@@ -157,7 +157,6 @@ export async function startCheck(target: CheckTarget, storyId: ID, checks?: Chec
 const sent = new Set<ID>()
 
 export const checkScene = (sceneId: ID, storyId: ID): Promise<void> => startCheck({ scope: 'scene', id: sceneId }, storyId)
-export const checkChapter = (chapterId: ID, storyId: ID): Promise<void> => startCheck({ scope: 'chapter', id: chapterId }, storyId)
 export const checkStory = (storyId: ID, checks?: CheckKind[]): Promise<void> => startCheck({ scope: 'story', id: storyId }, storyId, checks)
 
 /** Stops Adam's check. */

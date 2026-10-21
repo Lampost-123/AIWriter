@@ -29,8 +29,6 @@ export function watchDraftsStarted(): void {
   })
 }
 
-/** A draft this window started (also for tests). */
-export const noteStartedHere = (recordId: ID): void => void startedHere.add(recordId)
 export const wasStartedHere = (recordId: ID): boolean => startedHere.has(recordId)
 export const wasClaimed = (recordId: ID): boolean => claimed.has(recordId)
 

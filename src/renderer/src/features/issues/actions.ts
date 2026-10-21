@@ -274,9 +274,3 @@ export async function reopen(issue: Issue): Promise<void> {
     toast(plainReason(e), { tone: 'danger' })
   }
 }
-
-/** Check this scene: the one Check (features/check), after the page's last words are saved. A problem shows in the list. */
-export async function checkThisScene(sceneId: ID): Promise<void> {
-  const { runCheck } = await import('@/features/check/runCheck')
-  await runCheck('scene', { sceneId, show: false })
-}

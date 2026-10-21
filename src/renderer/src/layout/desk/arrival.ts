@@ -27,8 +27,3 @@ export function useArrival(room: string): boolean {
   }, [first])
   return on
 }
-
-/** For tests: every room arrives again. */
-export function resetArrivals(): void {
-  arrived.clear()
-}

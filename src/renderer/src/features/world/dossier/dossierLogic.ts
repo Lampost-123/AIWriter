@@ -175,9 +175,6 @@ export function appearsBands(
     .filter((b) => b.dots.length && (all || b.dots.some((d) => d.on)))
 }
 
-/** Whether an entry has anything written in a group's fields (an empty group's section offers to fill it in). */
-export const groupFilled = (g: DossierGroup): boolean => g.filled.length > 0
-
 /**
  * A relationship as one line under the other entry's name, read from this entry's side: "Member of The Harbour Board
  * (harbourmaster) · loyal, uneasily", or when it was written from the other side, "Wren: daughter of Edric".

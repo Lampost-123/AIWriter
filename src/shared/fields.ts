@@ -213,8 +213,5 @@ export const KIND_LABELS: Record<EntryKind, { one: string; many: string }> = {
   glossary: { one: 'Term', many: 'Glossary' }
 }
 
-/** Kinds that have screens in milestone 1. */
-export const M1_KINDS: EntryKind[] = ['character', 'place', 'lore']
-
 /** Every kind, in the order the world's lists show them (milestone 2 on). */
 export const ENTRY_KINDS: EntryKind[] = ['character', 'place', 'group', 'item', 'lore', 'event', 'thread', 'glossary']

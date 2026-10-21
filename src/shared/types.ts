@@ -329,9 +329,6 @@ export interface Entry {
  */
 export type Origin = 'adam' | 'text' | 'ai'
 
-/** @deprecated use Origin */
-export type EntryOrigin = Origin
-
 export type EntryInput = Partial<
   Omit<Entry, 'id' | 'kind' | 'createdAt' | 'updatedAt' | 'origin' | 'fieldOrigins' | 'originSceneId' | 'originStart' | 'byHand' | 'image'>
 >
@@ -1206,9 +1203,6 @@ export interface DeletedItem {
 
 /** Where a change is pinned: before any story (the baseline), at the start of a story, or to a scene (it happens in that scene). */
 export type ChangeAnchor = 'baseline' | 'story-start' | 'scene'
-
-/** @deprecated use Origin: 'adam' (typed by Adam), 'text' (read from a scene) or 'ai' (drafted by the AI). */
-export type ChangeSource = Origin
 
 /** "Mara: lost her left hand". The note says what is now different; fields and description give the new state. */
 export interface UpdatePayload {

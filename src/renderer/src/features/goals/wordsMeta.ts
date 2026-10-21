@@ -4,5 +4,3 @@
 // for words that aren't new writing at all (a restored version, switching drafts, find and replace).
 // Typing, pasting and dictation carry nothing and count as typed. See wordTally.ts.
 export const WORDS_META = 'aiwriteWords'
-
-export type WordsSource = 'ai' | 'ai-net' | 'none'
