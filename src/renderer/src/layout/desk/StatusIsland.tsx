@@ -15,7 +15,7 @@ import { useGoals } from '@/features/goals/goalStore'
 import { onOpenWordCounts, WordCountsBody } from '@/features/goals/WordCounts'
 import { freshUpdate } from '@/features/memory/logic'
 import { openScene } from '@/features/memory/openScene'
-import { changesText, islandState, wordsText, type IslandShows } from './islandState'
+import { islandState, wordsText, type IslandShows } from './islandState'
 
 /** How long the memory's news shows before the island says Saved again. */
 const MEMORY_FOR = 8000
@@ -128,7 +128,7 @@ export function StatusIsland(): React.JSX.Element {
         ? `Writing… ${wordsText(island.written)}`
         : 'Writing… Click to go back to the scene it is writing into.'
       : island.shows === 'memory'
-        ? `Memory updated: ${changesText(island.changes)}. Click to see what changed.`
+        ? `${island.changes.toLocaleString('en-GB')} memory ${island.changes === 1 ? 'update' : 'updates'}. Click to see what changed.`
         : island.shows === 'unsaved'
           ? 'Not saved, retrying'
           : island.shows === 'saving'

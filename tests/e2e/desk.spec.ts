@@ -766,7 +766,7 @@ test('the next-beat chip: the card’s next beat; it ticks as its words land, th
   await expect(chip).toHaveAttribute('data-desk-chip', 'done')
 })
 
-test('the margin: the scene card pinned beside the title, tethered to it, kept there through resizing; tabs on the sheet’s edge in a smaller window', async ({ launch }) => {
+test('the margin: the scene card pinned beside the title, just clear of the page, kept there through resizing; tabs on the sheet’s edge in a smaller window', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch)
   const [story] = await invoke(win, 'listStories')
   const { scenes } = await invoke(win, 'getOutline', story.id)
