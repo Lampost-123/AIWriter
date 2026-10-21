@@ -1,9 +1,8 @@
 /** Settings › Editor: Smart punctuation and typewriter scrolling. Each switch works at once, in the open page too. */
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { shortcutText } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function TypingSettings(): React.JSX.Element | null {
   const settings = useApp((s) => s.settings)

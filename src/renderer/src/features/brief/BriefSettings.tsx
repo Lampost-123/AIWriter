@@ -4,9 +4,8 @@
 // what matters for the scene; off, the plan's call and the briefing are as they were (src/main/ai/brief.ts,
 // src/main/plan/brief.ts). It is written by the plan's call, so it needs Plan before writing.
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function BriefSettings(): React.JSX.Element | null {
   const on = useApp((s) => s.settings?.continuityBrief ?? true)

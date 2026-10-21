@@ -5,9 +5,8 @@
 // chapters (they lie on the right as index cards, Merge on each), then Make the recipe, its cost in the bar at the foot.
 // The same actions and stores as the panels (RecipesView.tsx, recipeStore.ts).
 import { BookOpenText, CookingPot, Copy, FileText, FileUp, Plus, Trash2 } from '@/components/ui/icons'
-import { Button, IconButton } from '@/components/ui'
+import { Button, IconButton, Segmented } from '@/components/ui'
 import { ProblemNotice } from '@/features/builder/parts'
-import { Segmented } from '@/features/generate/parts'
 import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
 import { recipeSteps } from '@/features/planning/planLogic'
 import { useDealDelay } from '@/features/planning/deal'

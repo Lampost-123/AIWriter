@@ -32,6 +32,10 @@ export interface SliderProps {
   before?: ReactNode
   after?: ReactNode
   disabled?: boolean
+  /** Takes the keyboard as soon as it shows (a slider opened from a menu). */
+  autoFocus?: boolean
+  /** Keys on the slider itself, such as Enter to finish or Esc to put it back. */
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   className?: string
 }
 
@@ -54,6 +58,8 @@ export function Slider({
   before,
   after,
   disabled,
+  autoFocus,
+  onKeyDown,
   className
 }: SliderProps): React.JSX.Element {
   const [live, setLive] = useState(value)
@@ -93,6 +99,8 @@ export function Slider({
       step={step}
       value={live}
       disabled={disabled}
+      autoFocus={autoFocus}
+      onKeyDown={onKeyDown}
       aria-label={label ? undefined : ariaLabel}
       aria-valuetext={valueText ? valueText(live) : label ? format(live) : undefined}
       onPointerDown={() => {

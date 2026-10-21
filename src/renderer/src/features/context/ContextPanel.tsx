@@ -8,13 +8,13 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 import { KIND_LABELS } from '@shared/fields'
 import { ownWritingNote } from '@shared/ownSample'
 import type { BlockMode, ContextBlock, ContextEntry, ContextPreview, Entry, ID, PinScope } from '@shared/types'
-import { Button, Notice, Spinner, toast } from '@/components/ui'
+import { Button, Notice, Segmented, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { RowMenuItem, RowMenuSeparator } from '@/features/binder/RowMenu'
 import { formatNumber } from '@/features/generate/format'
-import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
+import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { CastPicker } from '@/features/inspector/CastPicker'
 import {
   BLOCK_STATE_WORDS,

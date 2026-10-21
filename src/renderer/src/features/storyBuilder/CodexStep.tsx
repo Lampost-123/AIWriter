@@ -10,7 +10,7 @@ import { Check, ChevronDown, Plus, RotateCcw, Sparkles, Square, Trash2, Undo2, U
 import type { CodexItem } from '@shared/contracts/storyBuilder'
 import type { EntryKind, ID } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
-import { Button, Input, Notice } from '@/components/ui'
+import { Button, Checkbox, Input, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -171,13 +171,12 @@ function ItemRow({ storyId, item, locked }: { storyId: ID; item: CodexItem; lock
   return (
     <li className={cn('px-3.5 py-2.5', !item.on && 'opacity-60')} data-item={item.key}>
       <div className="flex items-start gap-2.5">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+        <Checkbox
+          className="mt-1"
           checked={item.on}
           disabled={locked}
           aria-label={`Build ${item.name || 'this'}`}
-          onChange={(e) => patchItem(storyId, item.key, { on: e.target.checked })}
+          onChange={(on) => patchItem(storyId, item.key, { on })}
         />
         <div className="min-w-0 flex-1">
           {editing && !locked ? (

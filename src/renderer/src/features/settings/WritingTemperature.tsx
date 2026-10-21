@@ -14,11 +14,10 @@ import {
   temperatureCeiling,
   temperatureIgnored
 } from '@shared/temperature'
-import { Input, Notice, SettingsSection, Slider } from '@/components/ui'
+import { Input, Notice, Segmented, SettingsSection, Slider } from '@/components/ui'
 import { registerFlusher } from '@/lib/flush'
 import { parseTemperature } from './typed'
 import { useApp } from '@/lib/store'
-import { Segmented } from '@/features/generate/parts'
 
 type Mode = 'auto' | 'custom'
 const MODES: { value: Mode; label: string }[] = [

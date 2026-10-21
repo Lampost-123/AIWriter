@@ -1,9 +1,8 @@
 import { useId } from 'react'
 import type { WritingPrefs } from '@shared/types'
 import { OWN_SAMPLE_HINT, OWN_SAMPLE_LABEL, OWN_SAMPLE_OVER_HINT, ownSampleOn, ownSamplePref } from '@shared/ownSample'
-import { toast } from '@/components/ui'
+import { Switch, toast } from '@/components/ui'
 import { api } from '@/lib/api'
-import { Switch } from '@/features/world/parts/Switch'
 import { usePrefs } from './prefsStore'
 
 /**

@@ -5,7 +5,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Check, MessagesSquare, RotateCcw, Send, Sparkles, Square, SquarePen, X } from '@/components/ui/icons'
-import { Button, Notice } from '@/components/ui'
+import { Button, Checkbox, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { modKey } from '@/lib/api'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -316,7 +316,7 @@ export function TalkPanel({
           <span className="min-w-0 flex-[1_1_14em]">Enter to send, Shift+Enter for a new line</span>
           {canApplyStraightAway ? (
             <label className="flex cursor-pointer items-center gap-1.5 hover:text-muted">
-              <input type="checkbox" className="h-3.5 w-3.5" checked={auto} onChange={(e) => toggleAuto(e.target.checked)} />
+              <Checkbox size="sm" checked={auto} onChange={toggleAuto} />
               Apply changes straight away
             </label>
           ) : null}

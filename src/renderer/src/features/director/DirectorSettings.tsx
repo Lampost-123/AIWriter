@@ -3,9 +3,8 @@
 // (src/main/director). The draft options can turn it on or off for one draft. The director's own model is its own entry
 // above ("Director model", the memory model unless Adam picks another).
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function DirectorSettings(): React.JSX.Element | null {
   const on = useApp((s) => s.settings?.directedWriting === true)

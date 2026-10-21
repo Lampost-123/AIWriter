@@ -8,7 +8,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { StoryPlacement } from '@shared/api'
 import type { StillRunning, StorySuggestion } from '@shared/contracts/stories'
 import type { ID } from '@shared/types'
-import { Button, Dialog, IconButton, Input, Notice, Select } from '@/components/ui'
+import { Button, Checkbox, Dialog, IconButton, Input, Notice, Select } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -277,20 +277,16 @@ function NewStoryForm(): React.JSX.Element {
       footer={
         <>
           {/* Build with AI next: give it the plot and it plans the cast, the world and the outline (2026-10-17). */}
-          <label
-            className="mr-auto flex items-center gap-2 text-[12.5px] text-muted"
-            title="Opens Build with AI: give it your plot and it plans the whole cast and world, then the outline."
-          >
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-[var(--color-accent)]"
+          <span className="mr-auto flex" title="Opens Build with AI: give it your plot and it plans the whole cast and world, then the outline.">
+            <Checkbox
+              size="sm"
               checked={withAi || !!recipe.recipeId}
               disabled={!!recipe.recipeId}
-              onChange={(e) => setWithAi(e.target.checked)}
+              onChange={setWithAi}
               data-build-with-ai
+              label="Build it with AI next"
             />
-            Build it with AI next
-          </label>
+          </span>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
           </Button>

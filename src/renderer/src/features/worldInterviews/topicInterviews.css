@@ -390,17 +390,9 @@
   padding-top: 7px;
   color: var(--muted);
 }
+/* The shared Checkbox's own label sits in the grid: it lines up with the fields, not 7px down like their names. */
 .wi-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding-top: 0 !important;
-  color: var(--fg) !important;
-}
-.wi-check input {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--accent);
 }
 .wi-edit-foot {
   justify-content: flex-end;

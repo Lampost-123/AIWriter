@@ -28,12 +28,10 @@ import type {
   SpeechStorage
 } from '@shared/contracts/speech'
 import { SPEECH_SERVER_URL } from '@shared/defaults'
-import { Badge, Button, Card, Field, Fold, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
+import { Badge, Button, Card, Field, Fold, Input, Notice, Segmented, SettingsSection, Spinner, Switch, toast } from '@/components/ui'
 import { api, ApiError } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cn } from '@/lib/cn'
-import { Switch } from '@/features/world/parts/Switch'
-import { Segmented } from '@/features/generate/parts'
 import { setSpeechStatus, useKnownSpeechStatus, useSpeechStatus } from './useSpeechStatus'
 import { VOICES_NEEDS, voicesChecks } from './voiceNeeds'
 

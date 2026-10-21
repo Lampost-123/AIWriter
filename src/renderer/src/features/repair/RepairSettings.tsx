@@ -1,9 +1,8 @@
 // Settings › Models: check and repair's switch (Adam, 2026-10-07: "an off switch"), on by default. Off, new words are
 // not checked as they land (no call), and the check after a draft looks at everything, as before.
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function RepairSettings(): React.JSX.Element | null {
   const on = useApp((s) => s.settings?.checkNewWords ?? true)

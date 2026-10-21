@@ -9,7 +9,7 @@ import { create } from 'zustand'
 import type { Proposal } from '@shared/contracts/ask'
 import { KIND_LABELS } from '@shared/fields'
 import type { ID } from '@shared/types'
-import { Button } from '@/components/ui'
+import { Button, Checkbox } from '@/components/ui'
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -283,18 +283,15 @@ function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: '
         </ul>
       ) : null}
       {p.rename && p.replace ? (
-        <label htmlFor={boxId} className="flex items-center gap-1.5 text-[12.5px] text-fg">
-          <input
-            id={boxId}
-            type="checkbox"
-            data-replace-rename
-            checked={picked}
-            disabled={locked || p.status === 'applied' || p.status === 'started'}
-            onChange={(e) => useRenamePick.setState({ [pickKey]: e.target.checked })}
-            className="h-3.5 w-3.5 shrink-0 accent-accent"
-          />
-          Also rename {p.rename.name} to {p.replace} in memory (keeping the old name as another name)
-        </label>
+        <Checkbox
+          id={boxId}
+          size="sm"
+          data-replace-rename
+          checked={picked}
+          disabled={locked || p.status === 'applied' || p.status === 'started'}
+          onChange={(on) => useRenamePick.setState({ [pickKey]: on })}
+          label={`Also rename ${p.rename.name} to ${p.replace} in memory (keeping the old name as another name)`}
+        />
       ) : null}
     </div>
   )

@@ -2,9 +2,8 @@
 // writing beat by beat it always shows). In Settings › Editor, the palette (Show beats, Hide beats) and each beat's
 // menu on the page. Off by default; saved at once. Owned by the Beat by beat part.
 import { useId } from 'react'
-import { SettingsSection, toast } from '@/components/ui'
+import { SettingsSection, Switch, toast } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 /** Turns "Show beats" on or off (saved at once). */
 export async function setShowBeats(on: boolean): Promise<void> {

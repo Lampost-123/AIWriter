@@ -3,7 +3,7 @@
 // jump between them. Keyboard: arrows move one scene, Home and End go to the ends.
 import { ChevronLeft, ChevronRight } from '@/components/ui/icons'
 import type { AsOf, AsOfStop } from '@shared/types'
-import { IconButton } from '@/components/ui'
+import { IconButton, Slider } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useNewLook } from '@/features/look/look'
 import { inSentence, longestLabel, nextChange, stopIndex } from './asOfLogic'
@@ -61,27 +61,28 @@ export function AsOfSlider({
         ) : null}
       </div>
       <div className="relative h-5">
-        <input
-          type="range"
+        {/* The memory follows the slider at every step while it moves (onLive), not only once it is let go. */}
+        <Slider
           min={0}
           max={stops.length - 1}
           step={1}
           value={index}
           aria-label={label}
-          aria-valuetext={current.label}
-          onChange={(e) => go(Number(e.target.value))}
-          className="absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer accent-[var(--accent)]"
+          valueText={(i) => stops[i]?.label ?? current.label}
+          onLive={go}
+          onCommit={go}
+          className="absolute inset-x-0 top-1/2 -translate-y-1/2"
         />
         {/* The New look: a faint tick for every scene along the track (not when there are too many to tell apart). */}
         {isNew && stops.length > 2 && stops.length <= 120 ? (
-          <div aria-hidden className="pointer-events-none absolute inset-x-[7px] top-[-3px] h-1.5">
+          <div aria-hidden className="pointer-events-none absolute inset-x-[9px] top-[-3px] h-1.5">
             {stops.map((_, i) => (
               <span key={i} className="absolute h-1.5 w-px -translate-x-1/2 bg-line-strong" style={{ left: at(i) }} />
             ))}
           </div>
         ) : null}
         {/* Where the entry changes: quiet marks under the track, never in the way of dragging. */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-[7px] bottom-[-3px] h-1">
+        <div aria-hidden className="pointer-events-none absolute inset-x-[9px] bottom-[-3px] h-1">
           {marks.map((i) => (
             <span key={i} className="absolute h-1 w-1 -translate-x-1/2 rounded-full bg-accent/70" style={{ left: at(i) }} />
           ))}

@@ -1,7 +1,6 @@
 import { useId } from 'react'
-import { SettingsSection, toast } from '@/components/ui'
+import { SettingsSection, Switch, toast } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 /** Settings › Editor: Spell check on or off (straight away, no restart). */
 export function SpellingSettings(): React.JSX.Element | null {

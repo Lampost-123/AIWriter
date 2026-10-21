@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAX_LISTED, type StoryFindResult, type StorySceneMatches } from '@shared/contracts/find'
 import { hasQuery } from '@shared/findReplace'
 import type { EntryKind } from '@shared/types'
-import { Button, Input, Spinner } from '@/components/ui'
+import { Button, Checkbox, Input, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
@@ -257,10 +257,7 @@ export function StoryFind(): React.JSX.Element {
               {held}
             </p>
             {offer ? (
-              <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13px] text-fg">
-                <input type="checkbox" checked={rename} onChange={(e) => setRename(e.target.checked)} className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-accent" />
-                <span>{offer}</span>
-              </label>
+              <Checkbox className="mt-2" checked={rename} onChange={setRename} label={offer} />
             ) : null}
             <div className="mt-3 flex items-center justify-end gap-2">
               <Button variant="ghost" onClick={() => set({ storyOpen: false })}>
@@ -291,20 +288,15 @@ function SceneGroup({
   onOpen: (s: StorySceneMatches, index: number) => void
 }): React.JSX.Element {
   const on = scene.matches.filter((m) => !unticked.has(key(scene.sceneId, m.id))).length
-  const boxRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (boxRef.current) boxRef.current.indeterminate = on > 0 && on < scene.matches.length
-  }, [on, scene.matches.length])
   return (
     <div role="listitem" className="pb-1 [content-visibility:auto] [contain-intrinsic-size:auto_96px]">
       <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 pb-1 pt-2 hover:bg-surface-2" title={scene.chapterTitle}>
-        <input
-          ref={boxRef}
-          type="checkbox"
+        <Checkbox
+          size="sm"
           checked={on === scene.matches.length}
-          onChange={(e) => onScene(scene, e.target.checked)}
+          indeterminate={on > 0 && on < scene.matches.length}
+          onChange={(v) => onScene(scene, v)}
           aria-label={`${scene.sceneTitle}: all its matches`}
-          className="h-3.5 w-3.5 shrink-0 accent-accent"
         />
         {/* A scene still called "Scene 2" is named by where it is alone. */}
         {/^Scene \d+$/.test(scene.sceneTitle.trim()) ? (
@@ -322,12 +314,12 @@ function SceneGroup({
           const k = key(scene.sceneId, m.id)
           return (
             <li key={m.id} className="flex items-start gap-2 rounded-md px-2 py-1 hover:bg-surface-2">
-              <input
-                type="checkbox"
+              <Checkbox
+                size="sm"
+                className="mt-[3px]"
                 checked={!unticked.has(k)}
-                onChange={(e) => onMatch(k, e.target.checked)}
+                onChange={(v) => onMatch(k, v)}
                 aria-label={`Replace “${m.text}” here`}
-                className="mt-[5px] h-3.5 w-3.5 shrink-0 accent-accent"
               />
               <button
                 type="button"

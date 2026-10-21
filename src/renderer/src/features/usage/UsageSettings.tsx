@@ -17,12 +17,11 @@ import {
   type UsageScope,
   type UsageTotals
 } from '@shared/contracts/usage'
-import { Button, Card, EmptyState, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
+import { Button, Card, EmptyState, Field, Input, Notice, Segmented, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
-import { Segmented } from '@/features/generate/parts'
 import { SpendChart } from './SpendChart'
 import { useNewLook } from '@/features/look/look'
 import { ModelSplit, RowBars, SpendBars, jobRows, worldRows, type Measure } from './UsageCharts'

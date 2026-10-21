@@ -1,8 +1,7 @@
 import { useId } from 'react'
 import type { WritingPrefs } from '@shared/types'
-import { toast } from '@/components/ui'
+import { Switch, toast } from '@/components/ui'
 import { api } from '@/lib/api'
-import { Switch } from '@/features/world/parts/Switch'
 import { usePrefs } from './prefsStore'
 
 export const AI_PHRASES_LABEL = 'Steer clear of common AI phrases'
