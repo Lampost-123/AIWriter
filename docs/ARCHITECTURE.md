@@ -51,7 +51,9 @@ src/main/        Electron main process
 src/preload/     Exposes window.aiwrite (invoke + events). Nothing else.
 src/renderer/src/
   lib/           api client, zustand store (navigation + open world), flush registry, editor bridge, theme
-  components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects
+  components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects,
+                 tick boxes (Checkbox), sliders (Slider: live while dragged, saved on release), Switch, Segmented,
+                 and a page's loading or failed state (LoadState); controls.ts holds the one disabled look and focus ring
   layout/        Top bar, resizable side panes, inspector, update banner
   features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (Build with AI: every AI
                  building tool for a story in one area, zoomed in on a chapter or a scene) over outline (the suggestions' store and parts), storyBuilder
@@ -86,7 +88,11 @@ src/renderer/src/
   Deletes are announced with `announceDelete` (`lib/undoDelete.ts`): one Undo toast that
   gathers deletes made while it shows, and Settings › Recently deleted for 30 days after.
 - **Words.** On screen, use Adam's words: world, story, chapter, scene, character, place,
-  lore, draft. Never "line", "main history", "entity", "generation" or "LLM".
+  lore, draft. Never "line", "main history", "entity", "generation", "LLM", "entry" or "tokens" (say words: about
+  three words to four tokens, `features/settings/words.ts`).
+- **Scene names.** A chapter's first scene is made as "Scene 1"; any later new scene is made with no title
+  (`createScene` in `db/repo.ts`), so no number in its name disagrees with where it sits. An empty title shows as
+  "Untitled scene", or by its place ("Ch 1, Sc 2") where that's the local style; never a blank or empty quotes.
 - **Never lose a keystroke.** Anything holding unsaved work registers with
   `registerFlusher` (`lib/flush.ts`); it runs before the window closes and before switching worlds.
 
