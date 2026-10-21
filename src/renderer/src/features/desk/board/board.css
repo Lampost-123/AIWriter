@@ -159,6 +159,37 @@
 [data-arrangement='desk'] :is(.board-btn-pri, .board-btn-ai, .board-btn-sec):active {
   scale: 0.97;
 }
+/* One main button over the board: Ideas for what comes next (the AI's, amber). New scene beside it is a plain one. */
+[data-arrangement='desk'] .board-ctl > .board-btn-pri {
+  background: var(--raise);
+  color: var(--fg);
+  box-shadow:
+    0 0 0 1px var(--desk-line),
+    var(--sh-1);
+}
+[data-arrangement='desk'] .board-ctl > .board-btn-pri:hover {
+  background: var(--surface-2);
+}
+/* The next chapter's Build with AI is a plain button too (the board's one amber button is over it), marked as the AI's
+   by its amber ink. */
+[data-arrangement='desk'] .board-gh-actions > .board-btn-ai {
+  justify-content: center;
+  padding: 0 14px;
+  background: var(--raise);
+  color: var(--ai);
+  text-shadow: none;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--ai) 30%, var(--desk-line)),
+    var(--sh-1);
+}
+[data-arrangement='desk'] .board-gh-actions > .board-btn-ai:hover {
+  filter: none;
+  background: var(--ai-soft);
+}
+[data-arrangement='desk'] .board-gh-actions > .board-btn-sec {
+  justify-content: center;
+  padding: 0 14px;
+}
 
 /* ---------- the board ---------- */
 [data-arrangement='desk'] .board-body {
@@ -190,7 +221,7 @@
   box-shadow: inset 0 0 0 1px var(--desk-line-2);
 }
 /* The board runs on past the window's edge: the right edge fades rather than cutting a column off. The canvas has PAD_X
-   (40px) of room after its last column, so at the far end only that empty room sits under the fade. It stops at the
+   (32px) of room after its last column, so at the far end only that empty room sits under the fade. It stops at the
    scroll bars (their sizes measured into --board-sb-r and --board-sb-b, StoryBoard.tsx). */
 [data-arrangement='desk'] .board-wrap::after {
   content: '';
@@ -198,7 +229,7 @@
   top: 1px;
   right: var(--board-sb-r, 0px);
   bottom: var(--board-sb-b, 0px);
-  width: 40px;
+  width: 32px;
   border-radius: 0 14px 14px 0;
   pointer-events: none;
   /* Over the pins (the same layer, and later), under the string tags (5) and tooltips. */
@@ -268,7 +299,7 @@
   border-radius: 2px;
   background: var(--success);
   transform-origin: left center;
-  transition: transform 500ms var(--motion-glide);
+  transition: transform var(--dur-view) var(--motion-glide);
 }
 [data-arrangement='desk'] .board-prog.is-dashed {
   height: 0;
@@ -335,6 +366,27 @@
   font: 600 15px/20px var(--heading-font);
   color: var(--fg);
 }
+/* The slot under a column's cards is a quiet way in, not a card of its own: a small plus and a word, in the muted ink,
+   brighter on hover. */
+[data-arrangement='desk'] button.board-ghost {
+  flex-direction: row;
+  gap: 10px;
+  border-width: 1px;
+  border-color: color-mix(in oklab, var(--fg) 20%, transparent);
+  background: transparent;
+}
+[data-arrangement='desk'] button.board-ghost .board-gh-plus {
+  width: 28px;
+  height: 28px;
+}
+[data-arrangement='desk'] button.board-ghost .board-gh-title {
+  font: 600 13px/18px var(--font-sans);
+  color: var(--muted);
+  transition: color var(--dur-quick) ease-out;
+}
+[data-arrangement='desk'] button.board-ghost:hover .board-gh-title {
+  color: var(--fg);
+}
 [data-arrangement='desk'] .board-gh-sub {
   width: 200px;
   font-size: 12.5px;
@@ -349,7 +401,10 @@
 }
 [data-arrangement='desk'] .board-next {
   position: absolute;
-  width: 260px;
+  width: 220px;
+}
+[data-arrangement='desk'] .board-next > .board-colhead {
+  width: 100%;
 }
 [data-arrangement='desk'] .board-ghost.is-next {
   position: relative;
@@ -370,8 +425,8 @@
   transform-origin: 130px 13px;
   touch-action: none;
   transition:
-    transform 220ms var(--motion-glide),
-    box-shadow 240ms var(--motion-glide);
+    transform var(--dur-base) var(--motion-glide),
+    box-shadow var(--dur-base) var(--motion-glide);
 }
 /* In the dark the paper's sheen would read as a grey wash: none. */
 [data-arrangement='desk'][data-theme='dark'] .board-card {

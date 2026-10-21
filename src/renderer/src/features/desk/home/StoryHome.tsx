@@ -38,6 +38,8 @@ import { useStoryCover } from './cover'
 import {
   bookKicker,
   castOf,
+  homeBookWidth,
+  homeNarrow,
   homeScale,
   homeTwoColumns,
   chapterAria,
@@ -128,6 +130,8 @@ export function StoryHome(): React.JSX.Element {
     return () => ro.disconnect()
   }, [])
   const twoColumns = homeTwoColumns(room.w)
+  // A small window (1024px with the slim spine, about 1280 with the full one): a smaller book, slimmer chapters.
+  const narrow = homeNarrow(room.w)
   const scale = homeScale(room.w, room.h, twoColumns)
 
   const continueWriting = (): void => {
@@ -147,6 +151,7 @@ export function StoryHome(): React.JSX.Element {
       <div
         className="home-col"
         data-columns={twoColumns ? 'two' : undefined}
+        data-narrow={narrow || undefined}
         aria-label={`Story home: ${title}`}
         role="region"
         style={room.h ? { zoom: scale, minHeight: Math.floor(room.h / scale) } : undefined}
@@ -160,7 +165,7 @@ export function StoryHome(): React.JSX.Element {
               onClick={continueWriting}
               aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title}` : 'Open the book'}
             >
-              <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} live />
+              <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} width={homeBookWidth(narrow)} live />
             </button>
             {story ? (
               <CoverPicker story={story} motif={cover.motif} hue={cover.hue}>
@@ -241,6 +246,7 @@ export function StoryHome(): React.JSX.Element {
           <div className="home-lc a-up" style={at(600)}>
             <div className="home-lc-head">
               <span className="desk-caps">Open threads</span>
+              <span className="home-hair" aria-hidden />
               {threads?.length ? <span className="home-aside">{threadsAside(threads)}</span> : null}
             </div>
             {threads ? (
@@ -258,6 +264,7 @@ export function StoryHome(): React.JSX.Element {
           <div className="home-lc a-up" style={at(660)}>
             <div className="home-lc-head">
               <span className="desk-caps">Cast</span>
+              <span className="home-hair" aria-hidden />
               <button
                 type="button"
                 className="home-build"
@@ -571,7 +578,13 @@ function Thread({ t, delay }: { t: ThreadRow; delay: number }): React.JSX.Elemen
   )
 }
 
-/** This week's writing (on this computer, across every story): a bar a day, the daily target, the streak. */
+/** How tall each day's faint outline stands in a week with no words yet (of the chart's height). */
+const GHOST = [0.34, 0.52, 0.28, 0.66, 0.44, 0.58, 0.38]
+
+/**
+ * This week's writing (on this computer, across every story): a bar a day, the daily target, the streak. A week with no
+ * words yet says so in one line over faint bars, at the same height, so nothing moves when words arrive.
+ */
 function Week(): React.JSX.Element {
   const days = useGoals((s) => s.days)
   const today = useGoals((s) => s.today)
@@ -581,12 +594,13 @@ function Week(): React.JSX.Element {
   const top = Math.max(daily ?? 0, ...week.map((d) => d.words), 1) * 1.15
   const streak = streakOf(days ?? [], daily, today)
   const H = 64
+  const empty = days != null && total === 0
   const label = week.map((d) => `${d.today ? 'today' : d.label} ${fmt(d.words)}`).join(', ')
   return (
-    <div className="home-week">
+    <div className="home-week" data-empty={empty || undefined}>
       <div className="home-lc-head">
-        {/* (Every story's words count here, not only this one's, so it says so.) */}
-        <span className="desk-caps home-wk-caps">Your writing this week, across all your stories</span>
+        <span className="desk-caps">Your writing this week</span>
+        <span className="home-hair" aria-hidden />
         {streak && streak.days > 0 ? (
           <span className="home-streak">
             <span className="home-streak-dots" aria-hidden>
@@ -600,43 +614,57 @@ function Week(): React.JSX.Element {
           </span>
         ) : null}
       </div>
-      <div className="home-wk-total">
-        <span className="home-wk-num">{fmt(total)}</span>
-        <span className="home-wk-lbl">{total === 1 ? 'word' : 'words'} this week</span>
-        <span className="home-wk-today">
-          <span className="home-wk-sw" aria-hidden />
-          <span>{fmt(week[6].words)} today</span>
-        </span>
-      </div>
-      <div className="home-plot" role="img" aria-label={`Words written each day for the last 7 days: ${label}.${daily ? ` Daily target ${fmt(daily)}.` : ''}`}>
-        <span className="home-plot-base" />
-        {week.map((d, i) =>
-          d.words > 0 ? (
-            <span
-              key={d.date}
-              className={cn('home-bar a-bar', d.today && 'is-today')}
-              style={{ left: `calc(${i} * (100% - 52px) / 7 + 6px)`, height: Math.max(3, (d.words / top) * H), ...at(740 + i * 30) }}
-              title={`${d.today ? 'Today' : d.label} · ${fmt(d.words)} words`}
-            />
-          ) : (
-            <span key={d.date} className="home-zero" style={{ left: `calc(${i} * (100% - 52px) / 7 + 6px)` }} title={`${d.label} · no words`} />
-          )
-        )}
-        {daily ? (
-          <>
-            <span className="home-goal" style={{ bottom: (daily / top) * H }} aria-hidden />
-            <span className="home-goal-lbl" style={{ bottom: (daily / top) * H - 6 }}>
-              Target {fmt(daily)}
+      <div className="home-wk-body">
+        {/* (Every story's words count here, not only this one's, so it says so.) */}
+        {days == null ? (
+          <div className="home-wk-total" aria-hidden />
+        ) : empty ? (
+          <p className="home-wk-total home-wk-empty">No words yet this week, in any story.</p>
+        ) : (
+          <div className="home-wk-total">
+            <span className="home-wk-num">{fmt(total)}</span>
+            <span className="home-wk-lbl">{total === 1 ? 'word' : 'words'} across all your stories</span>
+            <span className="home-wk-today">
+              <span className="home-wk-sw" aria-hidden />
+              <span>{fmt(week[6].words)} today</span>
             </span>
-          </>
-        ) : null}
-      </div>
-      <div className="home-days" aria-hidden>
-        {week.map((d, i) => (
-          <span key={d.date} className={cn('home-day', d.today && 'is-today')} style={{ left: `calc(${i} * (100% - 52px) / 7)` }}>
-            {d.label}
-          </span>
-        ))}
+          </div>
+        )}
+        <div className="home-wk-chart">
+          <div className="home-plot" role="img" aria-label={`Words written each day for the last 7 days: ${label}.${daily ? ` Daily target ${fmt(daily)}.` : ''}`}>
+            <span className="home-plot-base" />
+            {week.map((d, i) =>
+              empty ? (
+                // A week with none: each day's bar waits as a faint outline (only a picture: the line above says it).
+                <span key={d.date} className={cn('home-ghost', d.today && 'is-today')} style={{ left: `calc(${i} * (100% - 52px) / 7 + 6px)`, height: GHOST[i] * H }} aria-hidden />
+              ) : d.words > 0 ? (
+                <span
+                  key={d.date}
+                  className={cn('home-bar a-bar', d.today && 'is-today')}
+                  style={{ left: `calc(${i} * (100% - 52px) / 7 + 6px)`, height: Math.max(3, (d.words / top) * H), ...at(740 + i * 30) }}
+                  title={`${d.today ? 'Today' : d.label} · ${fmt(d.words)} words`}
+                />
+              ) : (
+                <span key={d.date} className={cn('home-zero', d.today && 'is-today')} style={{ left: `calc(${i} * (100% - 52px) / 7 + 6px)` }} title={`${d.label} · no words`} />
+              )
+            )}
+            {daily ? (
+              <>
+                <span className="home-goal" style={{ bottom: (daily / top) * H }} aria-hidden />
+                <span className="home-goal-lbl" style={{ bottom: (daily / top) * H - 6 }}>
+                  Target {fmt(daily)}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <div className="home-days" aria-hidden>
+            {week.map((d, i) => (
+              <span key={d.date} className={cn('home-day', d.today && 'is-today')} style={{ left: `calc(${i} * (100% - 52px) / 7)` }}>
+                {d.label}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )

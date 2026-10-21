@@ -3,7 +3,7 @@
   straight on the lit desk (no sheet): the book and its title, the chapters on a shelf, three columns, a footer. Only
   ever shown on the desk, and every rule sits under [data-arrangement='desk'] all the same.
 
-  Motion: hovering the book lifts it 3px (220ms); the shelf's chapters rise 2px; presses scale .97 (buttons) and .985
+  Motion: hovering the book lifts it 3px (220ms); the shelf's chapters rise 2px (150ms); presses scale .97 (buttons) and .985
   (cards) in 90ms. The first time the home shows in a session its pieces arrive in turn ([data-arrive], set by
   layout/desk/arrival.ts, never from the keyboard or with less motion); the cover's glow breathes slowly (the only
   ambient loop: nobody types here), and stops with less motion. Text never moves.
@@ -793,14 +793,18 @@
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
 }
+/* The shelf the chapters stand on: as wide as the column, its ends fading into the desk (it never runs on past the
+   cards as a bar). */
 [data-arrangement='desk'] .home-plank {
   position: absolute;
-  left: -16px;
-  right: -16px;
+  left: 0;
+  right: 0;
   bottom: 18px;
-  height: 7px;
+  height: 6px;
   border-radius: 2px;
   pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
   background: linear-gradient(180deg, color-mix(in oklab, var(--surface-3) 70%, var(--plank-a)) 0, color-mix(in oklab, var(--surface-3) 40%, var(--plank-b)) 100%);
   box-shadow:
     inset 0 1px 0 rgb(var(--hi-rgb) / 0.45),
@@ -830,9 +834,10 @@
     0 0 0 1px var(--desk-line-2),
     0 1px 0 rgb(var(--shade-rgb) / 0.05),
     0 8px 16px -10px rgb(var(--shade-rgb) / 0.32);
+  /* A hover lifts it at the hover speed (quick); a press goes in at the press speed (below). */
   transition:
-    transform var(--dur-base, 220ms) var(--motion-glide),
-    box-shadow var(--dur-base, 220ms) var(--motion-glide);
+    transform var(--dur-quick, 150ms) var(--motion-glide),
+    box-shadow var(--dur-quick, 150ms) var(--motion-glide);
 }
 [data-arrangement='desk'] .home-chap::before {
   content: '';
@@ -1044,30 +1049,19 @@
   row-gap: 28px;
   margin-top: -6px;
 }
-@media (max-width: 1180px) {
-  [data-arrangement='desk'] .home-lower {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  [data-arrangement='desk'] .home-lower > :last-child {
-    grid-column: 1 / -1;
-    max-width: 420px;
-  }
-}
 [data-arrangement='desk'] .home-lc {
   position: relative;
   min-width: 0;
 }
+/* Each column's head as the chapters' is: small capitals, a hair line, then what it says on the right. */
 [data-arrangement='desk'] .home-lc-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  min-height: 16px;
+  min-height: 24px;
 }
-/* The week's label says it counts every story: long enough to wrap in a narrow column. */
-[data-arrangement='desk'] .home-lc-head .home-wk-caps {
-  min-width: 0;
-  white-space: normal;
+[data-arrangement='desk'] .home-lc-head .home-hair {
+  min-width: 12px;
 }
 [data-arrangement='desk'] .home-aside {
   font-size: 12px;
@@ -1279,15 +1273,9 @@
   background: var(--k-place);
 }
 
-/* this week, on a slip */
+/* this week: on the desk like the threads and the cast, its head level with theirs */
 [data-arrangement='desk'] .home-week {
   position: relative;
-  padding: 16px 18px 14px;
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow:
-    0 0 0 1px var(--desk-line-2),
-    var(--sh-2);
 }
 [data-arrangement='desk'] .home-streak {
   display: inline-flex;
@@ -1308,11 +1296,32 @@
   border-radius: 50%;
   background: var(--primary);
 }
+/* One row, the same height whether it holds the week's words, the line for a week with none, or nothing yet. */
 [data-arrangement='desk'] .home-wk-total {
-  margin-top: 6px;
+  margin-top: 10px;
   display: flex;
   align-items: baseline;
   gap: 8px;
+  height: 32px;
+  min-width: 0;
+}
+[data-arrangement='desk'] .home-wk-empty {
+  align-items: center;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+}
+/* A week with no words: each day's bar waits as a faint dashed outline, today's a little stronger. */
+[data-arrangement='desk'] .home-ghost {
+  position: absolute;
+  bottom: 0;
+  width: 18px;
+  border-radius: 4px 4px 1px 1px;
+  border: 1px dashed color-mix(in oklab, var(--fg) 18%, transparent);
+  border-bottom: 0;
+}
+[data-arrangement='desk'] .home-ghost.is-today {
+  border-color: color-mix(in oklab, var(--primary) 45%, transparent);
 }
 [data-arrangement='desk'] .home-wk-num {
   font-family: var(--font-heading);
@@ -1323,6 +1332,9 @@
   font-variant-numeric: tabular-nums lining-nums;
 }
 [data-arrangement='desk'] .home-wk-lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 13px;
   color: var(--muted);
   white-space: nowrap;
@@ -1375,6 +1387,9 @@
   height: 3px;
   border-radius: 2px;
   background: color-mix(in oklab, var(--fg) 24%, transparent);
+}
+[data-arrangement='desk'] .home-zero.is-today {
+  background: color-mix(in oklab, var(--primary) 55%, transparent);
 }
 [data-arrangement='desk'] .home-goal {
   position: absolute;
@@ -1450,21 +1465,72 @@
   background: color-mix(in oklab, var(--fg) 20%, transparent);
 }
 
-@media (max-width: 1100px) {
-  [data-arrangement='desk'] .home-hero {
-    grid-template-columns: 170px minmax(0, 1fr);
-    column-gap: 36px;
-  }
-  [data-arrangement='desk'] .home-book-col .home-book {
-    width: 170px;
-    height: 232px;
-  }
-  [data-arrangement='desk'] .home-book .book-cover {
-    --book-w: 170px;
-  }
-  [data-arrangement='desk'] .home-shelf {
-    --chap-w: 380px;
-  }
+/* ---------- narrow (StoryHome: homeNarrow, from the room beside the spine, not the window) ----------
+   A 1024px window with the slim spine, or about 1280 with the full one: the book smaller beside the title (its width
+   comes from BookCover's own prop, so the cover and its column always agree), slimmer chapter cards that keep their
+   names whole and fit beside Add chapter with no sideways scroll, and the threads and the cast side by side over the
+   week, which runs across the foot with its count beside its bars. */
+[data-arrangement='desk'] .home-col[data-narrow] .home-hero {
+  grid-template-columns: 168px minmax(0, 1fr);
+  column-gap: 36px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-book {
+  width: 168px;
+  height: 229px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-title {
+  font-size: 40px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-premise {
+  font-size: 17px;
+  line-height: 26px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-shelf-row {
+  gap: 16px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-shelf-item:has(> .home-chap) {
+  flex: 1 1 0;
+  min-width: 268px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-chap::after {
+  left: 56px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-chap-num {
+  width: 56px;
+  font-size: 28px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-chap-body {
+  left: 70px;
+  right: 76px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-chap-title {
+  font-size: 17.5px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-chap-arc {
+  right: 12px;
+  width: 58px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-add-chap {
+  width: 128px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-lower {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 32px;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-lower > :last-child {
+  grid-column: 1 / -1;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-wk-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  column-gap: 32px;
+  align-items: end;
+}
+[data-arrangement='desk'] .home-col[data-narrow] .home-wk-body > .home-wk-total {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 32px;
+  margin-bottom: 18px;
 }
 
 /* ---------- arrival (once a session; layout/desk/arrival.ts) ---------- */
@@ -1542,7 +1608,7 @@
   height: 24px;
   align-items: center;
   gap: 5px;
-  margin: -4px -9px -4px auto;
+  margin: 0 -9px 0 0;
   border-radius: 999px;
   padding: 0 9px 0 7px;
   font: 600 12px/1 var(--font-sans);

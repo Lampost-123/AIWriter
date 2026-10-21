@@ -23,23 +23,25 @@
   height: 30px;
   max-width: 320px;
 }
+/* Under the board's head, only the first-time hint has a row of its own (it folds away after Got it, components/ui/
+   Fold); the pins' key sits at the head's top right, level with the counts, so it never takes a row. */
 [data-arrangement='desk'] .board-note {
+  display: contents;
+}
+[data-arrangement='desk'] .board-note > .fold {
   flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 16px;
-  padding: 0 0 8px;
 }
-/* The pins' key keeps to the right, with the hint beside it or alone. */
+[data-arrangement='desk'] .board-note .board-lg-explain {
+  margin-bottom: 10px;
+}
 [data-arrangement='desk'] .board-note > .board-pinkey {
-  margin-left: auto;
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  height: 20px;
+  margin: 0;
 }
-[data-arrangement='desk'] .board-note > .board-lg-explain {
-  flex: 1 1 420px;
-  width: auto;
-}
-[data-arrangement='desk'] .desk-board[data-arrive] .board-note {
+[data-arrangement='desk'] .desk-board[data-arrive] .board-pinkey {
   animation: board-col-in 360ms var(--motion-glide) 700ms backwards;
 }
 [data-arrangement='desk'] .board-lg-explain {
@@ -216,7 +218,8 @@
 [data-arrangement='desk'] .board-hint {
   align-items: center;
   gap: 12px;
-  padding: 4px 6px 4px 10px;
+  max-width: 900px;
+  padding: 4px 4px 4px 10px;
   border-radius: 10px;
   line-height: 17px;
   color: var(--muted);
@@ -224,6 +227,8 @@
   box-shadow:
     0 0 0 1px var(--desk-line),
     var(--sh-1);
+}
+[data-arrangement='desk'] .desk-board[data-arrive] .board-hint {
   animation: board-col-in 360ms var(--motion-glide) 600ms backwards;
 }
 [data-arrangement='desk'] .board-hint b {
