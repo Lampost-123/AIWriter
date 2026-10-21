@@ -4,7 +4,7 @@
 
 import { useEffect, useId, useState } from 'react'
 import type { ID } from '@shared/types'
-import { Select, Textarea } from '@/components/ui'
+import { Checkbox, Select, Textarea } from '@/components/ui'
 import { recipeName } from './recipeLogic'
 import { listenForRecipes, takeForStory, useRecipes } from './recipeStore'
 
@@ -63,15 +63,12 @@ export function RecipeChoice({ value, onChange }: { value: RecipePick; onChange:
             The AI lays out the story with the recipe’s shape, told your way: where your ideas differ from the recipe, yours win. You keep, change or
             discard each suggestion.
           </p>
-          <label className="mt-1 flex items-center gap-2 text-[13px] text-fg">
-            <input
-              type="checkbox"
-              checked={value.useStyle}
-              onChange={(e) => onChange({ ...value, useStyle: e.target.checked })}
-              className="h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-            />
-            Write it in the recipe’s style, with its themes and tone
-          </label>
+          <Checkbox
+            className="mt-1"
+            checked={value.useStyle}
+            onChange={(useStyle) => onChange({ ...value, useStyle })}
+            label="Write it in the recipe’s style, with its themes and tone"
+          />
         </div>
       ) : null}
     </div>

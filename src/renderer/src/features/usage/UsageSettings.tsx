@@ -17,12 +17,11 @@ import {
   type UsageScope,
   type UsageTotals
 } from '@shared/contracts/usage'
-import { Button, Card, EmptyState, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
+import { Button, Card, EmptyState, Field, Input, Notice, Segmented, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
-import { Segmented } from '@/features/generate/parts'
 import { SpendChart } from './SpendChart'
 import { useNewLook } from '@/features/look/look'
 import { ModelSplit, RowBars, SpendBars, jobRows, worldRows, type Measure } from './UsageCharts'
@@ -391,7 +390,7 @@ function Notes({ report }: { report: UsageReport }): React.JSX.Element | null {
 
 const MEASURES: { value: Measure; label: string }[] = [
   { value: 'cost', label: 'Dollars' },
-  { value: 'tokens', label: 'Tokens' }
+  { value: 'tokens', label: 'Words' }
 ]
 
 /**
@@ -563,10 +562,10 @@ function Tiles({ month, limit }: { month: UsageReport; limit: number | null }): 
         <div className="text-[12px] text-muted">this month</div>
       </div>
       <div className="uc-tile">
-        <p className="st-caps">Tokens</p>
-        <div className="mt-1 text-[24px] font-semibold leading-tight tabular-nums text-fg">{tokenWords(tokens).replace(/ tokens?$/, '')}</div>
+        <p className="st-caps">Words</p>
+        <div className="mt-1 text-[24px] font-semibold leading-tight tabular-nums text-fg">{tokenWords(tokens).replace(/ words?$/, '')}</div>
         <div className="text-[12px] text-muted">
-          {month.total.cachedTokens > 0 ? `${tokenWords(month.total.cachedTokens).replace(/ tokens?$/, '')} from the cache` : 'read and written'}
+          {month.total.cachedTokens > 0 ? `${tokenWords(month.total.cachedTokens).replace(/ words?$/, '')} from the cache` : 'read and written'}
         </div>
       </div>
       <div className="uc-tile">

@@ -28,7 +28,7 @@
 }
 [data-arrangement='desk'] .iss-card[data-leaving] {
   pointer-events: none;
-  animation: ck-fold 180ms var(--desk-ease) forwards;
+  animation: ck-fold var(--dur-exit) var(--desk-ease) forwards;
 }
 [data-arrangement='desk'] .iss-quote {
   margin-top: 8px;

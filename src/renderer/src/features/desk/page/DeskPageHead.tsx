@@ -97,8 +97,17 @@ export function DeskPageHead({ sceneId, fallbackTitle }: { sceneId: ID; fallback
   const inChapter = meta && outline ? outline.scenes.filter((s) => s.chapterId === meta.chapterId).sort((a, b) => a.position - b.position) : []
   const sceneIndex = inChapter.findIndex((s) => s.id === sceneId)
   const eyebrow = chapter ? chapterLabel(chapterIndex + 1, chapter.title) : ''
+  // New scenes are untitled; one still named by a number that isn't its place ("Scene 3", second of three, from before)
+  // has its place said without "Scene", so the two numbers don't argue (review #28).
+  const numbered = /^scene (\d+)$/i.exec(title.trim())
+  const place =
+    sceneIndex < 0
+      ? ''
+      : numbered && Number(numbered[1]) !== sceneIndex + 1
+        ? `${sceneIndex + 1} of ${inChapter.length} in this chapter`
+        : `Scene ${sceneIndex + 1} of ${inChapter.length}`
   const parts = [
-    sceneIndex >= 0 ? `Scene ${sceneIndex + 1} of ${inChapter.length}` : '',
+    place,
     card.pov ? `Told through ${card.pov}` : '',
     card.when
   ].filter(Boolean)
@@ -117,6 +126,7 @@ export function DeskPageHead({ sceneId, fallbackTitle }: { sceneId: ID; fallback
         <div className="mt-3 flex h-[52px] items-center">
           <InlineTitle
             label="Scene title"
+            placeholder="Untitled scene"
             value={title}
             className="h-[52px] font-heading text-[44px] font-semibold tracking-[-0.012em]"
             onCommit={(t) => actions.renameScene(sceneId, t)}

@@ -2,9 +2,8 @@
 // makes no plan call (src/main/plan/); what must stay true still goes in. Beside it, Show me the plan before writing (off by
 // default; src/main/plan/review.ts): Generate and Add below stop once the scene is planned, to show Adam the plan.
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function PlanSettings(): React.JSX.Element | null {
   const on = useApp((s) => s.settings?.planFirst ?? true)

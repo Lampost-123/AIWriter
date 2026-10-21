@@ -451,7 +451,7 @@ test('a proposed draft starts the writer’s own drafting on Apply, and says it 
     await ask(win, 'Please draft the scene')
     const card = changes(win).locator('[data-proposal]').first()
     await expect(card).toContainText('Draft · Ch 1, Sc 1')
-    await expect(card.locator('[data-draft-mode]')).toContainText('Generate')
+    await expect(card.locator('[data-draft-mode]')).toContainText('Draft the scene')
     await expect(card).toContainText('please draft the scene')
     // Nothing is written until Apply.
     await expect(prose(win)).toHaveText('')

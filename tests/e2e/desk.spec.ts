@@ -766,7 +766,7 @@ test('the next-beat chip: the card’s next beat; it ticks as its words land, th
   await expect(chip).toHaveAttribute('data-desk-chip', 'done')
 })
 
-test('the margin: the scene card pinned beside the title, tethered to it, kept there through resizing; tabs on the sheet’s edge in a smaller window', async ({ launch }) => {
+test('the margin: the scene card pinned beside the title, just clear of the page, kept there through resizing; tabs on the sheet’s edge in a smaller window', async ({ launch }) => {
   const { app, win } = await sampleWorld(launch)
   const [story] = await invoke(win, 'listStories')
   const { scenes } = await invoke(win, 'getOutline', story.id)
@@ -778,13 +778,13 @@ test('the margin: the scene card pinned beside the title, tethered to it, kept t
   const title = win.locator('.desk-scene-title')
   const sheet = win.locator('.desk-sheet')
 
-  /** The card beside the title (its top 28px above the title's), over the sheet's right edge by 16px. */
+  /** The card beside the title (its top 28px above the title's), just clear of the sheet's right edge (8px). */
   const aligned = async (): Promise<void> => {
     await expect
       .poll(async () => {
         const [n, t, s] = [await note.boundingBox(), await title.boundingBox(), await sheet.boundingBox()]
         if (!n || !t || !s) return 'missing'
-        return Math.abs(n.y - (t.y - 28)) <= 4 && Math.abs(n.x - (s.x + s.width - 16)) <= 4 ? 'aligned' : `${n.x},${n.y} vs ${s.x + s.width - 16},${t.y - 28}`
+        return Math.abs(n.y - (t.y - 28)) <= 4 && Math.abs(n.x - (s.x + s.width + 8)) <= 4 ? 'aligned' : `${n.x},${n.y} vs ${s.x + s.width + 8},${t.y - 28}`
       })
       .toBe('aligned')
   }
@@ -800,7 +800,8 @@ test('the margin: the scene card pinned beside the title, tethered to it, kept t
     // Its beats: the first is on the page (ticked), the second is next.
     await expect(note.getByRole('listitem', { name: /hundred and twelve steps, written/ })).toBeVisible()
     await expect(note.getByRole('listitem', { name: /hand bell on the quay, next/ })).toBeVisible()
-    await expect(note.locator('.desk-tether path')).toHaveCount(1)
+    // Level with the title, with no line running to it across the page's head.
+    await expect(note.locator('.desk-tether')).toHaveCount(0)
     await aligned()
     // Nothing spills past the window.
     expect(await win.evaluate<number>('document.querySelector(".desk-scroller").scrollWidth - document.querySelector(".desk-scroller").clientWidth')).toBeLessThanOrEqual(0)

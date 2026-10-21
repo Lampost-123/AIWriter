@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import type { EventHome } from '@shared/contracts/worldViews'
 import type { ID } from '@shared/types'
-import { Button, toast } from '@/components/ui'
+import { Button, Checkbox, toast } from '@/components/ui'
 import { ChevronDown, MapPin } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -102,19 +102,19 @@ export function EventPlaces({ storyId, homes }: { storyId: ID; homes: EventHome[
             const id = `place-${h.entryId}`
             return (
               <li key={h.entryId} className="flex items-baseline gap-2 border-b border-line px-3 py-1.5 text-[13px] last:border-b-0">
-                <input
+                <Checkbox
                   id={id}
-                  type="checkbox"
+                  size="sm"
+                  className="translate-y-0.5"
                   checked={!off.has(h.entryId)}
-                  onChange={(e) =>
+                  onChange={(on) =>
                     setOff((was) => {
                       const next = new Set(was)
-                      if (e.target.checked) next.delete(h.entryId)
+                      if (on) next.delete(h.entryId)
                       else next.add(h.entryId)
                       return next
                     })
                   }
-                  className="h-3.5 w-3.5 shrink-0 translate-y-0.5 accent-accent"
                 />
                 <label htmlFor={id} className="min-w-0 flex-1">
                   <span className="font-medium text-fg">{h.name}</span>

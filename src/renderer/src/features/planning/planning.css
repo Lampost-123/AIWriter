@@ -283,6 +283,10 @@
   [data-arrangement='desk'][data-look='new'] .plan-col-l > .plan-col-in {
     padding-bottom: 28px;
   }
+  /* A column's pair of main actions side by side, not each across the whole page. */
+  [data-arrangement='desk'][data-look='new'] .plan-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 /* A short window: the band gives the columns more room. */
 @media (max-height: 860px) {
@@ -297,11 +301,14 @@
     font-size: 24px;
     line-height: 30px;
   }
+  /* Smaller, but the whole line still reads in a 1024 x 700 window: three lines before it is cut (the full line is its title). */
   [data-arrangement='desk'][data-look='new'] .plan-line {
     display: -webkit-box;
-    -webkit-line-clamp: 1;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    font-size: 13px;
+    line-height: 19px;
   }
   [data-arrangement='desk'][data-look='new'] .plan-steps {
     grid-auto-rows: 24px;

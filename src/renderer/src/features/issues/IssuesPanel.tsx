@@ -40,7 +40,7 @@ import { revealLiveFlag, useLiveFlagCounts } from '@/features/liveChecks/liveFla
 import type { LiveFlagKind } from '@shared/liveChecks'
 import { LighthouseArt } from '@/components/art/RoomArt'
 import { useDesk } from '@/features/look/look'
-import { reducedMotion } from '@/features/look/motion'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { useFlip } from '@/lib/useFlip'
 import { SeverityPill } from '@/features/consistency/desk/marks'
 import { checkWithoutWaiting, stopRun, useChecks } from '@/features/consistency/checkStore'
@@ -96,7 +96,7 @@ export function IssuesPanel({ sceneId }: { sceneId: ID }): React.JSX.Element {
             return n
           })
         )
-      }, 180)
+      }, tokenMs(document.documentElement, '--dur-exit'))
     }
   const cards = (list: Issue[], label: string): ReactNode => <IssueCards list={list} label={label} leaving={leaving} fold={fold} />
   const wants = (k: IssueSection): boolean => section === 'all' || section === k
@@ -501,8 +501,9 @@ function NothingFound(): React.JSX.Element {
         : desk
           ? 'All clear in this scene. '
           : null}
-      Check (in the top bar) looks at facts, who knows what, the timeline, voices, style and tone, and the critic’s craft notes when you
-      ask for them.
+      {/* On the desk, Check this scene is right above this. */}
+      {desk ? 'Check this scene, above,' : 'Check (in the top bar)'} looks at facts, who knows what, the timeline, voices, style and tone, and the
+      critic’s craft notes when you ask for them.
     </>
   )
   if (desk) {

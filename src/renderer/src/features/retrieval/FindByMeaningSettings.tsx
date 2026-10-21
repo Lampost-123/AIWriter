@@ -5,11 +5,10 @@
 // (Adam, 2026-10-08), until Adam presses Stop or Remove; Download lets it again.
 import { useEffect, useId, useState } from 'react'
 import type { SearchModelStatus } from '@shared/contracts/searchModel'
-import { Badge, Button, SettingsSection } from '@/components/ui'
+import { Badge, Button, SettingsSection, Switch } from '@/components/ui'
 import { Download } from '@/components/ui/icons'
 import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 /** The search model's status, kept current by 'searchModel:status'; null until first known. */
 function useSearchModel(): SearchModelStatus | null {

@@ -57,7 +57,7 @@ test('Show me the plan first: the plan waits with what the card check noticed; a
     const toggle = win.locator('[data-plan-first-toggle] input[type=checkbox]')
     await expect(toggle).not.toBeChecked()
     await toggle.check()
-    await win.getByRole('button', { name: /^Generate draft/ }).click()
+    await win.getByRole('button', { name: /^Draft the scene.*\+G$/ }).click()
 
     // The plan waits for Adam: its beats, and what the card check noticed. Nothing is written yet.
     await expect(win.getByRole('heading', { name: 'The plan for this scene' })).toBeVisible({ timeout: 60_000 })

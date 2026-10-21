@@ -169,7 +169,7 @@ test('the New look: an amber caret stands where a streaming draft’s words arri
     await win.keyboard.type('The tide was out. ')
     await expect(caret).toHaveCount(0)
 
-    await header.getByRole('button', { name: 'Generate', exact: true }).click()
+    await header.getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: /^Add below/ }).click()
     await expect(header.locator('.gen-running')).toBeVisible()
     // Once words arrive: one caret, at the very end of the last paragraph, blinking.

@@ -555,7 +555,7 @@ function NoScene(): React.JSX.Element {
         {hasScenes
           ? 'Pick a scene in the binder, or add a new one to keep writing.'
           : storyId
-            ? 'Scenes are where the writing happens. Add one, fill in its card, and write or press Generate.'
+            ? 'Scenes are where the writing happens. Add one, fill in its card, and write or let the AI draft it.'
             : 'Start a story, then add scenes to write in.'}
       </EmptyState>
     </div>

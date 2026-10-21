@@ -3,9 +3,10 @@
 // tie's history, what changed at a stop, the strip's titles, the point of view) and shows it on a wide sheet: a
 // timeline strip, the stage (MapStage), a legend, zoom and side cards. See deskMap.css for the look and motion.
 import './deskMap.css'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
 import type { MapGroup } from '@shared/contracts/worldViews'
+import type { CodexCard } from '@shared/contracts/entryViews'
 import { Plus } from '@/components/ui/icons'
 import { Button, EmptyState, Select } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -14,7 +15,29 @@ import { AsSeenIn } from '@/features/views/AsSeenIn'
 import { hasOtherKinds, inSentence, stopIndex } from '@/features/views/asOfLogic'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { MapStage } from './MapStage'
-import { artHue } from '@/features/desk/world/galleryLogic'
+import { offMapLine, offMapTitle, untiedIn } from './deskMapLogic'
+
+/**
+ * The world's cards (each with the stories it is in), to say which of the story's characters aren't on the map. Read
+ * only while there is a map to say it under, and again as entries or the memory change.
+ */
+function useCards(wanted: boolean): CodexCard[] | null {
+  const entriesRev = useApp((s) => s.entriesRev)
+  const memoryRev = useApp((s) => s.memoryRev)
+  const [cards, setCards] = useState<CodexCard[] | null>(null)
+  useEffect(() => {
+    if (!wanted) return
+    let live = true
+    api.listCodex().then(
+      (list) => live && setCards(list),
+      () => live && setCards(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [wanted, entriesRev, memoryRev])
+  return cards
+}
 
 export function DeskMap(): React.JSX.Element {
   const [storyId, setStoryId] = useViewStory()
@@ -54,6 +77,10 @@ export function DeskMap(): React.JSX.Element {
   const index = data ? (at ? Math.max(0, stopIndex(data.stops, at)) : (data.detail?.atStop ?? data.stops.length - 1)) : 0
   const pairs = data ? new Set(data.links.map((l) => (l.aId < l.bId ? `${l.aId}|${l.bId}` : `${l.bId}|${l.aId}`))).size : 0
   const group = groupId ? data?.groups.find((g) => g.id === groupId) : undefined
+  const cards = useCards(!!data?.any)
+  // Only this story's characters, and only those tied to no one anywhere along it (the slider may be before a tie).
+  const untied = useMemo(() => (data && cards ? untiedIn(data.storyId, cards, data.everyone) : []), [data, cards])
+  const off = offMapLine(untied)
 
   return (
     <div className="dm" data-desk-map data-quick={quick || undefined}>
@@ -66,8 +93,17 @@ export function DeskMap(): React.JSX.Element {
             <p className="dm-sub">Who is tied to whom, and how each of them feels about it, scene by scene.</p>
           </div>
           {data?.any ? (
-            <span className="dm-count" data-map-count>
-              <b>{data.nodes.length}</b> {data.nodes.length === 1 ? 'character' : 'characters'} · <b>{pairs}</b> {pairs === 1 ? 'tie' : 'ties'}
+            <span className="dm-count">
+              <span data-map-count>
+                <b>{data.nodes.length}</b> {data.nodes.length === 1 ? 'character' : 'characters'} · <b>{pairs}</b>{' '}
+                {pairs === 1 ? 'tie' : 'ties'}
+              </span>
+              {/* The map shows only characters tied to someone: who else there is, so the count isn't a puzzle. */}
+              {off ? (
+                <span className="dm-count-off" title={offMapTitle(untied)}>
+                  {off}
+                </span>
+              ) : null}
             </span>
           ) : null}
           <div className="dm-head-r">
@@ -130,6 +166,10 @@ function NobodyInGroup({ name, group, label, onShowEveryone }: { name: string; g
   )
 }
 
+/** The empty map's medals: a rim and a figure in the accent's palest tint. */
+const MEDAL_RIM = 'color-mix(in oklab, color-mix(in oklab, var(--accent) 12%, white) 32%, transparent)'
+const MEDAL_FACE = 'color-mix(in oklab, color-mix(in oklab, var(--accent) 8%, white) 90%, transparent)'
+
 /** No relationships anywhere along the story yet: three coins waiting to be tied, the threads drawing in and fading. */
 function EmptyMap(): React.JSX.Element {
   const coins = [
@@ -144,8 +184,9 @@ function EmptyMap(): React.JSX.Element {
           <defs>
             {coins.map((c) => (
               <linearGradient key={c.id} id={`dm-${c.id}`} x1="0" y1="0" x2="0.4" y2="1">
-                <stop offset="0" stopColor={`hsl(${artHue('character', c.id)} 46% 68%)`} />
-                <stop offset="1" stopColor={`hsl(${artHue('character', c.id)} 46% 32%)`} />
+                {/* The accent Adam picked (review #40), light at the top of each medal to deep at its foot. */}
+                <stop offset="0" style={{ stopColor: 'color-mix(in oklab, var(--accent) 70%, white)' }} />
+                <stop offset="1" style={{ stopColor: 'color-mix(in oklab, var(--accent) 62%, black)' }} />
               </linearGradient>
             ))}
           </defs>
@@ -156,11 +197,11 @@ function EmptyMap(): React.JSX.Element {
             <g key={c.id} className="dm-art-coin">
               <circle cx={c.x} cy={c.y} r={c.r + 4} fill="var(--page)" />
               <circle cx={c.x} cy={c.y} r={c.r} fill={`url(#dm-${c.id})`} />
-              <circle cx={c.x} cy={c.y} r={c.r - 4} fill="none" stroke="rgb(255 255 255 / 0.3)" />
-              <circle cx={c.x} cy={c.y - c.r * 0.22} r={c.r * 0.26} fill="rgb(255 251 246 / 0.9)" />
+              <circle cx={c.x} cy={c.y} r={c.r - 4} fill="none" stroke={MEDAL_RIM} />
+              <circle cx={c.x} cy={c.y - c.r * 0.22} r={c.r * 0.26} fill={MEDAL_FACE} />
               <path
                 d={`M${c.x - c.r * 0.5},${c.y + c.r * 0.55} Q${c.x},${c.y + c.r * 0.05} ${c.x + c.r * 0.5},${c.y + c.r * 0.55}`}
-                fill="rgb(255 251 246 / 0.9)"
+                fill={MEDAL_FACE}
               />
             </g>
           ))}

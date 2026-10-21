@@ -29,11 +29,12 @@ export const STORY_RIGHT = STORY.left + STORY.width
 export const FULL_FROM = 1280
 
 /**
- * The margin notes' column (phase 3): 300px slips overlapping the sheet's right edge by 16px, with the gutter after them.
+ * The margin notes' column (phase 3): 276px slips just clear of the sheet's right edge (8px), with the gutter after them,
+ * so no note sticks out over the page's edge.
  * The room the page keeps on its right for them is MARGIN_RESERVE; without it the notes fold into tabs on the sheet's edge.
  */
-export const MARGIN = { width: 300, overlap: 16 } as const
-export const MARGIN_RESERVE = MARGIN.width - MARGIN.overlap + GUTTER
+export const MARGIN = { width: 276, gap: 8 } as const
+export const MARGIN_RESERVE = MARGIN.gap + MARGIN.width + GUTTER
 /**
  * The furthest the sheet moves left of its centre to make room for the margin column (px). The one place this is
  * decided: larger, and the column shows in narrower windows with the page further off centre; smaller, and the notes
@@ -217,9 +218,13 @@ export function useDeskFrame(): DeskFrame {
       live = false
     }
   }, [fontSize, pageWidth])
-  // In focus mode the spine steps away and the drawer lies over the page's edge: the sheet is centred in the window.
+  // In focus mode the spine steps away and the sheet is centred in the window; an open drawer (Ask the world, say)
+  // still makes room beside the page as it does outside focus mode, never lying over its words.
   const focus = useFocusMode((s) => s.on)
-  return deskFit(windowW, columnW, wantsFull && !focus, drawerOpen && !focus)
+  // (In focus mode the drawer shows only for Ask or a name shown beside the page, as App.tsx decides; the scene panel
+  // left open doesn't count.)
+  const focusDrawer = useApp((s) => s.askOpen || s.peekEntryId !== null)
+  return deskFit(windowW, columnW, wantsFull && !focus, drawerOpen && (!focus || focusDrawer))
 }
 
 /** How long the sheet's glide may take at most (the spine opening out, 280ms), with a little to spare. */

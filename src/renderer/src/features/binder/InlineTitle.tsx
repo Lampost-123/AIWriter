@@ -12,7 +12,8 @@ export function InlineTitle({
   onCommit,
   onDone,
   className,
-  label
+  label,
+  placeholder
 }: {
   value: string
   /** Saves the title. Return the save, so closing the window waits for it. */
@@ -21,6 +22,8 @@ export function InlineTitle({
   onDone: () => void
   className?: string
   label: string
+  /** Shown while the box is empty (a scene that has no title yet). */
+  placeholder?: string
 }): React.JSX.Element {
   const ref = useRef<HTMLInputElement>(null)
   const finished = useRef(false)
@@ -56,6 +59,7 @@ export function InlineTitle({
       ref={ref}
       aria-label={label}
       defaultValue={value}
+      placeholder={placeholder}
       spellCheck={false}
       onKeyDown={(e) => {
         e.stopPropagation()
@@ -72,7 +76,7 @@ export function InlineTitle({
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       className={cn(
-        'min-w-0 flex-1 rounded-[4px] bg-page px-1 -mx-1 text-fg outline-none ring-1 ring-accent/60 selection:bg-accent/25',
+        'min-w-0 flex-1 rounded-[4px] bg-page px-1 -mx-1 text-fg outline-none ring-1 ring-accent/60 placeholder:text-faint selection:bg-accent/25',
         className
       )}
     />

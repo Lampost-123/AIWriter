@@ -351,7 +351,12 @@ function Bar({ s }: { s: Suggestion }): React.JSX.Element {
   return (
     <div className="rounded-lg border border-ai/30 bg-surface shadow-soft animate-fade-in">
       <div className="flex h-10 items-center gap-1.5 px-1.5">
-        {busy ? (
+        {busy && desk ? (
+          // The desk's dock says what the AI is doing (with Stop): said here too, it was said twice at once.
+          <span className="flex min-w-0 flex-1 items-center pl-2.5" aria-hidden>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai animate-pulse" />
+          </span>
+        ) : busy ? (
           <>
             <span className="flex min-w-0 flex-1 items-center gap-2 pl-1.5 text-[12.5px] font-medium text-ai" aria-live="polite">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ai animate-pulse" aria-hidden />

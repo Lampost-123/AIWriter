@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 import { createWorldFromWelcome, expect, invoke, openSettings, ROOT, startFake, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const MEMORY = /^\[AIWRITE-(MEMORY-KEEPER|ONE-READING|MEMORY-SUMMARY|CONTINUITY)/
 const PLAN = '[AIWRITE-PLAN v2]'
 const EDIT = '[AIWRITE-EDIT v1]'
@@ -63,6 +63,13 @@ test('Writing temperature: a DeepSeek writer, Custom set with the slider and the
     await box.fill('3')
     await box.press('Enter')
     await expect(box).toHaveValue('2.0')
+    await box.fill('1.5')
+    await box.press('Enter')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.5)
+    // A number typed is kept after a short pause, without Enter or leaving the box (closing the window can't lose it).
+    await box.fill('1.3')
+    await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.3)
+    await expect(box).toBeFocused()
     await box.fill('1.5')
     await box.press('Enter')
     await expect.poll(async () => (await invoke(win, 'getSettings')).writingTemperature).toBe(1.5)

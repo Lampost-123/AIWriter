@@ -67,7 +67,7 @@ function SaveIndicator(): React.JSX.Element {
     <span
       aria-live="polite"
       className={cn(
-        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-300 look-new:min-w-[64px]',
+        'min-w-[110px] shrink-0 whitespace-nowrap text-right text-[12px] transition-opacity duration-(--dur-base) look-new:min-w-[64px]',
         state === 'error' ? 'text-danger' : 'text-faint',
         !label && 'opacity-0'
       )}
@@ -164,10 +164,10 @@ export function WorldMenu({ trigger }: { trigger: RefObject<HTMLButtonElement | 
           )}
         >
           <Globe2 size={14} className="shrink-0 text-muted look-new:hidden" />
-          {/* The New look: the world's glyph, a small lit tile. */}
+          {/* The New look: the world's glyph, a small tile in the accent Adam picked. */}
           <span
             aria-hidden
-            className="hidden h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(140deg,#4a6fa0,#2c4466)] text-[#f3d9a4] shadow-[inset_0_1px_0_rgb(255_255_255/0.25),var(--elev-1)] look-new:grid desk:hidden"
+            className="hidden h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[linear-gradient(140deg,var(--accent),color-mix(in_oklab,var(--accent)_76%,black))] text-accent-fg shadow-[inset_0_1px_0_rgb(255_255_255/0.25),var(--elev-1)] look-new:grid desk:hidden"
           >
             <Globe2 size={14} />
           </span>

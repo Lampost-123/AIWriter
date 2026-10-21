@@ -17,7 +17,7 @@ export const PART_WORDS: Record<RecipePartId, { label: string; hint: string; sho
   beats: { label: 'Beats', hint: 'What happens, chapter by chapter, as general moves anyone could reuse.' },
   cast: { label: 'Cast roles', hint: 'The parts the characters play, each one’s arc, and how they relate.' },
   pacing: { label: 'Pacing', hint: 'Chapter and scene lengths, how much is dialogue, where tension rises and falls.' },
-  devices: { label: 'Devices', hint: 'Set-ups and pay-offs, twists and recurring motifs.' }
+  devices: { label: 'Devices', hint: 'Setups and payoffs, twists and recurring motifs.' }
 }
 
 /** The groups the recipe page shows its parts in. */

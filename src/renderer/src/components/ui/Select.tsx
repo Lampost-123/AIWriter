@@ -1,6 +1,7 @@
 import * as S from '@radix-ui/react-select'
 import { Check, ChevronDown } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
+import { DISABLED, FOCUS_RING, RADIUS } from './controls'
 
 export interface SelectOption {
   value: string
@@ -19,7 +20,8 @@ export function Select({
   className,
   allowNone,
   noneLabel = 'None',
-  ariaLabel
+  ariaLabel,
+  disabled
 }: {
   value: string | null
   onChange: (v: string | null) => void
@@ -32,14 +34,18 @@ export function Select({
   noneLabel?: string
   /** What a screen reader hears it is, when no label on the page names it. */
   ariaLabel?: string
+  disabled?: boolean
 }): React.JSX.Element {
   return (
-    <S.Root value={value ?? (allowNone ? NONE : undefined)} onValueChange={(v) => onChange(v === NONE ? null : v)}>
+    <S.Root disabled={disabled} value={value ?? (allowNone ? NONE : undefined)} onValueChange={(v) => onChange(v === NONE ? null : v)}>
       <S.Trigger
         id={id}
         aria-label={ariaLabel}
         className={cn(
-          'inline-flex h-8 w-full items-center justify-between gap-2 rounded-md border border-line bg-page px-2.5 text-left text-[13.5px] text-fg transition-colors hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 data-[placeholder]:text-faint',
+          'inline-flex h-8 w-full items-center justify-between gap-2 border border-line bg-page px-2.5 text-left text-[13.5px] text-fg transition-colors duration-(--dur-quick) hover:border-line-strong focus-visible:border-accent data-[state=open]:border-accent data-[placeholder]:text-faint',
+          RADIUS.md,
+          FOCUS_RING,
+          DISABLED,
           className
         )}
       >

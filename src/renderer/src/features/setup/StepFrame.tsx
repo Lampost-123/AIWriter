@@ -47,7 +47,7 @@ export function StepFrame({
             </Button>
           ) : null}
           {next ? (
-            <Button variant="primary" size="lg" disabled={next.disabled} loading={next.loading} onClick={next.run}>
+            <Button data-step-next variant="primary" size="lg" disabled={next.disabled} loading={next.loading} onClick={next.run}>
               {next.label}
             </Button>
           ) : null}

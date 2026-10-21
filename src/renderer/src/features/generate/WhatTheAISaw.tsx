@@ -16,8 +16,9 @@ import { cn } from '@/lib/cn'
 import { requestPutBack } from '@/features/editor/putBack'
 import { variantsBackTo } from '@/features/variants/back'
 import { editRecordWords, type EditRecordWords } from '@/features/edits/record'
-import { THINKING_LABELS, budgetShare, creativityOf, formatContext, formatCost, formatNumber, fullDate } from './format'
+import { THINKING_LABELS, budgetShare, creativityOf, formatCost, formatNumber, fullDate } from './format'
 import { Skeleton, useDelayed } from './parts'
+import { aboutWords, wordsFor } from '@/features/settings/words'
 import { BriefingArt } from '@/components/art/RoomArt'
 import { useDesk } from '@/features/look/look'
 import { ReceiptInSaw } from '@/features/receipt/DirectionReceipt'
@@ -262,7 +263,7 @@ function DraftRecord({
           <Notice>
             {edit?.cutOff ?? (
               <>
-                The model ran out of room before the end of the scene: it reached its reply limit of {formatNumber(rec.params.max_tokens)} tokens, so the
+                The model ran out of room before the end of the scene: it reached its reply limit of {aboutWords(rec.params.max_tokens)}, so the
                 draft stops part-way. Try a shorter length, or a writer model that can write more in one go.
               </>
             )}
@@ -309,13 +310,13 @@ function DraftRecord({
           }
         />
         <Meta
-          label="Tokens sent"
-          value={rec.promptTokens != null ? formatNumber(rec.promptTokens) : `about ${formatNumber(rec.budget.used)}`}
+          label="Words sent"
+          value={`about ${formatNumber(wordsFor(rec.promptTokens ?? rec.budget.used))}`}
           note={rec.promptTokens != null ? `Counted by ${rec.providerName}` : "AI Write's estimate"}
         />
         <Meta
-          label="Tokens written"
-          value={rec.completionTokens != null ? formatNumber(rec.completionTokens) : '—'}
+          label="Words written"
+          value={rec.completionTokens != null ? `about ${formatNumber(wordsFor(rec.completionTokens))}` : '—'}
           note={rec.completionTokens != null ? `Counted by ${rec.providerName}` : undefined}
         />
         <Meta
@@ -627,7 +628,7 @@ function BudgetBar({
       <div className="flex items-baseline justify-between gap-4 text-[13px]">
         <span className="font-medium text-fg">Briefing size (AI Write's estimate)</span>
         <span className="tabular-nums text-muted">
-          {formatNumber(used)} of {formatNumber(available)} tokens{' '}
+          about {formatNumber(wordsFor(used))} of {formatNumber(wordsFor(available))} words{' '}
           <span className={cn('font-medium', tight ? 'text-ai' : 'text-fg')}>({Number.isFinite(share) ? `${Math.round(share * 100)}%` : 'over'})</span>
         </span>
       </div>
@@ -635,8 +636,8 @@ function BudgetBar({
         <div className={cn('h-full rounded-full transition-[width] duration-200', tight ? 'bg-ai' : 'bg-accent')} style={{ width: `${Math.max(pct, used > 0 ? 1 : 0)}%` }} />
       </div>
       <p className="mt-2 text-[12px] text-faint">
-        The model can read {formatContext(contextLength)} tokens. {formatNumber(reserved)} are kept for the reply and a little more as a safety margin, which leaves{' '}
-        {formatNumber(available)} for the briefing.
+        The model can read {aboutWords(contextLength)} at once. About {formatNumber(wordsFor(reserved))} are kept for the reply and a little more as a safety margin,
+        which leaves about {formatNumber(wordsFor(available))} for the briefing.
         {providerCounted ? ' AI Write counts with a 10% allowance to be safe, so its estimate can differ a little from the count the provider reported above.' : ''}
       </p>
     </Card>
@@ -720,7 +721,7 @@ function BlockRow({
         {block.dropped ? (
           <span className="shrink-0 text-[12px] text-faint">Left out: not enough room</span>
         ) : (
-          <span className="shrink-0 text-[12px] tabular-nums text-faint">{formatNumber(block.tokens)} tokens</span>
+          <span className="shrink-0 text-[12px] tabular-nums text-faint">about {formatNumber(wordsFor(block.tokens))} words</span>
         )}
       </button>
       {open ? (

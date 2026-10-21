@@ -1,6 +1,7 @@
 // The usage page's words (milestone 6, Usage and cost). Pure, so it is unit-tested.
 
 import type { UsagePeriod, UsageTotals } from '@shared/contracts/usage'
+import { WORDS_PER_TOKEN } from '@/features/settings/words'
 
 export const PERIODS: { value: UsagePeriod; label: string }[] = [
   { value: 'this-month', label: 'This month' },
@@ -9,12 +10,15 @@ export const PERIODS: { value: UsagePeriod; label: string }[] = [
   { value: 'all-time', label: 'All time' }
 ]
 
-/** "950 tokens", "12.3k tokens", "2.4M tokens". */
+/**
+ * A count of tokens said as words (the Words rule: never "tokens"), at about three words to four tokens:
+ * "710 words", "9.3k words", "1.8M words".
+ */
 export function tokenWords(n: number): string {
-  const v = Math.max(0, Math.round(n))
-  if (v < 1000) return `${v.toLocaleString('en-US')} ${v === 1 ? 'token' : 'tokens'}`
-  if (v < 1_000_000) return `${trim(v / 1000)}k tokens`
-  return `${trim(v / 1_000_000)}M tokens`
+  const v = Math.max(0, Math.round(n * WORDS_PER_TOKEN))
+  if (v < 1000) return `${v.toLocaleString('en-US')} ${v === 1 ? 'word' : 'words'}`
+  if (v < 1_000_000) return `${trim(v / 1000)}k words`
+  return `${trim(v / 1_000_000)}M words`
 }
 
 const trim = (n: number): string => (n >= 100 ? String(Math.round(n)) : n.toFixed(1).replace(/\.0$/, ''))
@@ -24,14 +28,14 @@ export const callWords = (n: number): string => `${n.toLocaleString('en-US')} ${
 
 type TokenCounts = Pick<UsageTotals, 'promptTokens' | 'completionTokens'> & { cachedTokens?: number }
 
-/** "41.2k tokens", and "41.2k tokens, 12k from the cache" when the provider reused some of the prompts. */
+/** "30.9k words", and "30.9k words, 9k from the cache" when the provider reused some of the prompts. */
 export function tokensWithCache(t: TokenCounts): string {
   const all = tokenWords(t.promptTokens + t.completionTokens)
   const cached = Math.round(t.cachedTokens ?? 0)
-  return cached > 0 ? `${all}, ${tokenWords(cached).replace(/ tokens?$/, '')} from the cache` : all
+  return cached > 0 ? `${all}, ${tokenWords(cached).replace(/ words?$/, '')} from the cache` : all
 }
 
-/** "37 calls · 41.2k tokens" (with the cached part, when there is one). */
+/** "37 calls · 30.9k words" (with the cached part, when there is one). */
 export const callsAndTokens = (t: Pick<UsageTotals, 'calls'> & TokenCounts): string => `${callWords(t.calls)} · ${tokensWithCache(t)}`
 
 /** The honest notes under the numbers: calls with no price, and prices that are estimates. */

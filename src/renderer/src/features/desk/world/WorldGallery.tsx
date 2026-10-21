@@ -21,9 +21,11 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { KIND_LABELS } from '@shared/fields'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { EntryKind, ID } from '@shared/types'
-import { Button, EmptyState, Notice, toast } from '@/components/ui'
+import { Button, EmptyState, toast } from '@/components/ui'
+import { LoadFailed, LoadSlow } from '@/components/ui/LoadState'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { plainReason } from '@/lib/reason'
 import { keyboardDriven, reducedMotion } from '@/features/look/motion'
 import { firstInView, itemOf, putBack } from '@/features/codex/codexPlace'
 import { useCodex } from '@/features/codex/codexStore'
@@ -47,7 +49,7 @@ import { BUILD_WORDS, openBuilder } from '@/features/builder/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { GalleryCard, type OpenHow } from './GalleryCard'
 import { KindBannerView, NewKindCard } from './KindBanner'
-import { CARD_SIZE, SHAPE_OF, gallerySections, galleryTabs, heroLayout, kindBanner, staggerDelay, tabClip, worldLine } from './galleryLogic'
+import { CARD_SIZE, SHAPE_OF, gallerySections, galleryTabs, heroLayout, kindBanner, kindToAdd, staggerDelay, tabClip, worldLine } from './galleryLogic'
 import type { WorldData } from './worldData'
 
 /** How long the cards take to fade out before a new tab's come in (the desk's exits). */
@@ -77,17 +79,18 @@ async function newEntry(kind: EntryKind, open: (id: ID, kind: EntryKind) => void
     const e = await createEntry(kind)
     open(e.id, e.kind)
   } catch (err) {
-    toast(`Couldn’t create the ${KIND_LABELS[kind].one.toLowerCase()}. ${(err as Error).message}`, { tone: 'danger' })
+    toast(`Couldn’t create the ${KIND_LABELS[kind].one.toLowerCase()}. ${plainReason(err)}`, { tone: 'danger' })
   }
 }
 
 /** The kinds with a builder, step by step with the AI's help. */
 const BUILDER_KINDS = ['character', 'place', 'group', 'item'] as const
 
-/** The kinds to make, as a menu's rows (the New entry button's, and the ghost card's), then the builders. */
+/** The kinds to make, as a menu's rows (the Add to the world button's, and the ghost card's), then the builders. */
 function NewEntryItems({ onPick }: { onPick: (kind: EntryKind) => void }): React.JSX.Element {
   return (
     <>
+      <M.Label className={LABEL}>Start from scratch</M.Label>
       {GALLERY_KINDS.map((k) => {
         const Icon = KIND_ICONS[k]
         return (
@@ -95,7 +98,7 @@ function NewEntryItems({ onPick }: { onPick: (kind: EntryKind) => void }): React
             <span aria-hidden className={cn('grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[6px]', KIND_INK[k].tile)}>
               <Icon size={14} />
             </span>
-            {k === 'lore' ? 'Lore' : k === 'glossary' ? 'A term' : `A ${KIND_LABELS[k].one.toLowerCase()}`}
+            {kindToAdd(k)}
           </M.Item>
         )
       })}
@@ -328,21 +331,16 @@ export function WorldGallery({
   let body: React.ReactNode
   if (cards === null && error) {
     body = (
-      <div className="mx-auto max-w-md pt-16">
-        <Notice
-          tone="danger"
-          action={
-            <Button size="sm" onClick={retry}>
-              Try again
-            </Button>
-          }
-        >
-          Couldn’t load the world. {error}
-        </Notice>
-      </div>
+      <LoadFailed
+        title="Couldn’t load the world"
+        reason={plainReason(error)}
+        icon={<LayoutGrid size={20} />}
+        onRetry={retry}
+        className="mt-[6vh]"
+      />
     )
   } else if (cards === null) {
-    body = null
+    body = <LoadSlow text="Opening the world…" className="mt-[10vh] text-center" />
   } else if (!all.length) {
     body = (
       <EmptyState
@@ -398,6 +396,8 @@ export function WorldGallery({
         {sections.map((s) => {
           const headAt = order
           const id = `g-sec-${s.kind}`
+          // The story's lead is drawn larger on the Characters page only; on Everything the cast stands in one even row.
+          const lead = chosen === s.kind ? s.featured : null
           return (
             <section
               key={s.kind}
@@ -433,7 +433,7 @@ export function WorldGallery({
                       data-codex-item={c.id}
                       className="g-item g-in"
                       data-shape={s.shape}
-                      data-featured={s.featured === c.id || undefined}
+                      data-featured={lead === c.id || undefined}
                     >
                       <GalleryCard
                         card={c}
@@ -441,7 +441,7 @@ export function WorldGallery({
                         entry={entry}
                         thread={threads.get(c.id) ?? null}
                         inside={parent?.name.trim() ?? ''}
-                        featured={s.featured === c.id}
+                        featured={lead === c.id}
                         delay={delay}
                         opened={openId === c.id}
                         motif={motifs.get(c.id) ?? null}
@@ -509,10 +509,14 @@ export function WorldGallery({
           {sub ? (
             // Each part keeps its number with its word when the line wraps.
             <p className="g-sub">
-              {sub.split(' · ').map((part, i) => (
+              {sub.split(' · ').map((part, i, all) => (
                 <Fragment key={i}>
-                  {i ? ' · ' : ''}
-                  <span className="whitespace-nowrap">{part}</span>
+                  {/* The dot stays at the end of its line when the line wraps, never at the start of the next. */}
+                  <span className="whitespace-nowrap">
+                    {part}
+                    {i < all.length - 1 ? ' ·' : ''}
+                  </span>
+                  {i < all.length - 1 ? ' ' : ''}
                 </Fragment>
               ))}
             </p>
@@ -547,11 +551,10 @@ export function WorldGallery({
           <M.Root modal={false}>
             <M.Trigger className="g-new">
               <Plus size={15} aria-hidden />
-              <span>New entry</span>
+              <span>Add to the world</span>
             </M.Trigger>
             <M.Portal>
               <M.Content align="end" sideOffset={6} collisionPadding={8} className={MENU}>
-                <M.Label className={LABEL}>Add to the world</M.Label>
                 <NewEntryItems onPick={(k) => void newEntry(k, onCreated)} />
               </M.Content>
             </M.Portal>
@@ -561,7 +564,7 @@ export function WorldGallery({
 
       {all.length ? (
         <div className="g-tabbar">
-          <div ref={row} role="tablist" aria-label="Kinds of entry" className="g-tabs" onKeyDown={onTabKey}>
+          <div ref={row} role="tablist" aria-label="What is in the world" className="g-tabs" onKeyDown={onTabKey}>
             {tabs.map((t) => {
               const on = t.kind === chosen
               const Icon = t.kind ? KIND_ICONS[t.kind] : LayoutGrid
@@ -699,7 +702,7 @@ export function WorldGallery({
       >
         {error && cards ? (
           <p className="g-error" role="status">
-            Couldn’t refresh the world. {error}{' '}
+            Couldn’t refresh the world. {plainReason(error)}{' '}
             <button type="button" className="font-medium text-accent underline-offset-2 hover:underline" onClick={retry}>
               Try again
             </button>

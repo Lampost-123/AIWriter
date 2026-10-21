@@ -14,11 +14,15 @@ const scroller = (win: Page) => win.locator('main .overflow-y-auto').first()
 const scrollTop = (win: Page) => scroller(win).evaluate((el) => el.scrollTop)
 
 /** Adds a scene at the end of the first chapter from the binder, keeping its suggested title. */
-async function addScene(win: Page): Promise<void> {
+async function addScene(win: Page, title: string): Promise<void> {
   const chapter = binder(win).locator('[data-row="chapter"]').first()
   await chapter.hover()
   await chapter.getByRole('button', { name: 'Add a scene to this chapter' }).click()
-  await win.getByRole('textbox', { name: 'Scene title' }).press('Enter')
+  // A new scene is untitled until it is named (its number would go stale as scenes move).
+  const rename = win.getByRole('textbox', { name: 'Scene title' })
+  await expect(rename).toHaveValue('')
+  await rename.fill(title)
+  await rename.press('Enter')
 }
 
 test('typing goes straight into the page after creating a world and after opening a scene', async ({ launch }) => {
@@ -28,7 +32,7 @@ test('typing goes straight into the page after creating a world and after openin
   await win.keyboard.type('abc')
   await expect(prose(win)).toContainText('abc')
 
-  await addScene(win)
+  await addScene(win, 'Scene 2')
   await row(win, 'Scene 1').click()
   await expect(prose(win)).toBeFocused()
   await win.keyboard.type('def')
@@ -91,7 +95,7 @@ test('leaving the page and coming back keeps the place in a long scene', async (
   const para = 'The harbour lamps burned low while the fishermen hauled their nets across the slick stones, and Mara watched the water.'
   await invoke(win, 'saveSceneText', scenes[0].id, null, Array.from({ length: 300 }, (_, i) => `${i + 1}. ${para}`).join('\n\n'))
   // Open it afresh (from another scene) so the page shows the stored text.
-  await addScene(win)
+  await addScene(win, 'Scene 2')
   await row(win, 'Scene 1').click()
   await expect(prose(win)).toContainText('300. The harbour')
 
@@ -184,8 +188,8 @@ test('emptying a drafted scene puts it back to planned', async ({ launch }) => {
 test('deletes share one Undo that waits while hovered; Ctrl+Z and Recently deleted bring things back', async ({ launch }) => {
   const { win } = await launch()
   await createWorldFromWelcome(win, 'Alpha')
-  await addScene(win)
-  await addScene(win)
+  await addScene(win, 'Scene 2')
+  await addScene(win, 'Scene 3')
   const undo = win.getByRole('button', { name: 'Undo' })
   const toastText = (t: string) => win.locator('[aria-live="polite"]').getByText(t)
 

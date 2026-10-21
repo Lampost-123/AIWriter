@@ -10,7 +10,7 @@ import { Check, ChevronDown, Plus, RotateCcw, Sparkles, Square, Trash2, Undo2, U
 import type { CodexItem } from '@shared/contracts/storyBuilder'
 import type { EntryKind, ID } from '@shared/types'
 import { KIND_LABELS } from '@shared/fields'
-import { Button, Input, Notice } from '@/components/ui'
+import { Button, Checkbox, Input, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -47,13 +47,11 @@ export interface CodexStepProps {
   storyId: ID
   /** Goes to another section of Build with AI (Your idea, the story line). */
   onGo: (section: 'idea' | 'line') => void
-  /** Shows "From a summary" in place of this. */
-  onSummary: () => void
   /** The story's premise: the idea while there is no plot (Your idea shows it in the idea field). */
   premise?: string
 }
 
-export function CodexStep({ storyId, onGo, onSummary, premise = '' }: CodexStepProps): React.JSX.Element {
+export function CodexStep({ storyId, onGo, premise = '' }: CodexStepProps): React.JSX.Element {
   const b = useBuilders((s) => s.builders[builderKey(storyId)])!
   const brief = b.brief!
   const items = brief.codex
@@ -105,12 +103,8 @@ export function CodexStep({ storyId, onGo, onSummary, premise = '' }: CodexStepP
             <Users size={22} className="mx-auto text-faint" aria-hidden />
             <p className="mt-2 font-serif text-[16px] text-fg">Everything your story needs, planned before it’s built</p>
             <p className="mx-auto mt-1 max-w-[460px] text-[13px] leading-relaxed text-muted">
-              The AI lists the characters, places, groups, objects, lore, events, plot threads and words your story needs, building on your idea.
-              Tick what you want, change anything, then build it all into your codex.
+              The AI lists the characters, places, lore and more that your idea needs; tick what you want, change anything, then build it into your codex.
             </p>
-            <button type="button" className="mt-3 text-[12px] text-muted hover:text-fg hover:underline" onClick={onSummary}>
-              Or build it from a summary you write
-            </button>
           </div>
         ) : (
           <>
@@ -177,13 +171,12 @@ function ItemRow({ storyId, item, locked }: { storyId: ID; item: CodexItem; lock
   return (
     <li className={cn('px-3.5 py-2.5', !item.on && 'opacity-60')} data-item={item.key}>
       <div className="flex items-start gap-2.5">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+        <Checkbox
+          className="mt-1"
           checked={item.on}
           disabled={locked}
           aria-label={`Build ${item.name || 'this'}`}
-          onChange={(e) => patchItem(storyId, item.key, { on: e.target.checked })}
+          onChange={(on) => patchItem(storyId, item.key, { on })}
         />
         <div className="min-w-0 flex-1">
           {editing && !locked ? (

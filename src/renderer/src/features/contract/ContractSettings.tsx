@@ -1,9 +1,8 @@
 // Settings › Models: give each scene a contract (long story memory fix 13), on by default. Off, a draft's briefing has
 // no contract, the plan doesn't say what must change, and the check of new words is as it was (src/main/ai/contract.ts).
 import { useId } from 'react'
-import { SettingsSection } from '@/components/ui'
+import { SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 
 export function ContractSettings(): React.JSX.Element | null {
   const on = useApp((s) => s.settings?.sceneContracts ?? true)

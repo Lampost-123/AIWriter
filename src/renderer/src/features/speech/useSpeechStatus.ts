@@ -15,8 +15,8 @@ const useStore = create<{ status: SpeechStatus | null }>(() => ({ status: null }
 const DONE: Record<SpeechDownloadKind, string> = {
   server: 'The speech engine is downloaded.',
   voices: 'The voices are downloaded.',
-  parakeet: 'Parakeet is downloaded.',
-  whisper: 'Whisper is downloaded.',
+  parakeet: 'Sharper dictation is downloaded.',
+  whisper: 'Smaller dictation is downloaded.',
   sounds: 'The sound effects are downloaded.',
   studio: 'The studio voices are downloaded.'
 }

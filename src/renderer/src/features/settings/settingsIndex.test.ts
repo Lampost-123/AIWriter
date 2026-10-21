@@ -19,4 +19,8 @@ describe('Settings in the New look', () => {
     // A word must start a word: "ark" doesn't find "Dark".
     expect(findSettings('ark')).toEqual([])
   })
+
+  it('says each page in Adam’s words (never "entries" or "tokens")', () => {
+    for (const p of SETTINGS_PAGES) expect(p.blurb, p.id).not.toMatch(/\b(entr(y|ies)|tokens?)\b/i)
+  })
 })

@@ -84,9 +84,9 @@ export async function addScene(chapterId: ID, afterId?: ID | null): Promise<ID |
   }
 }
 
+/** An empty title makes the scene untitled again (shown as "Untitled scene"), as a chapter's later scenes start. */
 export async function renameScene(id: ID, title: string): Promise<void> {
   const clean = title.trim()
-  if (!clean) return
   outlineStore().patch((o) => ({ ...o, scenes: o.scenes.map((s) => (s.id === id ? { ...s, title: clean } : s)) }))
   try {
     await api.updateScene(id, { title: clean })

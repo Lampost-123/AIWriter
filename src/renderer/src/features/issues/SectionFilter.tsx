@@ -26,8 +26,8 @@ export function SectionFilter<S extends IssueSection>({
       onClick={() => onChange(v)}
       title={v === 'all' ? 'Every section' : SECTION_HINTS[v as IssueSection]}
       className={cn(
-        'flex h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 text-[12px] outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-accent/40',
-        value === v ? 'bg-surface-3 font-medium text-fg' : 'text-muted hover:bg-surface-2 hover:text-fg'
+        'flex h-7 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-[9px] px-2.5 text-[12px] outline-none transition-[background-color,color,box-shadow] duration-(--dur-quick) ease-glide focus-visible:ring-2 focus-visible:ring-accent/40',
+        value === v ? 'bg-page font-medium text-fg shadow-e1' : 'text-muted hover:bg-surface-3/70 hover:text-fg'
       )}
     >
       {label}
@@ -35,15 +35,20 @@ export function SectionFilter<S extends IssueSection>({
     </button>
   )
   return (
-    // Two even rows in a narrow panel, one row where there is room (the panel is a container).
-    <div
-      role="group"
-      aria-label="Show"
-      // `className` in place of the list's own room around it (px-3 pb-1.5).
-      className={cn('grid gap-1', sections.length > 3 ? 'grid-cols-3 @min-[560px]:grid-cols-6' : 'w-fit grid-flow-col', className ?? 'px-3 pb-1.5')}
-    >
-      {chip('all', 'All')}
-      {sections.map((k) => chip(k, SECTION_WORDS[k]))}
+    // `className` in place of the list's own room around it (px-3 pb-1.5).
+    <div className={className ?? 'px-3 pb-1.5'}>
+      {/* One tray, like the other filters: two even rows in a narrow panel, one row where there is room (the panel is a container). */}
+      <div
+        role="group"
+        aria-label="Show"
+        className={cn(
+          'grid gap-0.5 rounded-[12px] bg-surface-2 p-[3px] ring-1 ring-line ring-inset',
+          sections.length > 3 ? 'grid-cols-3 @min-[560px]:grid-cols-6' : 'w-fit grid-flow-col'
+        )}
+      >
+        {chip('all', 'All')}
+        {sections.map((k) => chip(k, SECTION_WORDS[k]))}
+      </div>
     </div>
   )
 }

@@ -74,14 +74,17 @@ test('the gallery: a tab for each kind, counting what it holds; each tab shows j
     clip = now
   }
 
-  // Cards are drawn as their kind's material, the story's lead larger.
+  // Cards are drawn as their kind's material; the story's lead is larger only on the Characters page, so on All the cast
+  // stands in one even row (review: a taller lead card misaligned it).
+  await tab(win, 'Characters').click()
+  await expect(gallery(win).locator('[data-featured][data-gallery-card]')).toHaveCount(1)
+  await expect(gallery(win).locator('[data-featured][data-gallery-card]')).toHaveAttribute('aria-label', /^Wren Halloway/)
   await tab(win, 'All').click()
   await expect(cards(win)).toHaveCount(11)
   expect(await gallery(win).locator('[data-shape="portrait"][data-gallery-card]').count()).toBe(counts.character)
   expect(await gallery(win).locator('[data-shape="landscape"][data-gallery-card]').count()).toBe(counts.place)
   expect(await gallery(win).locator('[data-shape="index"][data-gallery-card]').count()).toBe(counts.thread)
-  await expect(gallery(win).locator('[data-featured][data-gallery-card]')).toHaveCount(1)
-  await expect(gallery(win).locator('[data-featured][data-gallery-card]')).toHaveAttribute('aria-label', /^Wren Halloway/)
+  await expect(gallery(win).locator('[data-featured][data-gallery-card]')).toHaveCount(0)
 
   // From the keyboard the tabs move with the arrows, at once.
   await tab(win, 'All').focus()
@@ -588,15 +591,16 @@ test('the cards and the dossier show each entry’s drawing, none twice side by 
   await expect(win.locator('[data-motif-picker]')).toHaveCount(0)
 })
 
-test('a character’s read-aloud voice is in the dossier’s facts, and its section sits right under who they are', async ({ launch }) => {
+test('a character’s read-aloud voice sits right under who they are, and shows in the facts once they have one', async ({ launch }) => {
   // Adam couldn't find where to give a character a voice: it was at the foot of the dossier, after the private notes.
+  // With no voice yet there is one voice block (the section), not a "Not set" fact above it as well (review #32).
   const { win } = await sampleWorld(launch)
   await room(win, 'World').click()
   await card(win, 'Wren Halloway').click()
   const d = dossier(win)
   await expect(d).toBeVisible()
   const fact = d.locator('.dz-fact', { hasText: 'Read-aloud voice' })
-  await expect(fact).toContainText('Not set')
+  await expect(fact).toHaveCount(0)
   // The voice's section comes straight after "Who they are", a dossier section (no box of its own), and says read aloud
   // is off, with the way to turn it on.
   const titles = await d
@@ -617,14 +621,15 @@ test('a character’s read-aloud voice is in the dossier’s facts, and its sect
         ).backgroundColor
     )
   ).toBe('rgba(0, 0, 0, 0)')
-  // The fact goes to it, with the caret in How they sound; what is written there shows in the fact.
+  // What is written there shows in the facts, and that fact goes back to it, with the caret in How they sound.
+  await voice.getByLabel('How they sound').click()
+  await win.keyboard.type('Low and quick, with a laugh held back.')
+  await d.getByRole('heading', { level: 2 }).click()
+  await expect(fact).toContainText('Made from their description')
   await d.locator('.dz-body').evaluate((el) => (el.scrollTop = el.scrollHeight))
   await fact.getByRole('button').click()
   await expect(voice).toBeInViewport()
   await expect(voice.getByLabel('How they sound')).toBeFocused()
-  await win.keyboard.type('Low and quick, with a laugh held back.')
-  await d.getByRole('heading', { level: 2 }).click()
-  await expect(fact).toContainText('Made from their description')
 })
 
 test('on the desk, the Cast list’s Open page and a speaker’s name open the character’s dossier at their voice', async ({ launch }) => {

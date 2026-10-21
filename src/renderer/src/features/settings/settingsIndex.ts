@@ -93,8 +93,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       {
         id: 'trash',
         label: 'Recently deleted',
-        blurb: 'Scenes, chapters and entries deleted from the open world, kept for 30 days.',
-        finds: ['Trash', 'Bring back', 'Undo delete', 'Deleted scenes', 'Deleted entries']
+        blurb: 'Scenes, chapters, characters, places and lore you deleted, kept for 30 days.',
+        finds: ['Trash', 'Bring back', 'Undo delete', 'Deleted scenes', 'Deleted characters', 'Deleted places', 'Deleted lore']
       },
       {
         id: 'usage',

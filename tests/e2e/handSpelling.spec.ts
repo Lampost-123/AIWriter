@@ -286,7 +286,7 @@ test('a draft’s words count as AI words kept, not typed, and come off again wh
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status, { timeout: 30_000 }).toBe('complete')
     await expect(countButton(win)).not.toHaveText('0 words')
     const sceneWords = Number((await countButton(win).innerText()).replace(/\D/g, ''))

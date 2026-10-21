@@ -16,7 +16,7 @@ import type { Editor } from '@tiptap/core'
 import { ArrowDownToLine, Check, ChevronDown, CircleAlert, Drama, Pause, Play, RotateCcw, SkipBack, SkipForward, Square, X } from '@/components/ui/icons'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Spinner } from '@/components/ui'
+import { Button, Spinner, Switch } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { isShortcut, withShortcut } from '@/lib/shortcuts'
 import { useApp } from '@/lib/store'
@@ -24,7 +24,6 @@ import { api } from '@/lib/api'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { PopoverPanel } from '@/features/generate/parts'
 import { SceneMuteButton } from '@/features/sounds/SceneMuteButton'
-import { Switch } from '@/features/world/parts/Switch'
 import {
   attachPage,
   closeReading,

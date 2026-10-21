@@ -264,3 +264,35 @@ describe('the series bible', () => {
     expect(md).not.toContain(storyId)
   })
 })
+
+describe('an untitled scene', () => {
+  // A chapter's later scenes are made with no title (repo.createScene) and shown as "Untitled scene".
+  it('exports its words with one break and never a blank heading, empty quotes or a stray colon', () => {
+    const db = memoryWorld('Reach')
+    const [story] = repo.listStories(db)
+    repo.updateStory(db, story.id, { title: 'Low Water' })
+    const o = repo.getOutline(db, story.id)
+    repo.saveSceneText(db, o.scenes[0].id, null, 'The tide went out.')
+    const untitled = repo.createScene(db, o.chapters[0].id, {})
+    expect(untitled.title).toBe('')
+    repo.saveSceneText(db, untitled.id, null, 'Wren rowed out alone.')
+    const book = readBook(db, story.id, { kind: 'story' })
+    expect(book.chapters[0].blocks).toEqual([
+      { kind: 'para', runs: [{ text: 'The tide went out.' }] },
+      { kind: 'break' },
+      { kind: 'para', runs: [{ text: 'Wren rowed out alone.' }] }
+    ])
+    const docxText = strFromU8(unzipSync(writeDocx(book))['word/document.xml'])
+    const pages = epubParts(book)
+      .filter(([name]) => name.endsWith('.xhtml') || name.endsWith('.ncx'))
+      .map(([, text]) => text)
+      .join('\n')
+    for (const out of [bookMarkdown(book), bookText(book), printHtml(book), docxText, pages]) {
+      expect(out).toContain('Wren rowed out alone.')
+      expect(out).not.toMatch(/“”|""|<h\d[^>]*>\s*<\/h\d>|^#+\s*$|:\s*$/m)
+    }
+    const bible = readBible(db, story.id)
+    expect(bible.timeline.map((t) => t.title)).toContain('Untitled scene')
+    expect(bible.timeline.every((t) => t.title.trim())).toBe(true)
+  })
+})

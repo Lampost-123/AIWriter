@@ -478,7 +478,7 @@ export function describeChange(
   nameOf: (id: ID) => string | null,
   fieldLabel: (key: string) => string
 ): ChangeWords | null {
-  const self = nameOf(selfId) ?? 'This entry'
+  const self = nameOf(selfId) ?? 'This one'
   switch (c.kind) {
     case 'update': {
       const p = c.payload

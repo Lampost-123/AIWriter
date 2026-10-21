@@ -6,7 +6,7 @@ import { dollars } from '@shared/contracts/usage'
 import { createWorldFromWelcome, expect, invoke, startFake, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
 
 async function firstScene(win: Page): Promise<string> {

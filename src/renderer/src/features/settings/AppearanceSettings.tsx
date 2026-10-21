@@ -1,7 +1,9 @@
-import { useId, useRef } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { EditorSettings, Settings, ThemeName } from '@shared/types'
-import { arrangementOf, lookOf } from '@shared/contracts/look'
-import { Field, Select, SettingsSection } from '@/components/ui'
+import { accentIdOf, arrangementOf, lookOf } from '@shared/contracts/look'
+import type { PaintedTheme } from '@shared/api'
+import { cn } from '@/lib/cn'
+import { Field, Select, SettingsSection, Slider } from '@/components/ui'
 import { useApp } from '@/lib/store'
 import { AccentPicker } from '@/features/look/AccentPicker'
 import { LookPicker } from '@/features/look/LookPicker'
@@ -33,28 +35,38 @@ export function AppearanceSettings(): React.JSX.Element | null {
 }
 
 type RangeKey = 'fontSize' | 'lineHeight' | 'pageWidth'
+type PageLook = Pick<EditorSettings, RangeKey>
 
-function useRange(): ((label: string, key: RangeKey, min: number, max: number, step: number, fmt: (n: number) => string, styled?: boolean) => React.JSX.Element) | null {
-  const settings = useApp((s) => s.settings)
+const RANGES: { key: RangeKey; label: string; min: number; max: number; step: number; format: (n: number) => string }[] = [
+  { key: 'fontSize', label: 'Text size', min: 15, max: 24, step: 1, format: (n) => `${n}px` },
+  { key: 'lineHeight', label: 'Line spacing', min: 1.4, max: 2.1, step: 0.05, format: (n) => n.toFixed(2) },
+  { key: 'pageWidth', label: 'Page width', min: 55, max: 90, step: 1, format: (n) => `${n} characters` }
+]
+
+/**
+ * Text size, line spacing and page width. Each moves with the pointer and shows its value (and the preview, through
+ * `onLive`) as it moves; the setting is saved once, when it is let go.
+ */
+function PageSliders({ onLive }: { onLive?: (key: RangeKey, value: number | null) => void }): React.JSX.Element | null {
+  const editor = useApp((s) => s.settings?.editor)
   const update = useApp((s) => s.updateSettings)
-  if (!settings) return null
-  const ed = settings.editor
-  return (label, key, min, max, step, fmt, styled) => (
-    <Field label={`${label}: ${fmt(ed[key])}`}>
-      {(id) => (
-        <input
-          id={id}
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={ed[key]}
-          onChange={(e) => void update({ editor: { [key]: Number(e.target.value) } })}
-          className={styled ? 'st-range' : 'w-full accent-[var(--accent)]'}
-          style={styled ? ({ '--fill': `${((ed[key] - min) / (max - min)) * 100}%` } as React.CSSProperties) : undefined}
+  if (!editor) return null
+  return (
+    <>
+      {RANGES.map((r) => (
+        <Slider
+          key={r.key}
+          label={r.label}
+          format={r.format}
+          value={editor[r.key]}
+          min={r.min}
+          max={r.max}
+          step={r.step}
+          onLive={onLive ? (v) => onLive(r.key, v) : undefined}
+          onCommit={(v) => update({ editor: { [r.key]: v } }).finally(() => onLive?.(r.key, null))}
         />
-      )}
-    </Field>
+      ))}
+    </>
   )
 }
 
@@ -62,17 +74,14 @@ function useRange(): ((label: string, key: RangeKey, min: number, max: number, s
 function ClassicAppearance(): React.JSX.Element | null {
   const settings = useApp((s) => s.settings)
   const update = useApp((s) => s.updateSettings)
-  const range = useRange()
-  if (!settings || !range) return null
+  if (!settings) return null
   return (
     <div className="flex max-w-md flex-col gap-5">
       {/* The New look: the look itself first (the New look or Classic). */}
       <LookPicker />
       <Field label="Theme">{(id) => <Select id={id} value={settings.theme} onChange={(v) => void update({ theme: (v ?? 'system') as ThemeName })} options={THEMES} />}</Field>
       <AccentPicker />
-      {range('Text size', 'fontSize', 15, 24, 1, (n) => `${n}px`)}
-      {range('Line spacing', 'lineHeight', 1.4, 2.1, 0.05, (n) => n.toFixed(2))}
-      {range('Page width', 'pageWidth', 55, 90, 1, (n) => `${n} characters`)}
+      <PageSliders />
       <ParagraphsField />
       <OpensField />
     </div>
@@ -121,13 +130,18 @@ function OpensField(): React.JSX.Element | null {
  */
 function NewAppearance(): React.JSX.Element | null {
   const settings = useApp((s) => s.settings)
-  const range = useRange()
-  if (!settings || !range) return null
+  // What a slider being moved shows in the preview before it is let go (and saved).
+  const [live, setLive] = useState<Partial<PageLook>>({})
+  if (!settings) return null
   return (
     <div className="@container">
       <div className="grid gap-8 @[940px]:grid-cols-[minmax(0,1fr)_minmax(360px,440px)]">
         <aside aria-label="Preview of your choices" className="@[940px]:sticky @[940px]:top-2 @[940px]:order-2 @[940px]:self-start">
-          <AppearancePreview look={lookOf(settings.look)} arrangement={arrangementOf(settings.arrangement)} editor={settings.editor} />
+          <AppearancePreview
+            look={lookOf(settings.look)}
+            arrangement={arrangementOf(settings.arrangement)}
+            editor={{ ...settings.editor, ...live }}
+          />
         </aside>
         <div className="flex min-w-0 flex-col gap-6">
           <SettingsSection title="Layout" description="Where everything sits in the window.">
@@ -143,9 +157,16 @@ function NewAppearance(): React.JSX.Element | null {
           </SettingsSection>
           <SettingsSection title="The page" description="How your story reads as you write it. The preview shows your own choices.">
             <div className="grid gap-x-8 gap-y-4 @[620px]:grid-cols-2">
-              {range('Text size', 'fontSize', 15, 24, 1, (n) => `${n}px`, true)}
-              {range('Line spacing', 'lineHeight', 1.4, 2.1, 0.05, (n) => n.toFixed(2), true)}
-              {range('Page width', 'pageWidth', 55, 90, 1, (n) => `${n} characters`, true)}
+              <PageSliders
+                onLive={(key, v) =>
+                  setLive((was) => {
+                    const next = { ...was }
+                    if (v == null) delete next[key]
+                    else next[key] = v
+                    return next
+                  })
+                }
+              />
               <ParagraphsField />
             </div>
           </SettingsSection>
@@ -160,13 +181,13 @@ function NewAppearance(): React.JSX.Element | null {
   )
 }
 
-/** The theme as four small pictures of the window in it; a radio group (the arrow keys move and pick). */
-const THEME_LOOKS: Record<ThemeName, { frame: string; page: string; ink: string; line: string; split?: true }> = {
-  system: { frame: '#d8dee7', page: '#fafbfc', ink: '#1b2130', line: '#c2cad6', split: true },
-  light: { frame: '#d8dee7', page: '#fafbfc', ink: '#1b2130', line: '#c2cad6' },
-  dark: { frame: '#0d1220', page: '#182033', ink: '#e8ecf4', line: '#3a4663' },
-  sepia: { frame: '#e5d9c0', page: '#faf4e5', ink: '#3b2f22', line: '#d5c4a1' }
-}
+/**
+ * The theme as four small pictures of the window in it; a radio group (the arrow keys move and pick). Each picture is
+ * painted by the theme's real colours: it carries the theme, the layout and the accent as the window does
+ * (`data-theme`, `data-arrangement`, `data-accent`), so the same token rules in styles.css and desk.css colour it.
+ * "Match my computer" is half Light, half Dark.
+ */
+const FACES: Record<ThemeName, PaintedTheme[]> = { system: ['light', 'dark'], light: ['light'], dark: ['dark'], sepia: ['sepia'] }
 
 function ThemeCards(): React.JSX.Element | null {
   const settings = useApp((s) => s.settings)
@@ -175,6 +196,8 @@ function ThemeCards(): React.JSX.Element | null {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
   if (!settings) return null
   const value = settings.theme
+  const arrangement = arrangementOf(settings.arrangement)
+  const accent = accentIdOf(settings.accent)
   const index = Math.max(0, THEMES.findIndex((t) => t.value === value))
   const pick = (t: ThemeName): void => void update({ theme: t })
   return (
@@ -196,8 +219,6 @@ function ThemeCards(): React.JSX.Element | null {
         }}
       >
         {THEMES.map((t, i) => {
-          const c = THEME_LOOKS[t.value]
-          const dark = THEME_LOOKS.dark
           const on = t.value === value
           return (
             <button
@@ -211,15 +232,22 @@ function ThemeCards(): React.JSX.Element | null {
               tabIndex={on ? 0 : -1}
               onClick={() => pick(t.value)}
             >
-              <span
-                aria-hidden
-                className="ap-swatch"
-                style={{ background: c.split ? `linear-gradient(115deg, ${c.frame} 50%, ${dark.frame} 50%)` : c.frame }}
-              >
-                <i style={{ background: c.split ? `linear-gradient(115deg, ${c.page} 44%, ${dark.page} 44%)` : c.page }} />
-                <b style={{ top: 17, width: '34%', background: c.ink, opacity: 0.75 }} />
-                <b style={{ top: 25, width: '46%', background: c.line }} />
-                <b style={{ top: 31, width: '40%', background: c.line }} />
+              <span aria-hidden className="ap-swatch">
+                {FACES[t.value].map((face, f) => (
+                  <span
+                    key={face}
+                    className={cn('ap-face', f > 0 && 'is-second')}
+                    data-look="new"
+                    data-arrangement={arrangement}
+                    data-theme={face}
+                    data-accent={accent ?? undefined}
+                  >
+                    <i />
+                    <b className="is-title" />
+                    <b className="is-line" />
+                    <b className="is-link" />
+                  </span>
+                ))}
               </span>
               <span className="text-[12.5px] font-medium leading-tight text-fg">{t.label}</span>
             </button>

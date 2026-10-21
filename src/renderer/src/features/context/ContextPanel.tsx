@@ -8,19 +8,22 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 import { KIND_LABELS } from '@shared/fields'
 import { ownWritingNote } from '@shared/ownSample'
 import type { BlockMode, ContextBlock, ContextEntry, ContextPreview, Entry, ID, PinScope } from '@shared/types'
-import { Button, Notice, Spinner, toast } from '@/components/ui'
+import { Button, Notice, Segmented, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { RowMenuItem, RowMenuSeparator } from '@/features/binder/RowMenu'
-import { formatContext, formatNumber } from '@/features/generate/format'
-import { Segmented, Skeleton, useDelayed } from '@/features/generate/parts'
+import { formatNumber } from '@/features/generate/format'
+import { Skeleton, useDelayed } from '@/features/generate/parts'
 import { CastPicker } from '@/features/inspector/CastPicker'
 import {
   BLOCK_STATE_WORDS,
   MODE_HINTS,
   NOT_READY,
   PIN_WORDS,
+  aboutCount,
+  aboutWords,
+  asWords,
   blockState,
   blockStateNote,
   briefingEntries,
@@ -31,6 +34,7 @@ import {
   orderBlocks,
   pinCalls,
   quietReason,
+  roomLine,
   scopeIdFor,
   withMode,
   withNewPin,
@@ -261,7 +265,8 @@ function Briefing({
         }
       >
         <p className="-mt-1 text-[12px] leading-relaxed text-faint">
-          Most important first. When room is short, the parts lower down are shortened or left out first.
+          Most important first, each with about how many words it takes. When room is short, the parts lower down are shortened or left out
+          first.
         </p>
         <div className="flex flex-col gap-1.5">
           {blocks.map((b) => (
@@ -349,7 +354,9 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
             {busy ? <Spinner size={11} /> : null}
           </span>
         </span>
-        <span className={cn('font-medium tabular-nums', view.tight ? 'text-ai' : 'text-fg')}>{view.percentText}</span>
+        <span className={cn('font-medium tabular-nums', view.tight ? 'text-ai' : 'text-fg')}>
+          {view.noRoom ? view.percentText : `${view.percentText} full`}
+        </span>
       </div>
       <div
         className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3"
@@ -358,9 +365,7 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
         aria-valuemin={0}
         aria-valuemax={available}
         aria-valuenow={Math.min(used, available)}
-        aria-valuetext={
-          view.noRoom ? 'No room left for the briefing' : `${formatNumber(used)} of ${formatNumber(available)} tokens, ${view.percentText}`
-        }
+        aria-valuetext={view.noRoom ? 'No room left for the briefing' : `${view.percentText} full. ${roomLine(preview.budget)}`}
       >
         <div
           className={cn('h-full rounded-full transition-[width,background-color] duration-200', view.tight ? 'bg-ai' : 'bg-accent')}
@@ -369,20 +374,18 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
       </div>
       <p className="mt-1.5 text-[12px] leading-relaxed text-faint">
         {view.noRoom ? (
-          // "901 of 0 tokens" would read as broken: say what takes the room, and what to change.
+          // "No room of none" would read as broken: say what takes the room, and what to change.
           <>
             <span className="text-muted">No room is left for the briefing.</span>{' '}
-            {`${writer?.label || 'The writer model'} reads ${formatContext(contextLength)} tokens, and a reply this long needs ` +
-              `${formatNumber(reserved)} of them. Choose a shorter length in the draft options, or a writer model that reads more.`}
+            {`${writer?.label || 'The writer model'} reads ${aboutWords(contextLength)} at once, and a reply this long needs ` +
+              `${aboutCount(reserved)} of them. Choose a shorter length in the draft options, or a writer model that reads more.`}
           </>
         ) : (
           <>
-            <span className="tabular-nums text-muted">
-              {formatNumber(used)} of {formatNumber(available)} tokens.
-            </span>{' '}
+            <span className="tabular-nums text-muted">{roomLine(preview.budget)}</span>{' '}
             {!writer ? (
               <>
-                No writer model chosen yet, so this assumes one that reads {formatContext(contextLength)} tokens.{' '}
+                No writer model chosen yet, so this assumes one that reads {aboutWords(contextLength)} at once.{' '}
                 <button
                   type="button"
                   onClick={() => navigate({ kind: 'settings', tab: 'models' })}
@@ -392,11 +395,11 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
                 </button>
               </>
             ) : !known ? (
-              `Guessing ${writer.label || 'the writer model'} reads ${formatContext(contextLength)} tokens; ` +
-              `${formatNumber(reserved)} of them are kept for its reply.`
+              `Guessing ${writer.label || 'the writer model'} reads ${aboutWords(contextLength)} at once; ` +
+              `${aboutCount(reserved)} of them are kept for its reply.`
             ) : (
-              `${writer.label || 'The writer model'} reads ${formatContext(contextLength)} tokens; ` +
-              `${formatNumber(reserved)} of them are kept for its reply.`
+              `${writer.label || 'The writer model'} reads ${aboutWords(contextLength)} at once; ` +
+              `${aboutCount(reserved)} of them are kept for its reply.`
             )}
           </>
         )}
@@ -406,7 +409,7 @@ function BudgetBar({ preview, busy }: { preview: ContextPreview; busy: boolean }
 }
 
 /**
- * When the writer model's reading limit isn't known, AI Write guesses 16,000 tokens, which squeezes the story's memory
+ * When the writer model's reading limit isn't known, AI Write guesses 16,000 tokens (about 12,000 words), which squeezes the story's memory
  * in every briefing (the long story memory research, 2026-10-15): said plainly, with the way to put it right.
  */
 function GuessNotice({ preview }: { preview: ContextPreview }): React.JSX.Element | null {
@@ -422,7 +425,7 @@ function GuessNotice({ preview }: { preview: ContextPreview }): React.JSX.Elemen
       }
     >
       AI Write doesn&rsquo;t know how much {writer.label || 'the writer model'} can read, so it guesses{' '}
-      {formatContext(preview.budget.contextLength)} tokens and tells the AI less of your story than it could. Type the real number
+      {aboutWords(preview.budget.contextLength)} and tells the AI less of your story than it could. Type its real reading limit
       from the model&rsquo;s page in Settings › Models.
     </Notice>
   )
@@ -471,8 +474,11 @@ function BlockRow({
             {BLOCK_STATE_WORDS[state]}
           </span>
         ) : null}
-        <span className="w-[52px] shrink-0 text-right text-[12px] tabular-nums text-faint">
-          {block.dropped ? '—' : formatNumber(block.tokens)}
+        <span
+          className="w-[52px] shrink-0 text-right text-[12px] tabular-nums text-faint"
+          title={block.dropped ? 'Left out' : `About ${asWords(block.tokens).toLocaleString('en-GB')} words`}
+        >
+          {block.dropped ? '—' : formatNumber(asWords(block.tokens))}
         </span>
       </button>
       {open ? (
@@ -513,7 +519,9 @@ function ClosingRow({ tokens }: { tokens: number }): React.JSX.Element | null {
     >
       <span className="w-3.5 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-muted">Closing instruction</span>
-      <span className="w-[52px] shrink-0 text-right text-[12px] tabular-nums text-faint">{formatNumber(tokens)}</span>
+      <span className="w-[52px] shrink-0 text-right text-[12px] tabular-nums text-faint" title={`About ${asWords(tokens).toLocaleString('en-GB')} words`}>
+        {formatNumber(asWords(tokens))}
+      </span>
     </div>
   )
 }
@@ -678,7 +686,7 @@ function PinAnother({
           if (e) onPick({ entryId: e.id, name: e.name, kind: e.kind })
         }}
         noun="entry"
-        listLabel="Entries from your world"
+        listLabel="In your world"
         placeholder="Type a name to pin it here…"
       />
       <p id={hintId} className="text-[12px] text-faint">

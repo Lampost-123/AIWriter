@@ -1136,7 +1136,7 @@ async function recoverUnsaved(worldId: ID): Promise<void> {
       if (shouldRestore(item, scene)) {
         await api.saveSceneText(item.sceneId, item.doc, item.text)
         restored = true
-        toast(`Recovered unsaved writing from last time in “${scene.title}”.`, { tone: 'success' })
+        toast(`Recovered unsaved writing from last time in “${scene.title || 'Untitled scene'}”.`, { tone: 'success' })
       }
     } catch {
       // The scene is gone (deleted), so there's nothing to put it back into.

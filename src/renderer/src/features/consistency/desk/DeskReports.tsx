@@ -8,7 +8,9 @@
 import type { ReactNode } from 'react'
 import type { RepetitionItem, RepetitionReport, ThreadsReport } from '@shared/contracts/checks'
 import type { ID, Outline } from '@shared/types'
-import { ArrowUpRight } from '@/components/ui/icons'
+import { ArrowUpRight, Spool } from '@/components/ui/icons'
+import { Button } from '@/components/ui'
+import { useApp } from '@/lib/store'
 import { EchoArt, LoomArt } from '@/components/art/RoomArt'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { chapterList, chapterNumbers, timesWords } from '../consistencyLogic'
@@ -26,12 +28,14 @@ function Section({ title, hint, children }: { title: string; hint: string; child
   )
 }
 
-function Calm({ art, title, children }: { art: ReactNode; title: string; children: ReactNode }): React.JSX.Element {
+/** Nothing to report: one drawing, one sentence and, where there is somewhere to go next, one button. */
+function Calm({ art, title, children, action }: { art: ReactNode; title: string; children: ReactNode; action?: ReactNode }): React.JSX.Element {
   return (
     <div className="ck-calm" role="status">
       {art}
       <h2 className="ck-calm-title">{title}</h2>
       <p className="ck-calm-sub">{children}</p>
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   )
 }
@@ -57,8 +61,7 @@ export function DeskRepetition({
   if (!chapters.length && !report.petPhrases.length) {
     return (
       <Calm art={<EchoArt className="ck-calm-art" />} title="Nothing is used too often">
-        Words and phrases used much more than usual in a chapter show here, and phrases you come back to in chapter after chapter. Names are
-        left out: they are meant to repeat.
+        Words a chapter leans on, and phrases you come back to chapter after chapter, show here; names are left out, as they are meant to repeat.
       </Calm>
     )
   }
@@ -185,9 +188,16 @@ export function DeskThreads({
   if (!report) return error ? <ViewError what="The plot threads report" error={error} onRetry={onRetry} /> : <ViewLoading />
   if (!report.openTooLong.length && !report.noSetup.length) {
     return (
-      <Calm art={<LoomArt className="ck-calm-art" />} title="Every plot thread is in hand">
-        Threads left open for many chapters show here, and threads a scene card pays off with nothing earlier setting them up. See them all on
-        the plot threads board.
+      <Calm
+        art={<LoomArt className="ck-calm-art" />}
+        title="Every plot thread is in hand"
+        action={
+          <Button icon={<Spool size={14} />} onClick={() => useApp.getState().navigate({ kind: 'threads' })} data-open-threads-board>
+            Open the plot threads board
+          </Button>
+        }
+      >
+        Threads left open for many chapters, or paid off with nothing earlier setting them up, show here.
       </Calm>
     )
   }

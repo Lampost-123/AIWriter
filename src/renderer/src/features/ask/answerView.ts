@@ -94,12 +94,20 @@ export function leadWords(text: string, verdict: Verdict | undefined): string {
 export const asksForIdeas = (question: string): boolean =>
   /\b(brainstorm|ideas?|options?|suggest(?:ions?)?|names?|titles?|ways|what could|alternatives?)\b/i.test(question)
 
+/** Each starter's one name, on the empty state's cards and on the chips over the box alike. */
+export const STARTER_NAMES: Record<StarterCard['kind'], string> = {
+  brainstorm: 'Ideas',
+  check: 'Check',
+  tighten: 'Tighten',
+  spelling: 'Spelling'
+}
+
 /** The chips over an empty box: each fills it with the start of a question. */
-export const QUICK_ACTIONS: { kind: StarterCard['kind']; label: string; short: string; fill: string }[] = [
-  { kind: 'brainstorm', label: 'Brainstorm', short: 'Ideas', fill: 'Brainstorm ideas for ' },
-  { kind: 'check', label: 'Is this established?', short: 'Check', fill: 'Have I already established ' },
-  { kind: 'tighten', label: 'Tighten', short: 'Tighten', fill: 'Tighten the opening paragraph, keeping my voice' },
-  { kind: 'spelling', label: 'Fix spelling', short: 'Spelling', fill: 'Fix the spelling and grammar in this scene' }
+export const QUICK_ACTIONS: { kind: StarterCard['kind']; label: string; fill: string }[] = [
+  { kind: 'brainstorm', label: STARTER_NAMES.brainstorm, fill: 'Brainstorm ideas for ' },
+  { kind: 'check', label: STARTER_NAMES.check, fill: 'Have I already established ' },
+  { kind: 'tighten', label: STARTER_NAMES.tighten, fill: 'Tighten the opening paragraph, keeping my voice' },
+  { kind: 'spelling', label: STARTER_NAMES.spelling, fill: 'Fix the spelling and grammar in this scene' }
 ]
 
 /** One of the empty state's cards: what it does, and the question it puts in the box. */
@@ -118,11 +126,11 @@ export function starterCards(cast: string[], fallback: readonly string[]): Start
   return [
     {
       kind: 'brainstorm',
-      label: 'Brainstorm',
+      label: STARTER_NAMES.brainstorm,
       question: a && b ? `What would ${a} do if ${b} lied to them?` : a ? `What could go wrong for ${a} in this scene?` : fallback[0]
     },
-    { kind: 'check', label: 'Is this established?', question: a ? `Did I already say how old ${a} is?` : fallback[1] },
-    { kind: 'tighten', label: 'Tighten', question: fallback[3] },
-    { kind: 'spelling', label: 'Fix spelling', question: fallback[2] }
+    { kind: 'check', label: STARTER_NAMES.check, question: a ? `Did I already say how old ${a} is?` : fallback[1] },
+    { kind: 'tighten', label: STARTER_NAMES.tighten, question: fallback[3] },
+    { kind: 'spelling', label: STARTER_NAMES.spelling, question: fallback[2] }
   ]
 }
