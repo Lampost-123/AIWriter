@@ -15,6 +15,8 @@ export interface FindStore {
   wholeWord: boolean
   /** Goes up whenever the bar should take the keyboard (Ctrl+F again while it shows). */
   focusTick: number
+  /** Which box takes the keyboard when it does: Find (Ctrl+F) or Replace with (Ctrl+H). */
+  focusField: 'find' | 'replace'
   /** Opening a scene from the story's list: once that scene shows, its match `index` is the current one. */
   goTo: { sceneId: ID; index: number } | null
   set(patch: Partial<Omit<FindStore, 'set'>>): void
@@ -28,6 +30,7 @@ export const useFind = create<FindStore>((set) => ({
   matchCase: false,
   wholeWord: false,
   focusTick: 0,
+  focusField: 'find',
   goTo: null,
   set: (patch) => set(patch)
 }))

@@ -2,7 +2,7 @@ import { Plus, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
 import { GlidePill } from '@/components/ui/GlidePill'
-import { useNewLook } from '@/features/look/look'
+import { useDesk, useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { CheckLine } from '@/features/consistency/CheckLine'
 import { ImportLine } from '@/features/importing/ImportLine'
@@ -45,6 +45,7 @@ function TreeSkeleton(): React.JSX.Element {
  */
 export function Binder({ world = true, switcher = true }: { world?: boolean; switcher?: boolean }): React.JSX.Element {
   const isNew = useNewLook()
+  const desk = useDesk()
   const storyId = useApp((s) => s.storyId)
   const sceneId = useApp((s) => s.sceneId)
   const { outline, error, retry } = useOutline()
@@ -82,8 +83,9 @@ export function Binder({ world = true, switcher = true }: { world?: boolean; swi
           <TreeSkeleton />
         ) : null}
       </div>
-      {/* Milestone 5: a check running, quietly, with Stop. */}
-      <CheckLine />
+      {/* Milestone 5: a check running, quietly, with Stop. Not on the desk: there a check's progress shows in one place,
+          the top bar's Check (and the Check room itself). */}
+      {desk ? null : <CheckLine />}
       {/* Milestone 6: the import catch-up building the memory, quietly, with Stop. */}
       <ImportLine />
       {world ? <WorldSection /> : null}

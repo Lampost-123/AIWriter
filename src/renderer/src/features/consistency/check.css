@@ -166,11 +166,33 @@
   transition: transform var(--dur-base) var(--desk-ease);
 }
 [data-arrangement='desk'] .ck-meter-words {
-  font-size: 12px;
-  color: var(--faint);
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 12.5px;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* What is being read, with Stop beside it: the one place a check's progress shows on the desk. */
+[data-arrangement='desk'] .ck-meter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+}
+/* The room under Check this story is kept whether it is checking, done or neither, so nothing below it moves. */
+[data-arrangement='desk'] .ck-controls {
+  min-height: 64px;
+}
+/* After a check has run to the end: when, and how many scenes it read. */
+[data-arrangement='desk'] .ck-last {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  animation: fade-in var(--dur-base) var(--desk-ease) both;
 }
 
 /* The three reports, as cards to choose between; the chosen one raised on paper. */
@@ -849,6 +871,12 @@
   background: var(--success-soft);
   color: var(--success);
   box-shadow: 0 0 0 6px color-mix(in oklab, var(--success-soft) 45%, transparent);
+}
+/* While the story is being checked: the AI at work, in its amber. */
+[data-arrangement='desk'] .ck-clear-tick.is-checking {
+  background: var(--ai-soft);
+  color: var(--ai);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--ai-soft) 45%, transparent);
 }
 [data-arrangement='desk'] .ck-clear-title {
   font: 600 30px/36px var(--heading-font);

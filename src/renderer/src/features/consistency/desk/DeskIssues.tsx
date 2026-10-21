@@ -11,12 +11,14 @@ import type { Issue, IssueSeverity, IssueSource } from '@shared/contracts/checks
 import type { ID } from '@shared/types'
 import { ArrowUpRight, Clock, EyeOff, RotateCcw } from '@/components/ui/icons'
 import { DrawnTick } from '@/components/ui/DrawnTick'
+import { Spinner } from '@/components/ui'
 import { TickNumber } from '@/components/ui/TickNumber'
 import { cn } from '@/lib/cn'
 import { useFlip } from '@/lib/useFlip'
 import { useApp } from '@/lib/store'
 import { reducedMotion } from '@/features/look/motion'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
+import { useChecks } from '../checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from '../consistencyLogic'
 import { CONTRACT_DETAIL, CONTRACT_WORDS, LATER_TITLE, RULE_DETAIL, RULE_WORDS, ignoredWords } from '@/features/issues/issuesLogic'
 import { ignoreIssue, laterIssue, reopenIssue } from '../IssuesTab'
@@ -84,6 +86,7 @@ export function DeskIssues({
   onChanged: (issue: Issue) => void
 }): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>('all')
+  const checking = useChecks((s) => s.run?.storyId === storyId)
   const [leaving, setLeaving] = useState<Set<ID>>(new Set())
   const listRef = useRef<HTMLDivElement>(null)
   // Whether this visit has seen issues: the all-clear that follows the last one going gets its moment.
@@ -121,6 +124,7 @@ export function DeskIssues({
   if (nothing) {
     return (
       <AllClear
+        checking={checking}
         storyTitle={storyTitle}
         ignored={groups.ignored}
         moment={hadIssues.current}
@@ -375,12 +379,15 @@ function Sources({ sources, storyId, storyScenes }: { sources: IssueSource[]; st
  * threads) keep their own counts beside it.
  */
 function AllClear({
+  checking,
   storyTitle,
   ignored,
   moment,
   showIgnored,
   onShowIgnored
 }: {
+  /** This story is being checked now: it says so, rather than that nothing was found. */
+  checking: boolean
   storyTitle: string
   ignored: number
   /** The last issue just went: the scene arrives with its moment. */
@@ -390,6 +397,18 @@ function AllClear({
 }): React.JSX.Element {
   return (
     <div className="ck-clear" data-moment={moment || undefined} role="status">
+      {checking ? (
+        <div className="ck-clear-words" data-checking>
+          <span className="ck-clear-tick is-checking" aria-hidden>
+            <Spinner size={18} />
+          </span>
+          <h2 className="ck-clear-title">Checking…</h2>
+          <p className="ck-clear-sub">
+            Reading {storyTitle || 'this story'} for facts, knowledge and timeline that disagree. Anything found shows here, by chapter
+            and scene, as it is found.
+          </p>
+        </div>
+      ) : (
       <div className="ck-clear-words">
         <span className="ck-clear-tick" aria-hidden>
           <DrawnTick size={18} draw />
@@ -409,6 +428,7 @@ function AllClear({
           ) : null}
         </div>
       </div>
+      )}
     </div>
   )
 }

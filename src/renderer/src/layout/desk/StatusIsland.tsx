@@ -1,6 +1,6 @@
 // The desk's status island (top bar, right): one paper pill that changes what it says instead of crowding the bar.
 // "Saved · 1,167 words" with today's target ring; "Writing… 212 words" while a draft writes (a click goes back to a
-// draft writing into another scene); "Memory · 2 changes" for a moment after the memory keeper changed something (a
+// draft writing into another scene); "2 memory updates" for a moment after the memory keeper changed something (a
 // click opens What changed). Clicking it otherwise shows the word counts and today's writing. The pill's visible width
 // is a clip-path, so it changes smoothly without moving anything (layout/desk/desk.css), and the words cross-fade.
 // islandState.ts decides what it says.
@@ -15,7 +15,7 @@ import { useGoals } from '@/features/goals/goalStore'
 import { onOpenWordCounts, WordCountsBody } from '@/features/goals/WordCounts'
 import { freshUpdate } from '@/features/memory/logic'
 import { openScene } from '@/features/memory/openScene'
-import { changesText, islandState, wordsText, type IslandShows } from './islandState'
+import { islandState, wordsText, type IslandShows } from './islandState'
 
 /** How long the memory's news shows before the island says Saved again. */
 const MEMORY_FOR = 8000
@@ -128,7 +128,7 @@ export function StatusIsland(): React.JSX.Element {
         ? `Writing… ${wordsText(island.written)}`
         : 'Writing… Click to go back to the scene it is writing into.'
       : island.shows === 'memory'
-        ? `Memory · ${changesText(island.changes)}. Click to see what changed.`
+        ? `${island.changes.toLocaleString('en-GB')} memory ${island.changes === 1 ? 'update' : 'updates'}. Click to see what changed.`
         : island.shows === 'unsaved'
           ? 'Not saved, retrying'
           : island.shows === 'saving'
@@ -206,7 +206,7 @@ export function StatusIsland(): React.JSX.Element {
           <>
             <Tick className="text-success" />
             <span>
-              Memory · <b>{changesText(island.changes)}</b>
+              <b className="tabular-nums">{island.changes.toLocaleString('en-GB')}</b> {island.changes === 1 ? 'memory update' : 'memory updates'}
             </span>
           </>
         )}

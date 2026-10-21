@@ -5,10 +5,10 @@
 // where they are, chapter by chapter, to jump to. The chosen report fills the rest. In a narrow sheet the left column
 // becomes a band across the top.
 import * as T from '@radix-ui/react-tabs'
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { Issue, RepetitionReport, ThreadsReport } from '@shared/contracts/checks'
 import type { ID, Outline } from '@shared/types'
-import { Repeat2, SearchCheck, Spool } from '@/components/ui/icons'
+import { Check, Repeat2, SearchCheck, Spool, Square } from '@/components/ui/icons'
 import { Button, Notice } from '@/components/ui'
 import { GlidePill } from '@/components/ui/GlidePill'
 import { TickNumber } from '@/components/ui/TickNumber'
@@ -17,10 +17,12 @@ import { useApp } from '@/lib/store'
 import { scrollBehavior } from '@/features/look/motion'
 import { StoryFilter } from '@/features/timeline/viewParts'
 import { CheckControls } from '../CheckControls'
-import { dismissFailure, openConsistency, useChecks, useRunWords } from '../checkStore'
+import { dismissFailure, openConsistency, stopCheck, useChecks, useRunWords } from '../checkStore'
 import type { IssueGroups } from '../consistencyLogic'
 import { chapterAnchor, DeskIssues } from './DeskIssues'
 import { DeskRepetition, DeskThreads } from './DeskReports'
+import { useLastCheck } from './lastCheck'
+import { lastCheckWords } from './lastCheckWords'
 import '../check.css'
 
 type Tab = 'issues' | 'repetition' | 'threads'
@@ -70,8 +72,9 @@ export function DeskConsistency(p: DeskConsistencyProps): React.JSX.Element {
           </div>
           <StoryFilter value={p.storyId} onChange={(id) => id !== p.storyId && openConsistency(id)} className="ck-story-pick" />
           <div className="ck-controls">
-            <CheckControls storyId={p.storyId} className="ck-controls-row" />
-            <RunMeter storyId={p.storyId} />
+            {/* While this story is checked, its progress shows here once: what is being read, how far, and Stop. */}
+            {running ? <RunMeter storyId={p.storyId} /> : <CheckControls storyId={p.storyId} className="ck-controls-row" />}
+            {running ? null : <LastChecked storyId={p.storyId} />}
           </div>
           <T.List aria-label="Reports" className="ck-reports">
             <GlidePill className="ck-report-pill" />
@@ -153,17 +156,45 @@ function ReportTab({ value, icon, label, n, danger, sub }: { value: Tab; icon: R
   )
 }
 
-/** How far a check of this story has got: a line that fills, and what is being read. */
+/** How far a check of this story has got: a line that fills, what is being read, and Stop. */
 function RunMeter({ storyId }: { storyId: ID }): React.JSX.Element | null {
   const run = useChecks((s) => (s.run?.storyId === storyId ? s.run : null))
   const words = useRunWords(run, true)
+  const long = useRunWords(run)
   if (!run) return null
   const share = run.total && run.done !== null ? Math.min(1, run.done / run.total) : 0
   return (
-    <div className="ck-meter" aria-hidden>
-      <span className="ck-meter-fill" style={{ transform: `scaleX(${Math.max(0.03, share)})` }} />
-      <span className="ck-meter-words">{words}</span>
+    <div className="ck-meter" role="status">
+      <span className="ck-meter-fill" aria-hidden style={{ transform: `scaleX(${Math.max(0.03, share)})` }} />
+      <span className="ck-meter-row">
+        <span className="ck-meter-words" title={long}>
+          {words}
+        </span>
+        <Button size="sm" variant="ghost" icon={<Square size={11} />} loading={run.stopping} onClick={() => void stopCheck()} aria-label="Stop the check">
+          Stop
+        </Button>
+      </span>
     </div>
+  )
+}
+
+/** Once a check of this story has run to the end: when, and how many scenes it read. */
+function LastChecked({ storyId }: { storyId: ID }): React.JSX.Element | null {
+  const last = useLastCheck((s) => s.byStory[storyId] ?? null)
+  // "Just now" turns into minutes as they pass.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!last) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [last])
+  if (!last) return null
+  return (
+    <p className="ck-last" role="status">
+      <Check size={13} aria-hidden className="shrink-0 text-success" />
+      {lastCheckWords(last, now)}
+    </p>
   )
 }
 

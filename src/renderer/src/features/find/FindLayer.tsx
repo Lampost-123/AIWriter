@@ -1,5 +1,6 @@
 // Find and replace (Writing by hand), mounted once in the workspace (App.tsx): Ctrl+F shows the find bar over
-// the open scene (FindBar, in the writing page), Ctrl+Shift+F find and replace across the story (StoryFind).
+// the open scene (FindBar, in the writing page), Ctrl+H the same bar with the keyboard in Replace with, Ctrl+Shift+F
+// find and replace across the story (StoryFind).
 import { useEffect } from 'react'
 import { isShortcut } from '@/lib/shortcuts'
 import { useFind } from './findStore'
@@ -16,12 +17,13 @@ export function FindLayer(): React.JSX.Element {
       if (e.defaultPrevented || e.repeat) return
       const scene = isShortcut(e, 'findInScene')
       const story = isShortcut(e, 'findInStory')
-      if (!scene && !story) return
+      const replace = isShortcut(e, 'replaceInScene')
+      if (!scene && !story && !replace) return
       const storyOpen = useFind.getState().storyOpen
       if (!storyOpen && otherLayerOpen()) return
       e.preventDefault()
       if (story) openFindInStory()
-      else openFindInScene()
+      else openFindInScene(replace ? 'replace' : 'find')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -44,6 +44,13 @@ describe('the shortcuts list', () => {
     expect(SHORTCUTS.filter((s) => s.keys.join('+') === 'Mod+Shift+Enter')).toHaveLength(1)
   })
 
+  it('opens Replace with Ctrl+H, apart from Find', () => {
+    expect(shortcutText('replaceInScene', false)).toBe('Ctrl+H')
+    expect(isShortcut(press('h', { ctrlKey: true }), 'replaceInScene', false)).toBe(true)
+    expect(isShortcut(press('f', { ctrlKey: true }), 'replaceInScene', false)).toBe(false)
+    expect(isShortcut(press('h', { ctrlKey: true }), 'findInScene', false)).toBe(false)
+  })
+
   it('has each shortcut once, in plain words, in a group', () => {
     expect(new Set(SHORTCUTS.map((s) => s.id)).size).toBe(SHORTCUTS.length)
     for (const s of SHORTCUTS) {

@@ -2128,6 +2128,18 @@
   color: var(--ai-fg);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.24);
 }
+/* Beside the page the dock's Draft the scene is the one main AI action: the card's offers stay plain, their marks amber. */
+[data-arrangement='desk'] :is(.desk-margin, .desk-slip-pop) .desk-icard .ic-act.is-ai {
+  background: var(--raise);
+  color: var(--fg);
+  text-shadow: none;
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--sh-1);
+}
+[data-arrangement='desk'] :is(.desk-margin, .desk-slip-pop) .desk-icard .ic-act.is-ai svg {
+  color: var(--ai);
+}
 [data-arrangement='desk'] .desk-icard .ic-act:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -2223,38 +2235,61 @@
 [data-arrangement='desk'] .desk-note[data-kind='memory'] .desk-tether {
   color: var(--lamp-2);
 }
-/* A smaller window: each note is a small tab on the sheet's edge, in its kind's ink, opening the note as a pop-up. */
-[data-arrangement='desk'] .desk-slip-tab {
-  width: 6px;
+/* A note folded into a tab on the sheet's edge (no room for the column beside the page): a small paper peg half over
+   the page's edge with its kind's mark, so the notes are easy to find; it opens the note as a pop-up. */
+[data-arrangement='desk'] .desk-margin .desk-slip-tab {
+  display: grid;
+  width: 24px;
   height: 24px;
-  border-radius: 3px;
-  background: var(--faint);
-  box-shadow: 0 0 0 2px var(--page);
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--tab-ink) 18%, var(--raise));
+  color: var(--tab-ink);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--tab-ink) 35%, var(--line)),
+    var(--sh-1);
   outline: none;
+  --tab-ink: var(--accent);
   transition:
-    width var(--dur-quick) var(--desk-ease),
-    background-color var(--dur-quick) ease-out;
+    translate var(--dur-quick) var(--desk-ease),
+    background-color var(--dur-quick) ease-out,
+    box-shadow var(--dur-quick) ease-out;
 }
-[data-arrangement='desk'] .desk-slip-tab:hover,
-[data-arrangement='desk'] .desk-slip-tab[data-state='open'] {
-  width: 9px;
-  background: var(--muted);
+[data-arrangement='desk'] .desk-margin .desk-slip-tab:hover,
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-state='open'] {
+  translate: 3px 0;
+  background: color-mix(in oklab, var(--tab-ink) 28%, var(--raise));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--tab-ink) 60%, var(--line)),
+    var(--sh-2);
 }
-[data-arrangement='desk'] .desk-slip-tab:focus-visible {
+[data-arrangement='desk'] .desk-margin .desk-slip-tab:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-[data-arrangement='desk'] .desk-slip-tab[data-kind='character'] {
-  background: var(--k-char);
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='character'] {
+  --tab-ink: var(--k-char);
 }
-[data-arrangement='desk'] .desk-slip-tab[data-kind='lore'] {
-  background: var(--k-lore);
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='place'] {
+  --tab-ink: var(--k-place);
 }
-[data-arrangement='desk'] .desk-slip-tab[data-kind='issue'] {
-  background: var(--danger);
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='item'] {
+  --tab-ink: var(--k-item);
 }
-[data-arrangement='desk'] .desk-slip-tab[data-kind='memory'] {
-  background: var(--lamp-2);
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='group'] {
+  --tab-ink: var(--k-group);
+}
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='lore'] {
+  --tab-ink: var(--k-lore);
+}
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='event'] {
+  --tab-ink: var(--k-event);
+}
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='issue'] {
+  --tab-ink: var(--danger);
+}
+[data-arrangement='desk'] .desk-margin .desk-slip-tab[data-kind='memory'] {
+  --tab-ink: var(--lamp-2);
 }
 [data-arrangement='desk'] .desk-slip-pop {
   border-radius: 8px;
@@ -2295,27 +2330,23 @@
   --kind: var(--lamp-2);
   --kind-soft: color-mix(in oklab, var(--lamp-2) 16%, var(--slip));
 }
-[data-arrangement='desk'] .desk-note[data-kind='place'] .desk-tether,
-[data-arrangement='desk'] .desk-slip-tab[data-kind='place'] {
+[data-arrangement='desk'] .desk-note[data-kind='place'] .desk-tether {
   color: var(--k-place);
   background-color: var(--k-place);
 }
-[data-arrangement='desk'] .desk-note[data-kind='item'] .desk-tether,
-[data-arrangement='desk'] .desk-slip-tab[data-kind='item'] {
+[data-arrangement='desk'] .desk-note[data-kind='item'] .desk-tether {
   color: var(--k-item);
   background-color: var(--k-item);
 }
-[data-arrangement='desk'] .desk-note[data-kind='group'] .desk-tether,
-[data-arrangement='desk'] .desk-slip-tab[data-kind='group'] {
+[data-arrangement='desk'] .desk-note[data-kind='group'] .desk-tether {
   color: var(--k-group);
   background-color: var(--k-group);
 }
-[data-arrangement='desk'] .desk-note[data-kind='event'] .desk-tether,
-[data-arrangement='desk'] .desk-slip-tab[data-kind='event'] {
+[data-arrangement='desk'] .desk-note[data-kind='event'] .desk-tether {
   color: var(--k-event);
   background-color: var(--k-event);
 }
-/* The tether is a line: its background stays clear (only the tab is filled). */
+/* The tether is a line: its background stays clear. */
 [data-arrangement='desk'] .desk-note .desk-tether {
   background-color: transparent;
 }

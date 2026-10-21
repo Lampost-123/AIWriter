@@ -5,7 +5,8 @@
 // that adds or takes away paragraphs, the notes themselves changing, and the fonts arriving; at most four times a second
 // while a draft is being written. Typing inside a paragraph moves nothing. Notes that would overlap are pushed down
 // (layoutNotes.ts) and glide there (220ms); notes that move with their words move at once. The words never move.
-// Below about 1180px (deskFit.ts) the notes fold into small tabs on the sheet's edge that open each note as a pop-up.
+// Without room for their column beside the page (deskFit.ts) the notes fold into small tabs on the sheet's edge, each
+// with its kind's mark (so they are easy to find), that open each note as a pop-up.
 // With the scene drawer open (it covers the margin) the notes step away; in focus mode they fade with the rest.
 // The notes are the scene card (pinned beside the title), the entities named in the text, the scene's open issues
 // whose words are in it, and the memory's note after it has read the scene (pickSlips.ts decides which). Where each
@@ -23,7 +24,8 @@ import { useArrival } from '@/layout/desk/arrival'
 import { KIND_LABELS } from '@shared/fields'
 import { useSceneNames } from '@/features/editor/names/sceneNames'
 import { nameIndex } from '@/features/editor/names/underlines'
-import { changesBlocks, posOfAnchor, type PlacedSlip } from './anchors'
+import { Brain, CalendarDays, CircleAlert, Flag, Gem, MapPin, NotebookText, ScrollText, UserRound, type IconType } from '@/components/ui/icons'
+import { changesBlocks, posOfAnchor, type PlacedSlip, type SlipKind } from './anchors'
 import { layoutNotes } from './layoutNotes'
 import { dismissedIn, useMarginStore } from './marginStore'
 import type { Issue } from '@shared/contracts/checks'
@@ -49,6 +51,21 @@ const TILTS = [-0.4, 0.3, -0.25, 0.2]
 const MENTIONS_DELAY = 400
 /** A note's tab on the sheet's edge (a smaller window), with the gap kept between two. */
 const TAB_HEIGHT = 28
+/** The tab's width: half of it over the page's edge. */
+const TAB_WIDTH = 24
+
+/** Each kind of note's mark on its tab. */
+const TAB_ICONS: Record<SlipKind, IconType> = {
+  card: NotebookText,
+  character: UserRound,
+  place: MapPin,
+  item: Gem,
+  group: Flag,
+  lore: ScrollText,
+  event: CalendarDays,
+  issue: CircleAlert,
+  memory: Brain
+}
 
 interface NoteGeo {
   /** Where it sits (px down the scroll area). */
@@ -214,7 +231,7 @@ export function MarginLayer({
     const y = (v: number): number => v - sheetBox.top + sheet.offsetTop
     const x = (v: number): number => v - sheetBox.left + sheet.offsetLeft
     const sheetRight = sheet.offsetLeft + sheet.offsetWidth
-    const left = sheetRight - MARGIN.overlap
+    const left = sheetRight + MARGIN.gap
     const width = Math.max(200, Math.min(MARGIN.width, scroller.clientWidth - left - 8))
     const view = editor.view
     const textRight = x(view.dom.getBoundingClientRect().right)
@@ -366,6 +383,7 @@ export function MarginLayer({
         const g = geo?.notes[slip.id]
         const tilt = slip.kind === 'card' ? 0.35 : TILTS[i % TILTS.length]
         if (mode === 'tabs') {
+          const Mark = TAB_ICONS[slip.kind]
           return (
             <P.Root key={slip.id}>
               <P.Trigger asChild>
@@ -377,11 +395,13 @@ export function MarginLayer({
                   title={labelOf(slip)}
                   className="desk-slip-tab pointer-events-auto absolute"
                   style={{
-                    left: (geo?.sheetRight ?? 0) - 3,
+                    left: (geo?.sheetRight ?? 0) - TAB_WIDTH / 2,
                     top: g?.top ?? 0,
                     visibility: g ? undefined : 'hidden'
                   }}
-                />
+                >
+                  <Mark size={13} aria-hidden />
+                </button>
               </P.Trigger>
               <P.Portal>
                 <P.Content
@@ -414,7 +434,8 @@ export function MarginLayer({
               ['--i' as string]: i
             }}
           >
-            {g && geo ? <Tether x1={g.wordX - geo.left} y1={g.wordY - g.top} x2={0} y2={slip.kind === 'card' ? g.wordY - g.top : TETHER_Y} /> : null}
+            {/* The scene card sits level with the title: no line to it (across an empty page's head it ran into the card). */}
+            {g && geo && slip.kind !== 'card' ? <Tether x1={g.wordX - geo.left} y1={g.wordY - g.top} x2={0} y2={TETHER_Y} /> : null}
             <div className={cn('desk-slip', slip.kind === 'card' && 'is-card')}>
               <SlipBody slip={slip} sceneId={sceneId} />
             </div>
