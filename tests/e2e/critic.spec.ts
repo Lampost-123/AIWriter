@@ -18,7 +18,7 @@ test('every draft is checked, and the Issues tab reports what was checked, colla
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect.poll(async () => (await invoke(win, 'getCheckReport', sceneId))?.after ?? null, { timeout: 60_000 }).toBe('draft')
 
     await scenePanel(win).getByRole('tab', { name: /^Issues/ }).click()
@@ -61,7 +61,7 @@ test('with automatic checks turned off, neither a draft nor Mark done is checked
     await expect(section.getByRole('button', { name: 'Turn them all on' })).toBeVisible()
     await win.reload()
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status ?? null, { timeout: 60_000 }).toBe('complete')
     await invoke(win, 'markSceneDone', sceneId)
     // Time enough for either check to have started and come back, had there been one.

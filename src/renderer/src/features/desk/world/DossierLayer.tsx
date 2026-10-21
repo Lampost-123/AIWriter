@@ -72,7 +72,7 @@ export function DossierLayer({
         <div className="dz-scrim" aria-hidden onClick={() => onClose('pointer')} />
         <div ref={sheet} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dz-sheet dz-missing" data-dossier={id}>
           <h2 id={titleId} tabIndex={-1} className="dz-missing-h">
-            This entry can’t be found
+            This page can’t be found
           </h2>
           <p className="dz-missing-p">
             It may have been deleted. Anything deleted can be brought back from Settings › Recently deleted for 30 days.

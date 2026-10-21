@@ -8,7 +8,7 @@ import { binder, createWorldFromWelcome, expect, invoke, openPage, openSettings,
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const topBar = (win: Page) => win.locator('header').first()
 
 async function fakeProvider(options: FakeProviderOptions = {}): Promise<FakeProvider> {

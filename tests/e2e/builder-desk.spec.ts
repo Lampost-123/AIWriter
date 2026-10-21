@@ -1,5 +1,5 @@
 // The character builder on the desk (UI overhaul, the builder and entry editing), on the sample world with the fake AI:
-// it can be found (the World room's New entry menu, the empty portrait after the characters, the dossier, the story
+// it can be found (the World room's Add to the world menu, the empty portrait after the characters, the dossier, the story
 // home's cast, the palette), its steps change on one click each, an idea picked from the AI fills its field, a kept
 // suggestion too, Review shows the finished card, and with less motion nothing slides.
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -40,13 +40,13 @@ async function iskasBuilder(win: Page): Promise<void> {
   await expect(heading(win)).toHaveText('Basics')
 }
 
-test('the builder can be found: the New entry menu, the empty portrait, the dossier, the story home, the palette', async ({ launch }) => {
+test('the builder can be found: the Add to the world menu, the empty portrait, the dossier, the story home, the palette', async ({ launch }) => {
   const { win } = await sampleWorld(launch)
   await room(win, 'World').click()
   await expect(card(win, 'Iska Vey')).toBeVisible()
 
-  // The New entry menu has the builders, by name.
-  await win.getByRole('button', { name: 'New entry' }).click()
+  // The Add to the world menu has the builders, by name.
+  await win.getByRole('button', { name: 'Add to the world', exact: true }).click()
   const menu = win.getByRole('menu')
   for (const label of ['Build a character with AI', 'Build a place with AI', 'Build a group with AI', 'Build an item with AI'])
     await expect(menu.getByRole('menuitem', { name: label })).toBeVisible()
@@ -147,7 +147,7 @@ test('the questions can be skipped all at once, or the notes changed first', asy
     const { win } = await sampleWorld(launch)
     await useFakeModel(win, fake)
     await room(win, 'World').click()
-    await win.getByRole('button', { name: 'New entry' }).click()
+    await win.getByRole('button', { name: 'Add to the world', exact: true }).click()
     await win.getByRole('menuitem', { name: 'Build a character with AI' }).click()
     const notes = win.getByLabel('What you know about them')
     await notes.fill('Orrin Vale, who mends nets.')

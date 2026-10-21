@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
 import { createWorldFromWelcome, expect, invoke, openSettings, ROOT, startFake, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const MEMORY = /^\[AIWRITE-(MEMORY-KEEPER|ONE-READING|MEMORY-SUMMARY|CONTINUITY)/
 const PLAN = '[AIWRITE-PLAN v2]'
 const EDIT = '[AIWRITE-EDIT v1]'

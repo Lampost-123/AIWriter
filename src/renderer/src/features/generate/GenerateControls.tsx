@@ -155,7 +155,7 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   onFocus={checkText}
                   title={`Draft this scene from its card (${modKey()}+G)${direction ? `\nDirection: “${direction}”` : ''}${hasText ? `\n${afterText}` : ''}`}
                 >
-                  Generate
+                  Draft the scene
                 </Button>
                 <Button
                   variant={desk ? 'ai' : 'primary'}

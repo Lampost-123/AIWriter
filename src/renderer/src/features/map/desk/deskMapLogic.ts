@@ -509,3 +509,17 @@ export function degrees(ties: { a: { id: ID }; b: { id: ID } }[]): Map<ID, numbe
 }
 
 export type { MapNode }
+
+// ---------- Who isn't on the map ----------
+
+/**
+ * Why the count is short of the cast (review #47): the map shows only characters tied to someone, so the others are
+ * named under the count. "Iska Vey has no ties yet", "Iska Vey and Tom have no ties yet", "3 more have no ties yet";
+ * null when everyone is on it.
+ */
+export function offMapLine(names: string[]): string | null {
+  if (!names.length) return null
+  if (names.length === 1) return `${names[0]} has no ties yet`
+  if (names.length === 2) return `${names[0]} and ${names[1]} have no ties yet`
+  return `${names.length.toLocaleString('en-GB')} more have no ties yet`
+}

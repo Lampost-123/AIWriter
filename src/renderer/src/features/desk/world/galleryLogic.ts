@@ -6,6 +6,7 @@ import type { BoardPlace, BoardThread } from '@shared/contracts/worldViews'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { EntryKind } from '@shared/types'
 import { GALLERY_KINDS, featuredCard, groupCards, type CodexSort } from '@/features/codex/codexLogic'
+import { withArticle } from '@/features/world/entryLogic'
 
 /** How a kind's card is drawn: a portrait (characters), a landscape (places), parchment (groups), a scroll (lore), an index card (plot threads), plain paper (the rest). */
 export type CardShape = 'portrait' | 'landscape' | 'parchment' | 'scroll' | 'index' | 'plain'
@@ -144,6 +145,13 @@ export function appearsShort(c: Pick<CodexCard, 'scenes'>): string {
 
 /** "Book 1, Ch 2, Sc 1" → "Ch 2, Sc 1": the book is the story Adam is in. */
 export const shortPlace = (label: string): string => label.replace(/^.*?(?=Ch \d)/, '') || label
+
+/** A kind to add, as the add menu says it: "A character", "An item", "An event", "Lore", "A term". */
+export function kindToAdd(kind: EntryKind): string {
+  if (kind === 'lore') return 'Lore'
+  const phrase = withArticle(KIND_LABELS[kind].one.toLowerCase())
+  return phrase[0].toUpperCase() + phrase.slice(1)
+}
 
 /** A character's role, as its pill says it: "Protagonist". '' when none. */
 export const roleLabel = (c: Pick<CodexCard, 'kind' | 'role'>): string =>

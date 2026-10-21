@@ -152,7 +152,7 @@ test('one note per draft: what check and repair found is said in the same messag
     await useFakeModel(win, fake)
 
     // Add below: the draft below a scene break slips twice; each slip is asked about (repair.spec.ts).
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     const note = toasts(win).filter({ hasText: /^2 questions in Issues/ })
     await expect(note).toBeVisible({ timeout: 60_000 })
@@ -199,7 +199,7 @@ test('plain waits: the status line names each step before the first word', async
         }
       }).observe(header, { subtree: true, childList: true, characterData: true })
     })()`)
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect(prose(win)).toContainText('The rain had not let up', { timeout: 60_000 })
     const seen = await win.evaluate<string[]>('window.seenStatus')
     // The memory catching up with the scene before, then planning, then writing: never a bare "Getting ready…" all along.
@@ -290,7 +290,7 @@ test('a refused draft offers one click to try again with another model Adam has 
     await win.reload()
     await expect(prose(win)).toBeVisible()
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     const note = toasts(win).filter({ hasText: /refused|turned .* down/ })
     await expect(note).toBeVisible({ timeout: 30_000 })
     await expect(toasts(win)).toHaveCount(1)
@@ -329,7 +329,7 @@ test('panels: the corner messages keep clear of the receipt at the foot of the p
     await win.getByRole('button', { name: 'Draft options' }).click()
     await win.getByLabel('Direction for this draft (optional)').fill('Mara counts the doors from the corner. More dialogue.')
     await win.keyboard.press('Escape')
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     const receipt = win.locator('[data-page-foot] [data-direction-receipt]')
     await expect(receipt).toHaveAttribute('data-direction-receipt', 'missing', { timeout: 60_000 })
     // A message in the corner meanwhile (a check of the whole story ends with one).

@@ -172,7 +172,7 @@ test('a draft that uses a phrase to avoid says so when it lands, and Show goes t
     })
     await win.reload()
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     // The model was told, at the end of its briefing too.
     await expect.poll(() => JSON.stringify(fake.lastRequest()?.body ?? '')).toContain('Never use “steady as a drum”, or any close variation of it.')
     // In the draft's one note (the calm overhaul).

@@ -26,7 +26,7 @@ async function startSpeech(): Promise<FakeSpeech> {
 }
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const speakersButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Speakers and tone' })
 const labelled = (win: Page) => win.locator('.scene-prose p[data-speaker-label]')
 

@@ -28,6 +28,34 @@ export function budgetView(budget: Pick<ContextBudget, 'used' | 'available'>): B
   return { share, fill, percentText: `${Math.round(share * 100)}%`, tight: share > 0.9, noRoom: false }
 }
 
+/** The writer's own rule of thumb for English prose (main/ai/context.ts TOKENS_PER_WORD): about 1.35 tokens a word. */
+const TOKENS_PER_WORD = 1.35
+
+/**
+ * The model's tokens as Adam's words (the Words rule: never "tokens"), rounded to two figures so it reads as the
+ * estimate it is: 2,556 tokens → 1,900 words, 16,000 → 12,000, 756 → 560.
+ */
+export function asWords(tokens: number): number {
+  const words = Math.max(0, tokens) / TOKENS_PER_WORD
+  if (words < 10) return Math.round(words)
+  const step = 10 ** (Math.floor(Math.log10(words)) - 1)
+  return Math.round(words / step) * step
+}
+
+/** "about 1,900": a number of words, for "… of them". */
+export const aboutCount = (tokens: number): string => `about ${asWords(tokens).toLocaleString('en-GB')}`
+
+/** "about 1,900 words" (one word: "about 1 word"). */
+export const aboutWords = (tokens: number): string => `${aboutCount(tokens)} ${asWords(tokens) === 1 ? 'word' : 'words'}`
+
+/** What the bar says under it: "Room for about 8,000 more words.", or that it is full. */
+export function roomLine(budget: Pick<ContextBudget, 'used' | 'available'>): string {
+  const left = budget.available - budget.used
+  if (asWords(left) <= 0) return 'Full: the parts lowest down are shortened or left out.'
+  const n = asWords(left)
+  return `Room for about ${n.toLocaleString('en-GB')} more ${n === 1 ? 'word' : 'words'}.`
+}
+
 // ---------- Parts of the briefing ----------
 
 export type BlockState = 'full' | 'short' | 'left-out'

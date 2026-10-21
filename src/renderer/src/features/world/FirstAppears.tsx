@@ -48,13 +48,19 @@ export function FirstAppears({
   name,
   kind,
   points,
-  className
+  className,
+  label
 }: {
   name: string
   kind: EntryKind
   /** The entry's first-exists points (the page loads them once for this and the note about edits that reach other stories). */
   points: EntryData<FirstExists[]>
   className?: string
+  /**
+   * Shown as one of the dossier's facts: this class on a small-capitals "First appears" over the place, which wraps onto
+   * more lines rather than being cut short ("the beginning of the world and the start of Book 2").
+   */
+  label?: string
 }): React.JSX.Element | null {
   const [open, setOpen] = useState(false)
   const text = points.data ? firstAppearsText(points.data) : null
@@ -63,21 +69,39 @@ export function FirstAppears({
   return (
     <P.Root open={open} onOpenChange={setOpen}>
       <P.Trigger asChild>
-        <button
-          type="button"
-          title="Change where it first appears"
-          className={cn(
-            'flex min-w-0 animate-fade-in items-center gap-1.5 rounded-sm text-left text-[12px] text-faint outline-none transition-colors duration-150 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/60 data-[state=open]:text-fg',
-            className
-          )}
-        >
-          {/* Beside the kind on a wide page; on a narrow one it has its own line, without the dot. */}
-          <span aria-hidden className="@max-[34rem]:hidden">
-            ·
-          </span>
-          <span className="min-w-0 truncate">{text}</span>
-          <ChevronDown size={12} className="shrink-0" aria-hidden />
-        </button>
+        {label ? (
+          <button
+            type="button"
+            aria-label={text}
+            title="Change where it first appears"
+            className={cn(
+              'group flex min-w-0 animate-fade-in flex-col items-start gap-px rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+              className
+            )}
+          >
+            <span className={label}>First appears</span>
+            <span className="flex items-start gap-1 font-serif text-[15px] font-medium leading-5 text-fg transition-colors duration-(--dur-quick) [overflow-wrap:anywhere] group-hover:text-accent group-data-[state=open]:text-accent">
+              <span className="min-w-0">{upperFirst(text.replace(/^First appears: /, ''))}</span>
+              <ChevronDown size={12} className="mt-1 shrink-0 text-faint" aria-hidden />
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            title="Change where it first appears"
+            className={cn(
+              'flex min-w-0 animate-fade-in items-center gap-1.5 rounded-sm text-left text-[12px] text-faint outline-none transition-colors duration-150 hover:text-fg focus-visible:ring-2 focus-visible:ring-accent/60 data-[state=open]:text-fg',
+              className
+            )}
+          >
+            {/* Beside the kind on a wide page; on a narrow one it has its own line, without the dot. */}
+            <span aria-hidden className="@max-[34rem]:hidden">
+              ·
+            </span>
+            <span className="min-w-0 truncate">{text}</span>
+            <ChevronDown size={12} className="shrink-0" aria-hidden />
+          </button>
+        )}
       </P.Trigger>
       <PopoverPanel align="start" className="w-[360px] p-3.5">
         <FirstExistsEditor name={name} kind={kind} points={points} />

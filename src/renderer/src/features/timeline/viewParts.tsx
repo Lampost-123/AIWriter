@@ -2,11 +2,11 @@
 // the page header, the story they are seen in, and loading a view without flashes.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { ID } from '@shared/types'
-import { Button, Notice, Select, Spinner } from '@/components/ui'
+import { Select } from '@/components/ui'
+import { LoadFailed, LoadSlow } from '@/components/ui/LoadState'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
-import { useSlow } from '@/features/world/parts/useSlow'
 
 /** A world view's page header: the title, a sentence on what it shows, and its controls on the right. */
 export function ViewHeader({
@@ -109,24 +109,19 @@ export function useWorldView<T>(storyId: ID | null, load: (storyId: ID) => Promi
 
 /** While a view first loads: nothing, then a spinner if it takes a moment. */
 export function ViewLoading(): React.JSX.Element {
-  const slow = useSlow(true, 250)
-  return <div className="flex flex-1 items-center justify-center text-faint">{slow ? <Spinner /> : null}</div>
+  // Quiet for a moment, then a word (components/ui/LoadState.tsx): no spinner, loops are for the AI at work.
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <LoadSlow text="Opening…" />
+    </div>
+  )
 }
 
 /** A view that couldn't be loaded, with a way to try again. */
 export function ViewError({ what, error, onRetry }: { what: string; error: string; onRetry: () => void }): React.JSX.Element {
   return (
-    <div className="mx-auto w-full max-w-md px-6 pt-16">
-      <Notice
-        tone="danger"
-        action={
-          <Button size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        }
-      >
-        {what} can't be shown right now. {error}
-      </Notice>
+    <div className="flex flex-1 justify-center">
+      <LoadFailed title={`${what} can’t be shown right now`} reason={plainReason(error)} onRetry={onRetry} />
     </div>
   )
 }
