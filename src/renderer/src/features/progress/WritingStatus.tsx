@@ -239,6 +239,7 @@ function ChapterCard({ chapterId, runId, close }: { chapterId: ID; runId: ID; cl
   const now = useNow(1000)
   const view = useChapterView(chapterId, now)
   const last = useChapterWriter((s) => (s.last?.report.runId === runId ? s.last : null))
+  const storyId = useChapterWriter((s) => (s.progress?.runId === runId ? s.progress.storyId : undefined))
   const chapters = useOutlineStore((s) => s.outline?.chapters ?? null)
   const [stopping, setStopping] = useState(false)
   const names = chapterNames(chapters, chapterId)
@@ -306,7 +307,7 @@ function ChapterCard({ chapterId, runId, close }: { chapterId: ID; runId: ID; cl
               Stop
             </Button>
             <span className="wp-links">
-              <button type="button" className="wp-link" onClick={() => (close(), openChapterWriter(chapterId))}>
+              <button type="button" className="wp-link" onClick={() => (close(), openChapterWriter(chapterId, storyId))}>
                 <ListChecks size={13} aria-hidden /> See the plan
               </button>
               {view.steps[0].state === 'done' ? (

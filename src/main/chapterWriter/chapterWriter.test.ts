@@ -528,6 +528,9 @@ describe('writing a whole chapter', () => {
     expect(review?.estimate).toEqual({ minutes: 4, cost: 0.09, free: false })
     expect(review?.plan?.kept).toContain('Keep Sc 1 true to the memory.')
     expect(review?.plan?.scenes[0].ends).toBe('Sc 1 ends on the far bank.')
+    // Its story too, so the top bar opens the plan in the right story whichever one is open (2026-10-21: it guessed the
+    // story open, and a plan waiting in another story could not be reached).
+    expect(review?.storyId).toBe(repo.getChapter(db, chapterId).storyId)
     // The drafts are told what the chapter does, in its parts.
     expect(notes.get(s1)).toContain('How it turns: The ferry leaves without them.')
     expect(progress.filter((p) => p.stage !== 'review').every((p) => !p.plan)).toBe(true)
