@@ -578,12 +578,14 @@ export function CommandPalette(): React.JSX.Element {
     usePalette.setState({ open: false })
     // Runs even if the closing focus step never comes (it always should), or comes late: a busy moment can delay it
     // past this, after the palette has gone. Not while the palette is still there (its focus trap would take the focus
-    // back): its closing focus step comes when it goes.
-    setTimeout(() => {
-      if (!pending.current || document.querySelector(`[${PALETTE_LAYER}]`)) return
+    // back): it looks again a moment later, unless the closing focus step has come meanwhile.
+    const fallback = (): void => {
+      if (!pending.current) return
+      if (document.querySelector(`[${PALETTE_LAYER}]`)) return void setTimeout(fallback, 50)
       settledEarly.current = true
       settle()
-    }, 100)
+    }
+    setTimeout(fallback, 100)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
