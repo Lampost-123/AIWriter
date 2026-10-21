@@ -4,7 +4,7 @@
 // areas (layout/areas.ts); Settings belongs to none and has its own list inside.
 import * as M from '@radix-ui/react-dropdown-menu'
 import { createContext, useState, type ReactNode } from 'react'
-import { ChevronDown } from '@/components/ui/icons'
+import { ArrowUpRight, ChevronDown } from '@/components/ui/icons'
 import { GlidePill } from '@/components/ui/GlidePill'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
@@ -37,6 +37,7 @@ function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
     >
       <Icon size={15} selected={link.active} />
       <span>{link.label}</span>
+      {link.away ? <ArrowUpRight size={12} aria-hidden className="-ml-0.5 text-faint" /> : null}
     </button>
   )
 }

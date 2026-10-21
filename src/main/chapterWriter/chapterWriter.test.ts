@@ -15,7 +15,7 @@ import { loadCritique } from '../critique/store'
 import { sceneWords } from '../ask/agent'
 import { dropRepeats, pageFrom, proseBlocks } from './page'
 import { ProgressGuard, Tries, findingKey, sameFinding, wordsOverlap } from './progress'
-import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, STATE_CHECKS, cardReady, contractMisses, issueFindings, planMisses, type RunDeps } from './run'
+import { ChapterRun, FOLLOW_ON_CHECKS, LATER_START, STATE_CHECKS, cardReady, chapterScenes, contractMisses, issueFindings, placeLabel, planMisses, type RunDeps } from './run'
 import { CHAPTER_NAMES_MOST, NAME_MOST, chapterLine, chapterNames, chapterPlanText, checkChapterPlan, keptFacts, planName, readChapterPlan, withAnswer } from './plan'
 import { passageFor, replyPassage } from './fix'
 import { CHAPTER_MARKER, PLAN_STEPS } from './prompts'
@@ -261,6 +261,12 @@ describe('the chapter plan, read and checked', () => {
     expect(sceneNamed(scenes, 'Ch 3, Sc 2')).toBe('s2')
     expect(sceneNamed(scenes, 'The inn')).toBe('s2')
     expect(() => sceneNamed(scenes, 'Sc 9')).toThrow(/isn't a scene of this chapter/)
+  })
+
+  it('asks for the number when two scenes share a title', () => {
+    const twins = [...scenes, { id: 's3', n: 3, title: 'The inn', label: 'Sc 3 “The inn”' }]
+    expect(() => sceneNamed(twins, 'The inn')).toThrow(/“Sc 2” or “Sc 3”/)
+    expect(sceneNamed(twins, 'Sc 3 “The inn”')).toBe('s3')
   })
 
   it('keeps a part for every scene, in order, plans a scene left out from its card, and keeps only people who exist', () => {
@@ -1057,5 +1063,29 @@ describe('a chapter with only its number gets a name that fits the story’s oth
     expect(chapterRecords(alone.db)[0].user).not.toContain("## The story's chapters")
     expect(chapterRecords(alone.db)[0].user).toContain('a few words that fit the story and what this chapter does')
     expect(repo.getChapter(alone.db, alone.chapterId).title).toBe('The Far Bank')
+  })
+})
+
+describe('a chapter’s new scenes (repo.createScene)', () => {
+  it('calls the first one “Scene 1” and leaves later ones untitled, so the writer labels them by number only', () => {
+    const db = memoryWorld()
+    const [story] = repo.listStories(db)
+    const outline = repo.getOutline(db, story.id)
+    const chapterId = outline.chapters[0].id
+    expect(outline.scenes[0].title).toBe('Scene 1')
+    const second = repo.createScene(db, chapterId)
+    const third = repo.createScene(db, chapterId)
+    expect([second.title, third.title]).toEqual(['', ''])
+    // A new chapter's first scene is its "Scene 1" again.
+    const next = repo.createChapter(db, story.id, {})
+    expect(repo.createScene(db, next.id).title).toBe('Scene 1')
+
+    const refs = chapterScenes(db, chapterId).map((s) => s.ref)
+    expect(refs.map((r) => r.label)).toEqual(['Sc 1 “Scene 1”', 'Sc 2', 'Sc 3'])
+    expect(placeLabel(db, third.id)).toBe('Ch 1, Sc 3')
+    // Two untitled scenes are told apart by number, never by an empty title.
+    expect(sceneNamed(refs, 'Sc 2')).toBe(second.id)
+    expect(sceneNamed(refs, 'Sc 3')).toBe(third.id)
+    expect(() => sceneNamed(refs, 'Untitled scene')).toThrow(/isn't a scene of this chapter/)
   })
 })

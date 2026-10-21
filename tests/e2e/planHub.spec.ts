@@ -404,7 +404,7 @@ test('carrying on a story that has chapters: more scenes for a written chapter, 
 
     // ----- 1. More scenes for a chapter already written: Ch 1, after its last scene -----
     const written = line(win).locator('[data-row="written-chapters"]')
-    await written.getByRole('button', { name: 'Open' }).click()
+    await written.getByRole('button', { name: 'Show the chapter' }).click()
     const [ch1] = (await invoke(win, 'getOutline', storyId)).chapters
     // Its name opens its own page, where Add scenes is.
     await line(win).locator(`[data-chapter-zoom="${ch1.id}"]`).click()

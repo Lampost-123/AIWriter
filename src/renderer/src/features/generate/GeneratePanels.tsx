@@ -5,7 +5,7 @@ import { ArrowDownToLine, RefreshCw, Sparkles } from '@/components/ui/icons'
 import { useId, type ReactNode } from 'react'
 import type { Creativity } from '@shared/types'
 import { CREATIVITY_PRESETS } from '@shared/defaults'
-import { Button } from '@/components/ui'
+import { Button, Checkbox, Segmented } from '@/components/ui'
 import { modKey } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { costLabel } from '@/features/variants/cost'
@@ -15,7 +15,7 @@ import { useDesk } from '@/features/look/look'
 import { LengthField } from './LengthField'
 import { setPolishOn } from './polishRun'
 import { CREATIVITY_HINTS } from './format'
-import { PopoverPanel, Segmented } from './parts'
+import { PopoverPanel } from './parts'
 import { DirectedToggle } from '@/features/director/DirectedToggle'
 import { PlanFirstToggle } from '@/features/planReview/PlanFirstToggle'
 import type { DraftMode, Generate } from './useGenerate'
@@ -254,21 +254,14 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
                 </>
               )}
             </div>
-            <label className="-mt-1 flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={polishOn}
-                onChange={(e) => setPolishOn(e.target.checked)}
-                className="mt-[3px] h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-              />
-              <span className="min-w-0">
-                <span className="block text-[12.5px] font-medium text-fg">Polish after drafting</span>
-                <span className="block text-[12px] leading-relaxed text-faint">
-                  A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the
-                  result in one step. Costs about twice as much.
-                </span>
-              </span>
-            </label>
+            <Checkbox
+              size="sm"
+              className="-mt-1"
+              checked={polishOn}
+              onChange={setPolishOn}
+              label={<span className="font-medium">Polish after drafting</span>}
+              hint="A second pass tightens the draft against clichés, needless explaining and your style guide. You accept or reject the result in one step. Costs about twice as much."
+            />
             {/* Directed writing, for this draft (src/main/director). */}
             <DirectedToggle sceneId={g.sceneId} />
             {/* Show me the plan first, for this draft (src/main/plan/review.ts). */}
@@ -288,7 +281,7 @@ export function GeneratePanels({ g, side }: { g: Generate; side?: 'top' | 'botto
             ) : null}
           </div>
           <Button variant="primary" className="w-full" icon={<Sparkles size={14} />} onClick={() => void generate()}>
-            Generate draft
+            Draft the scene
             <span className="ml-1 text-[11.5px] font-normal opacity-70">{modKey()}+G</span>
           </Button>
         </div>

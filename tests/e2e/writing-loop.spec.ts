@@ -19,7 +19,7 @@ async function closeWindow(app: ElectronApplication): Promise<void> {
 
 const prose = (win: Page) => win.locator('.scene-prose')
 const sceneCard = (win: Page) => win.getByRole('tabpanel', { name: 'Scene card' })
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const nameBox = (win: Page) => win.getByRole('textbox', { name: 'Name', exact: true })
 /** Paragraphs with their whitespace tidied, for comparing the page with the text the model sent. */
 const paragraphs = (text: string): string[] =>

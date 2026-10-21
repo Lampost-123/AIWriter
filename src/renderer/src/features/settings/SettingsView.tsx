@@ -16,6 +16,7 @@ import { AboutSettings } from './AboutSettings'
 import { UsageSettings } from '@/features/usage/UsageSettings'
 import { SectionArt } from './art/SectionArt'
 import { SETTINGS_GROUPS, SETTINGS_PAGES, findSettings, groupOf } from './settingsIndex'
+import { SettingsSaved } from './SettingsSaved'
 import './settings.css'
 
 /** The New look: each page's icon in the list. */
@@ -45,7 +46,7 @@ const TABS: { id: SettingsTab; label: string; blurb: string }[] = [
   {
     id: 'trash',
     label: 'Recently deleted',
-    blurb: 'Scenes, chapters and entries deleted from the open world. Each is kept for 30 days, then removed for good.'
+    blurb: 'Scenes, chapters, characters, places and lore you deleted from the open world. Each is kept for 30 days, then removed for good.'
   },
   // Milestone 6 (Usage and cost)
   {
@@ -120,7 +121,7 @@ function ClassicSettings({ tab }: { tab: SettingsTab }): React.JSX.Element {
 
 /** How wide a page's column may grow in a big window (charts and lists use the room; forms stay readable). */
 const WIDE: Partial<Record<SettingsTab, string>> = {
-  models: 'max-w-[1160px]',
+  models: 'max-w-[980px]',
   usage: 'max-w-[1160px]',
   backups: 'max-w-[1160px]',
   trash: 'max-w-[1040px]',
@@ -145,7 +146,8 @@ function NewSettings({ tab }: { tab: SettingsTab }): React.JSX.Element {
     <div className="st flex h-full min-h-0" data-settings-page={current.id}>
       <SettingsNav current={current.id} onPick={(id) => navigate({ kind: 'settings', tab: id })} />
       <div ref={scroller} className="st-page min-w-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-        <div className={cn('mx-auto px-8 pb-16 pt-9 xl:px-12', WIDE[current.id] ?? 'max-w-[840px]')}>
+        {/* Room at the foot for a toast (an Undo after a delete sits over the page's last lines otherwise). */}
+        <div className={cn('mx-auto px-8 pb-32 pt-9 xl:px-12', WIDE[current.id] ?? 'max-w-[840px]')}>
           <header key={current.id} className="st-head mb-8 flex items-center gap-6">
             <div className="st-head-art shrink-0">
               <SectionArt tab={current.id} className="h-[88px] w-[121px]" />
@@ -156,7 +158,9 @@ function NewSettings({ tab }: { tab: SettingsTab }): React.JSX.Element {
               <p className="mt-1.5 max-w-[640px] text-[13.5px] leading-relaxed text-muted">{current.blurb}</p>
             </div>
           </header>
-          <Page tab={current.id} />
+          <SettingsSaved key={`saved-${current.id}`}>
+            <Page tab={current.id} />
+          </SettingsSaved>
         </div>
       </div>
     </div>

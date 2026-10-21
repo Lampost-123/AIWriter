@@ -75,7 +75,9 @@ export function sceneNamed(scenes: SceneRef[], raw: string): ID {
     if (s) return s.id
   }
   const title = fold(v.replace(/^.*?sc(?:ene)?\s*\d+[,:]?\s*/i, '').replace(/["“”]/g, ''))
-  const byTitle = scenes.find((s) => s.title && (fold(s.title) === title || fold(s.title) === fold(v)))
-  if (byTitle) return byTitle.id
+  const byTitle = scenes.filter((s) => s.title && (fold(s.title) === title || fold(s.title) === fold(v)))
+  // Two scenes with one title: only the number says which.
+  if (byTitle.length > 1) throw new Error(`More than one scene is called “${byTitle[0].title}”: say ${byTitle.map((s) => `“Sc ${s.n}”`).join(' or ')}.`)
+  if (byTitle.length) return byTitle[0].id
   throw new Error(`“${v}” isn't a scene of this chapter. Its scenes: ${scenes.map((s) => s.label).join(', ')}.`)
 }

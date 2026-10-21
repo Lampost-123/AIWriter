@@ -7,7 +7,7 @@ import { binder, closeWindow, createWorldFromWelcome, expect, invoke, sceneTitle
 const prose = (win: Page) => win.locator('.scene-prose')
 const scroller = (win: Page) => prose(win).locator('xpath=ancestor::div[contains(@class, "overflow-y-auto")][1]')
 const toasts = (win: Page) => win.locator('div.fixed[aria-live="polite"]')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const stopButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Stop', exact: true })
 const choiceHeading = (win: Page) => win.getByRole('heading', { name: 'This scene already has text' })
 const replaceIt = (win: Page) => win.getByRole('button', { name: 'Replace it', exact: true })
@@ -535,8 +535,8 @@ test('from the draft options, Ctrl+Enter asks with Add below ready for Enter, an
     await expect(direction).toBeFocused()
     await expect(direction).toHaveValue('Make it tense')
 
-    // Generate draft (clicked) asks too, with nothing picked; Tab reaches the answers.
-    await win.getByRole('button', { name: /^Generate draft/ }).click()
+    // Draft the scene (clicked) asks too, with nothing picked; Tab reaches the answers.
+    await win.getByRole('button', { name: /^Draft the scene.*\+G$/ }).click()
     await expect(choiceHeading(win)).toBeVisible()
     await win.keyboard.press('Tab')
     await expect(replaceIt(win)).toBeFocused()

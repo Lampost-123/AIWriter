@@ -28,13 +28,13 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CueInput, SceneCue, SoundKind } from '@shared/contracts/sounds'
 import type { ID } from '@shared/types'
-import { Button, EmptyState, IconButton, Notice, Spinner, Textarea } from '@/components/ui'
+import { Button, EmptyState, IconButton, Notice, Segmented, Slider, Spinner, Textarea } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { useApp } from '@/lib/store'
 import { REVEALED } from '@/features/editor/reveal'
-import { Segmented, useDelayed } from '@/features/generate/parts'
+import { useDelayed } from '@/features/generate/parts'
 import { pageParagraphs } from '@/features/readAloud/pageText'
 import { mixer, usePreview } from './mixer'
 import { MAX_CUE_VOLUME, MIN_CUE_VOLUME, cueVolume } from './mixerLogic'
@@ -519,8 +519,6 @@ function VolumeStrip({
   onChange: (v: number) => void
   onDone: (save: boolean) => void
 }): React.JSX.Element {
-  const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => ref.current?.focus(), [])
   const set = (v: number): void => {
     onChange(v)
     if (cue.soundId) mixer.setListenVolume(cue.soundId, v)
@@ -534,16 +532,17 @@ function VolumeStrip({
         if (!e.currentTarget.closest('[data-sound-row]')?.contains(to)) onDone(true)
       }}
     >
-      <input
-        ref={ref}
-        type="range"
+      {/* Heard at once while it moves; kept only with Done, Enter or leaving the strip (onDone), so letting go saves nothing. */}
+      <Slider
+        autoFocus
         min={MIN_CUE_VOLUME}
         max={MAX_CUE_VOLUME}
         step={0.05}
         value={value}
         aria-label={`Volume of ${cue.description}`}
-        aria-valuetext={`${Math.round(value * 100)}%`}
-        onChange={(e) => set(Number(e.target.value))}
+        valueText={(v) => `${Math.round(v * 100)}%`}
+        onLive={set}
+        onCommit={() => undefined}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -555,7 +554,7 @@ function VolumeStrip({
             onDone(false)
           }
         }}
-        className="min-w-0 flex-1 accent-[var(--accent)]"
+        className="min-w-0 flex-1"
       />
       <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-muted">{Math.round(value * 100)}%</span>
       <button type="button" onClick={() => onDone(true)} className="shrink-0 text-[12px] font-medium text-accent hover:underline">

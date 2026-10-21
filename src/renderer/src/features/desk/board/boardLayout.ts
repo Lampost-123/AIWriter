@@ -7,18 +7,23 @@ import type { ID } from '@shared/types'
 
 export const CARD_W = 260
 export const CARD_H = 150
-/** Between columns: room for the strings to swing through. */
-export const COL_GAP = 110
+/** Between columns: room for the strings to swing through (narrow enough that two chapters and the next one fit a
+ * 1440px window beside the full spine with no sideways scroll). */
+export const COL_GAP = 72
 /** Between cards in a column. */
 export const ROW_GAP = 34
 /** A column's head (numeral, chapter, its progress), above its first card, with room under it for a string's name tag. */
 export const HEAD_H = 98
 /** Around the whole board. */
-export const PAD_X = 40
+export const PAD_X = 32
+/** The next chapter's column (not planned yet): a little narrower than a card, it holds only its two buttons. */
+export const NEXT_W = 220
+/** Its slot is at least this tall (room for its words and buttons on an empty board). */
+export const NEXT_MIN_H = 180
 export const PAD_TOP = 8
 export const PAD_BOTTOM = 40
 /** The ghost slot under a column's cards. */
-export const GHOST_H = 112
+export const GHOST_H = 96
 /** How many string inks there are (--thread-1 … --thread-6 in desk.css). */
 export const INKS = 6
 
@@ -117,7 +122,7 @@ export function boardLayout(columns: BoardColumnIn[], threads: ThreadIn[] = []):
     tallest = Math.max(tallest, ghostY + GHOST_H)
   })
   const nextX = PAD_X + columns.length * (CARD_W + COL_GAP)
-  const nextGhost = { x: nextX, y: top, w: CARD_W, h: Math.max(GHOST_H * 1.6, tallest - top) }
+  const nextGhost = { x: nextX, y: top, w: NEXT_W, h: Math.max(NEXT_MIN_H, tallest - top) }
   tallest = Math.max(tallest, nextGhost.y + nextGhost.h)
 
   // Reading order, for the strings.
@@ -155,7 +160,7 @@ export function boardLayout(columns: BoardColumnIn[], threads: ThreadIn[] = []):
     pins,
     next: { x: nextX, ghost: nextGhost },
     strings,
-    width: nextX + CARD_W + PAD_X,
+    width: nextX + NEXT_W + PAD_X,
     height: tallest + PAD_BOTTOM
   }
 }

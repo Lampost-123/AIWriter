@@ -11,7 +11,7 @@ import { INTERVIEW_TOPICS } from '@shared/contracts/worldInterviews'
 import { KIND_LABELS } from '@shared/fields'
 import type { ID } from '@shared/types'
 import { BookOpen, Check, CircleCheck, Link2, MapPin, MessageCircleQuestion, Square, Undo2, Users, X } from '@/components/ui/icons'
-import { Button, Input } from '@/components/ui'
+import { Button, Checkbox, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp, type RecordBack } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
@@ -420,10 +420,7 @@ function EntryEdit({ storyId, topic, entry, onDone }: { storyId: ID | null; topi
         {entry.kind === 'lore' && !entry.existing ? (
           <>
             <span aria-hidden />
-            <label className="wi-check">
-              <input type="checkbox" checked={rule} onChange={(e) => setRule(e.target.checked)} />
-              Always true, never to be broken
-            </label>
+            <Checkbox size="sm" className="wi-check" checked={rule} onChange={setRule} label="Always true, never to be broken" />
           </>
         ) : null}
         {partsToShow(entry).map((k) => (

@@ -19,7 +19,7 @@ const column = (win: Page, n: number) => win.getByRole('region', { name: `Varian
 const paragraphs = (win: Page, n: number) => column(win, n).getByRole('checkbox')
 const choiceHeading = (win: Page) => win.getByRole('heading', { name: 'This scene already has text' })
 const usePicked = (win: Page) => win.getByRole('button', { name: 'Use the picked paragraphs' })
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const draftRows = (win: Page) => win.getByRole('tabpanel', { name: 'Drafts' }).getByRole('button', { name: /What the AI saw/ })
 
 /** The two don't overlap on screen (a message in the corner never covers the button, say). */

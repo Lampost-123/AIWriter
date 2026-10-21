@@ -24,6 +24,7 @@ import { openPlanHub } from '@/features/outline/open'
 import { useArrival } from '@/layout/desk/arrival'
 import { chapterShelf, scenesOf, storyStats } from '@/features/desk/home/homeLogic'
 import { chapterNumeral } from '@/features/desk/spine/spineLayout'
+import { Fold } from '@/components/ui/Fold'
 import { numberWords } from '@shared/numberWords'
 import { setFocusThread as setFocus, setHoverThread as setHover, useBoardStore } from './boardStore'
 import { useEntryMotifs } from '@/features/world/art/artStore'
@@ -740,7 +741,7 @@ function BoardNote({ strings }: { strings: boolean }): React.JSX.Element {
   const [hint, gotIt] = useStringsHint()
   return (
     <div className="board-note">
-      {hint && strings ? (
+      <Fold open={hint && strings}>
         <div className="board-lg-explain board-hint" role="note" aria-label="How to read the strings">
           <svg className="board-hint-art" width="58" height="22" viewBox="0 0 58 22" fill="none" aria-hidden>
             <circle cx="5" cy="15" r="3.5" className="h-pin" />
@@ -756,7 +757,7 @@ function BoardNote({ strings }: { strings: boolean }): React.JSX.Element {
             Got it
           </button>
         </div>
-      ) : null}
+      </Fold>
       <div className="board-pinkey" aria-label="Pins">
         <span className="board-pinkey-k">Pins:</span>
         <span>

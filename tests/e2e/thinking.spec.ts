@@ -8,7 +8,7 @@ import type { FakeProvider } from '../fake-provider/server.mjs'
 import { binder, closeWindow, createWorldFromWelcome, expect, invoke, openPage, openSettings, openWrite, test } from './helpers'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const row = (win: Page, title: string) => binder(win).locator('[data-row]', { hasText: title }).first()
 const section = (win: Page, title: string) => win.locator('section').filter({ has: win.getByRole('heading', { name: title, exact: true }) })
 const thinking = (win: Page, title: string) => section(win, title).getByRole('radiogroup', { name: /thinking$/ })

@@ -164,7 +164,7 @@ export function continuePlace(doc: PMNode, pos: number): ContinuePlace | { probl
       ? {
           problem: 'Continue carries on from the words before the cursor. Put the cursor after some words, such as at the end of the scene.'
         }
-      : { problem: 'There’s nothing to carry on from yet. Write a line or two first, or press Generate to draft the scene.' }
+      : { problem: 'There’s nothing to carry on from yet. Write a line or two first, or let the AI draft the scene.' }
   }
   const para = $pos.parent
   let offset = $pos.parentOffset

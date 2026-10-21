@@ -55,6 +55,25 @@
   font-size: 12px;
   color: var(--faint);
 }
+/* A narrower room: the band has two columns, so the counts sit under the words as small chips, not under the drawing. */
+@container plan (max-width: 860px) {
+  [data-arrangement='desk'][data-look='new'] .th-stats {
+    grid-column: 2;
+    justify-self: start;
+    grid-auto-columns: auto;
+  }
+  [data-arrangement='desk'][data-look='new'] .th-stats > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 12px 4px;
+    border-radius: 10px;
+  }
+  [data-arrangement='desk'][data-look='new'] .th-stats dd {
+    font-size: 19px;
+    line-height: 24px;
+  }
+}
 
 /* The tools. */
 [data-arrangement='desk'][data-look='new'] .th-tools {

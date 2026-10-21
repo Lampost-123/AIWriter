@@ -2,10 +2,10 @@
 // threads, columns and actions as the board in the panels (ThreadsBoard.tsx, boardLogic.ts), drawn as a loom: the
 // story's chapters along a ruler, and each thread a strand across it in its own colour (the story board's string inks):
 // a knot where it is set up, beads where scenes touch it, a tied knot where it is paid off, or a fraying, glowing end
-// while it is still open (the longer it has been open, the brighter). Strands draw themselves in; a pay-off knot ties
+// while it is still open (the longer it has been open, the brighter). Strands draw themselves in; a payoff knot ties
 // itself. Under the loom, each thread as a card: its drawing, who found it, what it promises, where it is set up and
 // paid off (each a jump to the scene), the words that paid it off, how long it has been open, and its actions: open it,
-// show it on the story board, plan its pay-off with the AI, Undo the memory's resolve. Filters by chapter and by
+// show it on the story board, plan its payoff with the AI, Undo the memory's resolve. Filters by chapter and by
 // words; the header band has the threads weaving and the counts. Fills a big screen: the loom across the page, the
 // cards in as many columns as fit. The promises ledger (long story memory fix 10): each card says where its thread
 // stands (Open, Advanced, Resolved, Dropped), the last scene that moved it on, and "Pay off by" (a chapter picker), with
@@ -507,7 +507,7 @@ function ThreadCard({
         </blockquote>
       ) : null}
       {open ? (
-        <div className={cn('th-meter', t.longOpen && 'is-long')} title={t.longOpen ? 'Open a long time: it may be waiting for its pay-off.' : undefined}>
+        <div className={cn('th-meter', t.longOpen && 'is-long')} title={t.longOpen ? 'Open a long time: it may be waiting for its payoff.' : undefined}>
           <span className="th-meter-marks" aria-hidden>
             {Array.from({ length: 8 }, (_, i) => (
               <i key={i} className={i < marks ? 'is-on' : undefined} />
@@ -527,7 +527,7 @@ function ThreadCard({
         ) : null}
         {onBoard && t.column !== 'resolved' ? (
           <button type="button" className="plan-keep th-act" onClick={planPayOff} title="Ideas for what comes next, aimed at paying this thread off">
-            <Sparkles size={13} aria-hidden /> Plan its pay-off
+            <Sparkles size={13} aria-hidden /> Plan its payoff
           </button>
         ) : null}
         {t.column === 'open' && storyId && scenes.length ? <MarkPaidOff thread={t} scenes={scenes} storyId={storyId} /> : null}

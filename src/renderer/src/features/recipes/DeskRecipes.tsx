@@ -5,9 +5,8 @@
 // chapters (they lie on the right as index cards, Merge on each), then Make the recipe, its cost in the bar at the foot.
 // The same actions and stores as the panels (RecipesView.tsx, recipeStore.ts).
 import { BookOpenText, CookingPot, Copy, FileText, FileUp, Plus, Trash2 } from '@/components/ui/icons'
-import { Button, IconButton } from '@/components/ui'
+import { Button, IconButton, Segmented } from '@/components/ui'
 import { ProblemNotice } from '@/features/builder/parts'
-import { Segmented } from '@/features/generate/parts'
 import { PlanPage, ResultsEmpty } from '@/features/planning/PlanShell'
 import { recipeSteps } from '@/features/planning/planLogic'
 import { useDealDelay } from '@/features/planning/deal'
@@ -37,12 +36,13 @@ export function DeskLibrary(): React.JSX.Element {
       line={`${INTRO} Make one from a story you admire, then start a new story of your own from it.`}
       left={
         <>
-          <div className="flex flex-col gap-2">
-            <button type="button" className="plan-ai-btn" onClick={startMaking}>
+          {/* Side by side once the columns stack (a smaller window), so neither stretches across the whole page. */}
+          <div className="plan-actions grid gap-2">
+            <button type="button" className="plan-ai-btn justify-center" onClick={startMaking}>
               <FileUp size={17} aria-hidden />
               <span>Make a recipe from a story</span>
             </button>
-            <Button size="lg" icon={<Plus size={15} />} onClick={() => void writeOne()}>
+            <Button size="lg" className="h-11" icon={<Plus size={15} />} onClick={() => void writeOne()}>
               Write one yourself
             </Button>
           </div>

@@ -8,7 +8,7 @@ import { useApp } from '@/lib/store'
 import { KIND_ICONS } from '@/features/world/kindIcons'
 import { formatBackupDate, inSentence } from './backupText'
 import { useNewLook } from '@/features/look/look'
-import { reducedMotion } from '@/features/look/motion'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { DeletedCards } from './DeletedCards'
 
 // The Trash: scenes, chapters and world entries deleted from the open world, kept for
@@ -55,7 +55,7 @@ function whereItWas(d: DeletedItem): string {
       return `Act in ${story}, with its ${chapters === 1 ? 'chapter' : `${chapters} chapters`}${scenes}`
     }
     case 'entry':
-      return d.entryKind ? KIND_LABELS[d.entryKind].one : 'World entry'
+      return d.entryKind ? KIND_LABELS[d.entryKind].one : 'Part of the world'
     default:
       return 'Story'
   }
@@ -110,7 +110,7 @@ export function RecentlyDeleted(): React.JSX.Element {
     return (
       <Card>
         <EmptyState icon={<Trash2 size={20} />} title="Open a world to see what was deleted from it">
-          Deleted scenes, chapters and entries are kept with each world. Pick or create a world first, then come back here.
+          Deleted scenes, chapters, characters, places and lore are kept with each world. Pick or create a world first, then come back here.
         </EmptyState>
       </Card>
     )
@@ -155,7 +155,8 @@ export function RecentlyDeleted(): React.JSX.Element {
     } finally {
       if (back && isNew && !reducedMotion()) {
         setLeaving(d.id)
-        await new Promise((r) => setTimeout(r, 160))
+        // The card leaves (dl-leave, the exit speed) before the list closes up.
+        await new Promise((r) => setTimeout(r, tokenMs(document.documentElement, '--dur-exit')))
       }
       setRestoring(null)
       setLeaving(null)

@@ -1,6 +1,6 @@
 // What the desk's status island says (the New look's desk layout, top bar). One small pill that changes what it says
 // rather than adding more things to the bar: "Saved · 1,167 words" with today's target ring while all is well, "Writing…
-// 212 words" while a draft writes into the scene, "Memory · 2 changes" for a moment after the memory keeper changed
+// 212 words" while a draft writes into the scene, "2 memory updates" for a moment after the memory keeper changed
 // something, and the save trouble when there is any. Pure, so it is unit-tested; StatusIsland.tsx draws it.
 import type { SaveState } from '@/lib/store'
 
@@ -60,6 +60,3 @@ export function islandState(i: IslandInput): Island {
 
 /** "1,167 words", "1 word". */
 export const wordsText = (n: number): string => `${n.toLocaleString('en-GB')} ${n === 1 ? 'word' : 'words'}`
-
-/** "2 changes", "1 change". */
-export const changesText = (n: number): string => `${n.toLocaleString('en-GB')} ${n === 1 ? 'change' : 'changes'}`

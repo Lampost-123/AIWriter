@@ -78,8 +78,8 @@ export function storyPlan(db: DB, storyId: ID): PlanAct[] {
   return out
 }
 
-/** A chapter or scene title as it was made ("Chapter 1", "Scene 1"). */
-const MADE_TITLE = /^\s*(chapter|scene)\s*\d*\s*$/i
+/** A chapter or scene title as it was made ("Chapter 1", "Scene 1", or none: a later scene starts untitled). */
+const MADE_TITLE = /^\s*((chapter|scene)\s*\d*)?\s*$/i
 
 /**
  * Nothing planned or written yet: at most the empty "Chapter 1" and "Scene 1" a new story is made with

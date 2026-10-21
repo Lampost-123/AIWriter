@@ -165,6 +165,12 @@ test('the Check room: the lighthouse, the reports, issue cards with their severi
   await expect(sheet(win).locator('[data-room-art="loom"]').first()).toBeVisible()
   await reports.getByRole('tab', { name: /Repetition/ }).click()
   await expect(sheet(win).locator('[data-room-art="echo"]').first()).toBeVisible()
+
+  // Every plot thread in hand: one drawing, one sentence, and one way on, to the plot threads board.
+  await reports.getByRole('tab', { name: /Plot threads/ }).click()
+  await expect(sheet(win).getByRole('heading', { name: 'Every plot thread is in hand' })).toBeVisible()
+  await sheet(win).getByRole('button', { name: 'Open the plot threads board' }).click()
+  await expect(win.locator('[data-plan-page="threads"]')).toBeVisible()
 })
 
 test('a check running lights the lighthouse in the lamp’s amber, with a meter and Stop', async ({ launch }) => {

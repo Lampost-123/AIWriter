@@ -711,7 +711,7 @@ button.hub-kid-name:hover {
   transition:
     background-color var(--dur-base) ease-out,
     border-color var(--dur-base) ease-out,
-    opacity var(--dur-exit) ease-in;
+    opacity var(--dur-exit) ease-out;
 }
 .hub-sug.is-kept {
   border-color: var(--line);
@@ -721,7 +721,7 @@ button.hub-kid-name:hover {
   opacity: 0;
 }
 .hub-sug.is-back {
-  animation: hub-back 1.1s var(--motion-glide);
+  animation: hub-back 900ms var(--motion-glide);
 }
 @keyframes hub-back {
   0% {

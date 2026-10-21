@@ -8,7 +8,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import type { Entry, ID, MemoryLogItem } from '@shared/types'
 import type { StoryFlowRun } from '@shared/contracts/storyFlows'
-import { ArrowLeft, ArrowRight, ArrowUpRight, CircleAlert, Minus, PenLine, Plus } from '@/components/ui/icons'
+import { ArrowLeft, ArrowRight, ArrowUpRight, CircleAlert, History, Minus, PenLine, Plus } from '@/components/ui/icons'
 import { Button, Notice } from '@/components/ui'
 import { LedgerArt } from '@/components/art/RoomArt'
 import { TickNumber } from '@/components/ui/TickNumber'
@@ -133,8 +133,11 @@ export function DeskLedger(p: DeskLedgerProps): React.JSX.Element {
                 <Skeleton className="h-[96px] w-full rounded-xl" />
               </div>
             ) : !p.items.length ? (
+              // The ledger's drawing is already beside it (the side's): here, the page's own small mark (review #47).
               <div className="ck-calm" role="status">
-                <LedgerArt className="lg-calm-art" />
+                <span aria-hidden className="lg-calm-mark">
+                  <History size={22} />
+                </span>
                 <h2 className="ck-calm-title">{p.sceneId ? 'Nothing taken from this scene yet' : 'Nothing has changed yet'}</h2>
                 <p className="ck-calm-sub">{p.emptyHelp}</p>
               </div>

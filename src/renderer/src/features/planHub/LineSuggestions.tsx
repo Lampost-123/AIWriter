@@ -12,7 +12,7 @@ import { Button, Notice } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { useApp, type View } from '@/lib/store'
 import { deleteChapter } from '@/features/binder/actions'
-import { keyboardDriven, reducedMotion } from '@/features/look/motion'
+import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
 import { FreshText } from '@/features/planning/FreshText'
 import { HubStatus } from './HubStatus'
 import { keepInLine } from './hubStore'
@@ -150,7 +150,7 @@ function SugRow({
   }, [decision])
   useEffect(() => {
     if (!back) return
-    const t = setTimeout(() => setBack(false), 1200)
+    const t = setTimeout(() => setBack(false), 1000)
     return () => clearTimeout(t)
   }, [back])
 
@@ -164,7 +164,7 @@ function SugRow({
     if (focused()) focusNext(box.current, true)
     if (reducedMotion() || keyboardDriven()) return discardSuggestion(storyId, node.key, chapterId ?? null, runId)
     setLeaving(true)
-    setTimeout(() => discardSuggestion(storyId, node.key, chapterId ?? null, runId), 140)
+    setTimeout(() => discardSuggestion(storyId, node.key, chapterId ?? null, runId), tokenMs(document.documentElement, '--dur-exit'))
   }
   const named = title ? `“${title}”` : `this ${node.kind}`
 

@@ -399,7 +399,9 @@ export function createScene(db: DB, chapterId: ID, input: { title?: string; afte
     const ids = sceneIds(db, chapterId)
     const after = input.afterId ? ids.indexOf(input.afterId) : -1
     const at = after >= 0 ? after + 1 : ids.length
-    const title = input.title ?? `Scene ${ids.length + 1}`
+    // A chapter's first scene is "Scene 1" (a new story's starter, which stories.ts knows by that name); any later one has
+    // no title until Adam names it (shown as "Untitled scene"), so a number in its name never disagrees with where it sits.
+    const title = input.title ?? (ids.length ? '' : 'Scene 1')
     // A new scene starts with its chapter's card, following every part of it.
     const card = adoptChapter(emptySceneCard(), getChapterCard(db, chapterId), 'new')
     db.prepare('INSERT INTO scenes (id, chapter_id, title, card_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(

@@ -249,7 +249,7 @@ export function applyIdea(sceneId: ID, idea: SceneIdea, card: SceneCard, opts: {
         label: 'Undo',
         run: () => {
           void patchCard(sceneId, before).catch((e: Error) => void toast(e.message, { tone: 'danger' }))
-          if (rename && oldTitle) void renameScene(sceneId, oldTitle)
+          if (rename && oldTitle !== null) void renameScene(sceneId, oldTitle)
           const now = get(key)
           if (now && s && now.taskId === s.taskId) put(key, { ...now, hidden: false })
           opts.onUndo?.()

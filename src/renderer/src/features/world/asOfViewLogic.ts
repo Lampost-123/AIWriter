@@ -201,7 +201,7 @@ export function asOfRelations(
   nameOf: (id: ID) => string | null,
   changes: ChangeView[] = []
 ): AsOfRelation[] {
-  const self = nameOf(selfId) ?? 'This entry'
+  const self = nameOf(selfId) ?? 'This one'
   const out: AsOfRelation[] = []
   for (const r of rows) {
     const mine = r.aId === selfId

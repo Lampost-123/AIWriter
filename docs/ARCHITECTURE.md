@@ -51,7 +51,9 @@ src/main/        Electron main process
 src/preload/     Exposes window.aiwrite (invoke + events). Nothing else.
 src/renderer/src/
   lib/           api client, zustand store (navigation + open world), flush registry, editor bridge, theme
-  components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects
+  components/ui  The design system. Use these, not raw elements, for buttons, fields, tabs, dialogs, selects,
+                 tick boxes (Checkbox), sliders (Slider: live while dragged, saved on release), Switch, Segmented,
+                 and a page's loading or failed state (LoadState); controls.ts holds the one disabled look and focus ring
   layout/        Top bar, resizable side panes, inspector, update banner
   features/      binder, editor, inspector, world, style, settings, generate, welcome; planHub (Build with AI: every AI
                  building tool for a story in one area, zoomed in on a chapter or a scene) over outline (the suggestions' store and parts), storyBuilder
@@ -86,7 +88,11 @@ src/renderer/src/
   Deletes are announced with `announceDelete` (`lib/undoDelete.ts`): one Undo toast that
   gathers deletes made while it shows, and Settings › Recently deleted for 30 days after.
 - **Words.** On screen, use Adam's words: world, story, chapter, scene, character, place,
-  lore, draft. Never "line", "main history", "entity", "generation" or "LLM".
+  lore, draft. Never "line", "main history", "entity", "generation", "LLM", "entry" or "tokens" (say words: about
+  three words to four tokens, `features/settings/words.ts`).
+- **Scene names.** A chapter's first scene is made as "Scene 1"; any later new scene is made with no title
+  (`createScene` in `db/repo.ts`), so no number in its name disagrees with where it sits. An empty title shows as
+  "Untitled scene", or by its place ("Ch 1, Sc 2") where that's the local style; never a blank or empty quotes.
 - **Never lose a keystroke.** Anything holding unsaved work registers with
   `registerFlusher` (`lib/flush.ts`); it runs before the window closes and before switching worlds.
 
@@ -3948,7 +3954,7 @@ content levels, point of view, tense and prose style (and the tone, in the Story
 AI"); its page, its steps bar and its Done step are gone, and a `storyBuilder` view lands in the matching section.
 Before that, **where it was:** the Plan area's "The idea, cast and world", the hub's header link of the same name and the command
 palette ("The idea, cast and world"); the board's blank story opens the Plan hub's start; the
-New story dialog's "Build it with the AI next"; the start screen's **Build a story with AI…** tile (picks a world,
+New story dialog's "Build it with AI next"; the start screen's **Build a story with AI…** tile (picks a world,
 then opens the New story dialog with that box ticked: `newStoryIn(worldId, { withAi: true })`, `useApp.newStoryWithAi`). The World builder page stays for a world built from a summary apart
 from any story, and points to the Story builder while a story is open.
 
@@ -5079,7 +5085,7 @@ link, the same on the desk and in the panels. The Plan hub's own parts (below) a
   planned scene's tool, else the story line at the next scene; Plan a chapter), the palette ("Build with AI", "Your
   idea, cast and world"; its "Ideas for this scene" and "Interview me about this scene" stay the writing page's own,
   on the scene's card), the binder's
-  chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with the AI next" (Your
+  chapter menu, the trail's chapter, the board's chapter, the New story dialog's "Build it with AI next" (Your
   idea), Story settings' premise, the chapter card's report, the top bar's "The chapter plan is ready for you".
 - **Removed**: the Story builder's page (`StoryBuilderView.tsx`, its steps bar and `DoneStep.tsx`), the chapter's plan
   page (`ChapterPlanner.tsx`), a recipe story's plan page (`RecipePlan.tsx`), Write the chapter's start dialog

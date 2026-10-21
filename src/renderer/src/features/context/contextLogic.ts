@@ -4,6 +4,7 @@
 
 import { NOT_READY, plainReason } from '../../lib/reason'
 import type { BlockMode, ContextBlock, ContextBudget, ContextEntry, ContextPreview, EntryKind, ID, PinScope, Summary } from '@shared/types'
+import { wordsFor } from '@/features/settings/words'
 
 // ---------- The token bar ----------
 
@@ -26,6 +27,26 @@ export function budgetView(budget: Pick<ContextBudget, 'used' | 'available'>): B
   const share = used / available
   const fill = Math.min(100, Math.max(used > 0 ? 1 : 0, Math.round(share * 100)))
   return { share, fill, percentText: `${Math.round(share * 100)}%`, tight: share > 0.9, noRoom: false }
+}
+
+/**
+ * The model's tokens as Adam's words (the Words rule: never "tokens"), by the same rule of thumb as Settings › Models so
+ * the two never disagree: rounded to two figures so it reads as the estimate it is.
+ */
+export const asWords = wordsFor
+
+/** "about 1,900": a number of words, for "… of them". */
+export const aboutCount = (tokens: number): string => `about ${asWords(tokens).toLocaleString('en-GB')}`
+
+/** "about 1,900 words" (one word: "about 1 word"). */
+export const aboutWords = (tokens: number): string => `${aboutCount(tokens)} ${asWords(tokens) === 1 ? 'word' : 'words'}`
+
+/** What the bar says under it: "Room for about 8,000 more words.", or that it is full. */
+export function roomLine(budget: Pick<ContextBudget, 'used' | 'available'>): string {
+  const left = budget.available - budget.used
+  if (asWords(left) <= 0) return 'Full: the parts lowest down are shortened or left out.'
+  const n = asWords(left)
+  return `Room for about ${n.toLocaleString('en-GB')} more ${n === 1 ? 'word' : 'words'}.`
 }
 
 // ---------- Parts of the briefing ----------

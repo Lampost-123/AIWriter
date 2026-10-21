@@ -1,3 +1,4 @@
+import { useDesk } from '@/features/look/look'
 import { Plus, RotateCcw } from '@/components/ui/icons'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui'
@@ -47,6 +48,7 @@ export function Binder({ world = true, switcher = true }: { world?: boolean; swi
   const sceneId = useApp((s) => s.sceneId)
   const { outline, error, retry } = useOutline()
   const slow = useDelayed(!!storyId && !outline && !error, 300)
+  const desk = useDesk()
 
   useEffect(() => {
     if (storyId && sceneId) rememberScene(storyId, sceneId)
@@ -80,8 +82,9 @@ export function Binder({ world = true, switcher = true }: { world?: boolean; swi
           <TreeSkeleton />
         ) : null}
       </div>
-      {/* Milestone 5: a check running, quietly, with Stop. */}
-      <CheckLine />
+      {/* Milestone 5: a check running, quietly, with Stop. Not on the desk: there a check's progress shows in one place,
+          the top bar's Check (and the Check room itself). */}
+      {desk ? null : <CheckLine />}
       {/* Milestone 6: the import catch-up building the memory, quietly, with Stop. */}
       <ImportLine />
       {world ? <WorldSection /> : null}

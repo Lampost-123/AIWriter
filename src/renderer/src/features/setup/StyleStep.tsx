@@ -4,12 +4,11 @@
 
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import type { Spelling, WritingPrefs } from '@shared/types'
-import { Field, Notice } from '@/components/ui'
+import { Field, Notice, Segmented } from '@/components/ui'
 import { api } from '@/lib/api'
 import { registerFlusher } from '@/lib/flush'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
 import { POV_PRESETS, PresetInput, TENSE_PRESETS } from '@/features/world/parts/TextInputs'
-import { Segmented } from '@/features/generate/parts'
 import { usePrefs } from '@/features/style/prefsStore'
 
 export interface StyleSaver {

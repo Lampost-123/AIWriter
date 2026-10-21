@@ -9,7 +9,7 @@ import { create } from 'zustand'
 import type { Proposal } from '@shared/contracts/ask'
 import { KIND_LABELS } from '@shared/fields'
 import type { ID } from '@shared/types'
-import { Button } from '@/components/ui'
+import { Button, Checkbox } from '@/components/ui'
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -283,18 +283,15 @@ function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: '
         </ul>
       ) : null}
       {p.rename && p.replace ? (
-        <label htmlFor={boxId} className="flex items-center gap-1.5 text-[12.5px] text-fg">
-          <input
-            id={boxId}
-            type="checkbox"
-            data-replace-rename
-            checked={picked}
-            disabled={locked || p.status === 'applied' || p.status === 'started'}
-            onChange={(e) => useRenamePick.setState({ [pickKey]: e.target.checked })}
-            className="h-3.5 w-3.5 shrink-0 accent-accent"
-          />
-          Also rename {p.rename.name} to {p.replace} in memory (keeping the old name as another name)
-        </label>
+        <Checkbox
+          id={boxId}
+          size="sm"
+          data-replace-rename
+          checked={picked}
+          disabled={locked || p.status === 'applied' || p.status === 'started'}
+          onChange={(on) => useRenamePick.setState({ [pickKey]: on })}
+          label={`Also rename ${p.rename.name} to ${p.replace} in memory (keeping the old name as another name)`}
+        />
       ) : null}
     </div>
   )
@@ -304,7 +301,7 @@ function ReplaceAllBody({ p, pickKey, locked }: { p: Extract<Proposal, { kind: '
 export function draftModeLabel(p: Extract<Proposal, { kind: 'draft' }>): string {
   switch (p.mode) {
     case 'generate':
-      return 'Generate (below any words already there)'
+      return 'Draft the scene (below any words already there)'
     case 'add_below':
       return 'Add below'
     case 'continue':
@@ -447,7 +444,7 @@ function Body({ p, pickKey = '', locked = false }: { p: Proposal; pickKey?: stri
     case 'rename':
       return (
         <div className="break-words text-[12.5px] leading-relaxed text-fg">
-          <del className="text-muted">{p.from || 'Untitled'}</del> → <span className="font-medium">{p.to}</span>
+          <del className="text-muted">{p.from.trim() || (p.target === 'scene' ? 'Untitled scene' : 'Untitled chapter')}</del> → <span className="font-medium">{p.to}</span>
         </div>
       )
     case 'draft':

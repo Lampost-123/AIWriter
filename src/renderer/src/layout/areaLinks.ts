@@ -45,6 +45,8 @@ export interface AreaLink {
   count?: number | null
   /** It is the page showing. */
   active: boolean
+  /** It opens in another room (a small arrow after its name says so). */
+  away?: boolean
   disabled?: boolean
   run(): void
 }
@@ -195,7 +197,16 @@ export function worldViewLinks(c: LinkContext): AreaLink[] {
   return [
     { id: 'map', label: 'Relationship map', icon: Network, active: is(c.view, 'map'), run: () => go({ kind: 'map' }) },
     { id: 'timeline', label: 'Timeline', icon: CalendarRange, active: is(c.view, 'timeline'), run: () => go({ kind: 'timeline' }) },
-    { id: 'worldBuilder', label: 'Build from a summary', icon: WandSparkles, active: is(c.view, 'worldBuilder'), run: () => openWorldBuilder() }
+    // With a story open it is Build with AI's own (Plan › Build with AI › Cast and world): said, so the jump isn't a surprise.
+    {
+      id: 'worldBuilder',
+      label: 'Build from a summary',
+      hint: c.storyId ? 'Opens in Plan › Build with AI, at Cast and world' : undefined,
+      away: !!c.storyId,
+      icon: WandSparkles,
+      active: is(c.view, 'worldBuilder'),
+      run: () => openWorldBuilder()
+    }
   ]
 }
 

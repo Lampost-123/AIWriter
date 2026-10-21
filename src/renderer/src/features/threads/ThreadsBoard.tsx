@@ -10,12 +10,11 @@ import { ChevronDown, ChevronUp, Hourglass, Spool, Plus, Sparkles, Undo2 } from 
 import { useState } from 'react'
 import type { ID } from '@shared/types'
 import type { BoardPlace, BoardThread, ThreadsBoard as Board } from '@shared/contracts/worldViews'
-import { Badge, Button, EmptyState, Select, toast } from '@/components/ui'
+import { Badge, Button, EmptyState, Segmented, Select, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { createEntry } from '@/features/world/entryActions'
-import { Segmented } from '@/features/generate/parts'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewHeader, ViewLoading } from '@/features/timeline/viewParts'
 import { useDesk } from '@/features/look/look'
 import {

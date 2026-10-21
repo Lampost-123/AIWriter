@@ -95,6 +95,19 @@ describe('search', () => {
     expect(r.ms).toBeGreaterThanOrEqual(0)
   })
 
+  it('names an untitled scene "Untitled scene", in its own hit and its summary’s (the palette shows these)', () => {
+    const w = world()
+    // A chapter's later scenes are made with no title (repo.createScene).
+    const untitled = repo.createScene(w.db, w.ch1.id, {})
+    expect(untitled.title).toBe('')
+    repo.saveSceneText(w.db, untitled.id, null, 'Wren rowed out past the weir alone.')
+    mem.putSummary(w.db, { level: 'scene', targetId: untitled.id, text: 'Wren crosses the weir at dusk.', origin: 'text' })
+    const r = searchIndex(w.db).search('wren')
+    expect(titles(group(r, 'scenes'))).toEqual(['Untitled scene'])
+    expect(group(r, 'scenes')!.hits[0].detail).toBe('Book 1, Ch 1, Sc 3')
+    expect(titles(group(r, 'summaries'))).toEqual(['Untitled scene'])
+  })
+
   it('needs every word, in any order, and matches the last one by its start while it is typed', () => {
     const w = world()
     const ix = searchIndex(w.db)

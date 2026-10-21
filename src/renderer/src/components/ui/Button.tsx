@@ -1,6 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { Spinner } from './Spinner'
+import { DISABLED, FOCUS_RING, RADIUS } from './controls'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'ai'
 type Size = 'sm' | 'md' | 'lg'
@@ -32,9 +33,9 @@ const newLook: Record<Variant, string> = {
 }
 
 const sizes: Record<Size, string> = {
-  sm: 'h-7 px-2.5 text-[13px] gap-1.5 rounded-md',
-  md: 'h-8 px-3 text-[13.5px] gap-2 rounded-md',
-  lg: 'h-10 px-4 text-[14.5px] gap-2 rounded-lg'
+  sm: `h-7 px-2.5 text-[13px] gap-1.5 ${RADIUS.sm}`,
+  md: `h-8 px-3 text-[13.5px] gap-2 ${RADIUS.md}`,
+  lg: `h-10 px-4 text-[14.5px] gap-2 ${RADIUS.lg}`
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -47,10 +48,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       className={cn(
         'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium transition-[background-color,border-color,color,filter] duration-150',
-        'disabled:pointer-events-none disabled:opacity-50',
-        // The New look: buttons press in (quickly, 90ms; they come back up a touch slower, 150ms), a little rounder,
-        // the filled ones raised.
-        'look-new:rounded-[9px] look-new:transition-[background-color,border-color,color,filter,transform,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.97]',
+        DISABLED,
+        FOCUS_RING,
+        // The New look: buttons press in (quickly, 90ms; they come back up a touch slower, 150ms), the filled ones raised.
+        'look-new:transition-[background-color,border-color,color,filter,transform,scale,box-shadow] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.97]',
         variants[variant],
         newLook[variant],
         sizes[size],
@@ -81,12 +82,13 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       aria-label={label}
       title={label}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-md text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
-        'disabled:pointer-events-none disabled:opacity-40',
+        'inline-flex shrink-0 items-center justify-center text-muted transition-colors duration-150 hover:bg-surface-2 hover:text-fg',
+        DISABLED,
+        FOCUS_RING,
         // The New look: a small press (0.95), in quickly, back a touch slower.
-        'look-new:rounded-[9px] look-new:transition-[background-color,color,transform,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.95]',
+        'look-new:transition-[background-color,color,transform,scale] look-new:duration-(--dur-quick) look-new:ease-glide look-new:active:duration-(--dur-press) look-new:active:scale-[0.95]',
         active && 'bg-surface-2 text-fg look-new:bg-raise look-new:text-accent look-new:shadow-e1',
-        size === 'sm' ? 'h-6 w-6' : 'h-8 w-8',
+        size === 'sm' ? `h-6 w-6 ${RADIUS.sm}` : `h-8 w-8 ${RADIUS.md}`,
         className
       )}
       {...rest}

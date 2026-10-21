@@ -382,7 +382,7 @@ test('Ctrl+Enter and Esc still work with a hover card open', async ({ launch }) 
 
     // Esc stops a draft being written, with a card open over a name above it. The scene has text, so
     // Generate asks where the draft goes: below it.
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(win.locator('main header').getByRole('button', { name: 'Stop' })).toBeVisible()
     await expect(prose(win).locator('hr')).toHaveCount(1)
@@ -439,7 +439,7 @@ test('with a draft being written, Esc on the Selected words bar or the floating 
 
     // A draft being written below Adam's text. Esc with the bar showing over his words closes the bar,
     // and the draft carries on; the next Esc stops it, as Stop says.
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(stop).toBeVisible()
     await selectParagraph(win, 0)

@@ -75,7 +75,7 @@ import { dismissProfile } from '../reachLogic'
 import { AutoTextarea } from '../parts/AutoTextarea'
 import { SaveNote } from '../parts/SaveNote'
 import { NameBox } from '../parts/NameBox'
-import { Switch } from '../parts/Switch'
+import { Switch } from '@/components/ui'
 import { CommaListInput } from '../parts/TextInputs'
 import { useEntryEditor } from '../useEntryEditor'
 import { appearsBands, dossierGroups, factDefs, factsOf, kickerOf, relationLine, voiceOf, type DossierGroup } from './dossierLogic'
@@ -282,16 +282,26 @@ function KnowingRows({ rows }: { rows: AsOfKnowing[] }): React.JSX.Element {
   )
 }
 
-function Nothing({ children, onAdd, onSuggest }: { children: ReactNode; onAdd?: () => void; onSuggest?: () => void }): React.JSX.Element {
+function Nothing({
+  children,
+  onAdd,
+  onSuggest,
+  addLabel = 'Add'
+}: {
+  children?: ReactNode
+  onAdd?: () => void
+  onSuggest?: () => void
+  addLabel?: string
+}): React.JSX.Element {
   return (
     <p className="dz-nothing">
       {children}
       {onAdd ? (
         <>
-          {' '}
+          {children ? ' ' : null}
           <button type="button" className="dz-add" onClick={onAdd}>
             <Plus size={12} aria-hidden />
-            Add
+            {addLabel}
           </button>
         </>
       ) : null}
@@ -315,12 +325,13 @@ function Nothing({ children, onAdd, onSuggest }: { children: ReactNode; onAdd?: 
 
 /** Opens a scene, at the words that name the entry when there are some. */
 /**
- * A character's read-aloud voice in the facts row (Adam couldn't find where to set it): the voice their lines are read in
- * (its name, "Auto: …" when the app gave it, "Made from their description"), or "Not set". It brings the voice's
- * section into view (just under who they are) the way their name on the page or the Cast list does (voiceReveal.ts).
+ * A character's read-aloud voice in the facts row, once they have one: the voice their lines are read in (its name,
+ * "Auto: …" when the app gave it, "Made from their description"). It brings the voice's section into view (just under
+ * who they are) the way their name on the page or the Cast list does (voiceReveal.ts). With no voice yet it isn't shown:
+ * that section, right under who they are, already says how to give them one (one voice block on the page, not two).
  * Read again when the keyboard leaves that section, so a change there shows here.
  */
-function ReadAloudFact({ entry, rev }: { entry: Entry; rev: number }): React.JSX.Element {
+function ReadAloudFact({ entry, rev }: { entry: Entry; rev: number }): React.JSX.Element | null {
   const on = useApp((s) => !!s.settings?.speech.readAloud)
   const [text, setText] = useState<string | null>(null)
   const { voices } = useVoices(on)
@@ -343,16 +354,18 @@ function ReadAloudFact({ entry, rev }: { entry: Entry; rev: number }): React.JSX
     }
   }, [entry.id, rev, voices])
   const go = (): void => useVoiceReveal.setState((s) => ({ id: entry.id, n: s.n + 1 }))
+  // Nothing while it loads: most characters have no voice, and a kept slot would close up (and move the row) for them.
+  if (!text) return null
   return (
     <div className="dz-fact">
       <span className="dz-caps">Read-aloud voice</span>
       <button
         type="button"
-        className={cn('dz-fact-v dz-fact-link', !text && 'is-empty')}
-        title={`${text ? `${entry.name}'s read-aloud voice: ${text}.` : `${entry.name} has no read-aloud voice of their own yet.`} Set it below.${on ? '' : ' (Read aloud is off.)'}`}
+        className="dz-fact-v dz-fact-link"
+        title={`${entry.name}'s read-aloud voice: ${text}. Change it below.${on ? '' : ' (Read aloud is off.)'}`}
         onClick={go}
       >
-        {text === null ? ' ' : text || 'Not set'}
+        {text}
       </button>
     </div>
   )
@@ -695,6 +708,9 @@ export function Dossier({
         <>
           {draft.description.trim() ? (
             <Paras text={draft.description} />
+          ) : draft.summary.trim() ? (
+            // The line at the top already says what it is: no "No description yet." under it, only the way to say more.
+            <Nothing onAdd={() => onEdit('about', true)} onSuggest={suggestFor('about')} addLabel="Add more detail" />
           ) : (
             <Nothing onAdd={() => onEdit('about', true)} onSuggest={suggestFor('about')}>
               No description yet.
@@ -954,7 +970,7 @@ export function Dossier({
         ) : null}
         {kind === 'character' && !asOf ? <ReadAloudFact entry={draft} rev={voiceRev} /> : null}
         <div className="dz-fact is-first">
-          <FirstAppears name={draft.name} kind={kind} points={firsts} className="dz-first" />
+          <FirstAppears name={draft.name} kind={kind} points={firsts} className="dz-first" label="dz-caps" />
         </div>
         {factKeys.length && !asOf ? (
           <button

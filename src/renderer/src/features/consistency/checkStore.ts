@@ -291,6 +291,8 @@ export function listen(): void {
       toast(d.found ? `Check of ${run.what} stopped. ${found(d.found)} so far.` : `Check of ${run.what} stopped.`)
       return
     }
+    // The desk's Check room says "Checked just now" and lists what it found, so it needs no note on top.
+    if (here && run.target.scope !== 'scene' && deskShowing()) return
     // One note at the end, with the way to what it found: the scene's Issues list, or the Check room.
     const show =
       run.target.scope === 'scene'
@@ -310,6 +312,11 @@ export function listen(): void {
 }
 
 const found = (n: number): string => (n === 1 ? '1 new issue' : `${n} new issues`)
+
+function deskShowing(): boolean {
+  const root = document.documentElement
+  return root.dataset.arrangement === 'desk' && root.dataset.look === 'new'
+}
 
 // In the window, from the start, so a check started anywhere (marking a scene done, a draft landing) shows everywhere.
 if (typeof window !== 'undefined' && window.aiwrite) listen()

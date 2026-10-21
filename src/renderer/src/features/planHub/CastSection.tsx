@@ -48,7 +48,7 @@ export function CastSection({ storyId, summary, premise, onGo }: { storyId: ID; 
           <SummaryBuilder />
         </div>
       ) : (
-        <CodexStep storyId={storyId} premise={premise} onGo={(s) => onGo(s)} onSummary={() => showSummary(storyId, true)} />
+        <CodexStep storyId={storyId} premise={premise} onGo={(s) => onGo(s)} />
       )}
       <TopicInterviews storyId={storyId} back={{ view: { kind: 'planHub', storyId, section: 'cast' }, label: 'Back to Build with AI' }} />
       <InYourWorld />
@@ -82,7 +82,8 @@ function InYourWorld(): React.JSX.Element {
         <Users size={14} className="text-muted" aria-hidden />
         <h3 className="build-world-t">In your world</h3>
         <span className="flex-1" />
-        <Button size="sm" variant="ai" icon={<UserPlus size={13} />} onClick={() => go({ kind: 'builder', entryKind: 'character', entryId: null })} data-add-someone>
+        {/* Plain, its icon amber: the page's one main button is Plan the cast and world. */}
+        <Button size="sm" icon={<UserPlus size={13} className="text-ai" />} onClick={() => go({ kind: 'builder', entryKind: 'character', entryId: null })} data-add-someone>
           Add someone with AI
         </Button>
         <Button size="sm" icon={<LayoutGrid size={13} />} onClick={() => go({ kind: 'codex' })}>

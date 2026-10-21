@@ -158,7 +158,7 @@ test('Change it… on the draft just written: the row under the draft, the box o
     const sceneId = await setUp(win, fake, null)
 
     // A draft into the empty scene: the row under it says so, with Change it…, What the AI saw and Undo.
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect(justWritten(win)).toBeVisible({ timeout: 30_000 })
     await expect(justWritten(win)).toContainText('Draft written')
     await expect(justWritten(win).getByRole('button', { name: 'What the AI saw' })).toBeVisible()

@@ -152,8 +152,10 @@ export function GenerateControls({ sceneId }: { sceneId: ID }): React.JSX.Elemen
                   }}
                   onFocus={checkText}
                   title={`Draft this scene from its card (${modKey()}+G)${direction ? `\nDirection: “${direction}”` : ''}${hasText ? `\n${afterText}` : ''}`}
+                  // The scene toolbar has room for one word; it is the desk's "Draft the scene" all the same.
+                  aria-label="Draft the scene"
                 >
-                  Generate
+                  Draft
                 </Button>
                 <Button
                   variant={desk ? 'ai' : 'primary'}

@@ -100,6 +100,21 @@
   font-weight: 600;
   color: var(--fg);
 }
+/* Who isn't on the map, under the count (it stays level with the choices: the count rises a line instead). */
+[data-look='new'] .dm-count {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+[data-look='new'] .dm-count-off {
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 /* A narrow page (the smallest window, beside the area's list): the count goes above the choices, so they stay beside
    the title rather than taking a row of their own, and the map keeps its height. Narrower still, one under another. */
 @container dm-head (max-width: 779px) {

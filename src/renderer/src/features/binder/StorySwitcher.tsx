@@ -117,7 +117,7 @@ export function StorySwitcher({ bar = false, onTitle }: { bar?: boolean; onTitle
               {bar ? null : (
                 <span
                   aria-hidden
-                  className="grid h-[38px] w-[30px] shrink-0 place-items-center rounded-[4px_6px_6px_4px] bg-[linear-gradient(160deg,#2f4e78,#1d304c)] text-[#f3d9a4] shadow-[inset_3px_0_0_rgb(0_0_0/0.25),var(--elev-1)]"
+                  className="grid h-[38px] w-[30px] shrink-0 place-items-center rounded-[4px_6px_6px_4px] bg-[linear-gradient(160deg,var(--accent),color-mix(in_oklab,var(--accent)_76%,black))] text-accent-fg shadow-[inset_3px_0_0_rgb(0_0_0/0.25),var(--elev-1)]"
                 >
                   <BookOpen size={14} />
                 </span>

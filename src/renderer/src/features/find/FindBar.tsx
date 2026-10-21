@@ -40,8 +40,10 @@ export function FindBar({
   const matchCase = useFind((s) => s.matchCase)
   const wholeWord = useFind((s) => s.wholeWord)
   const focusTick = useFind((s) => s.focusTick)
+  const focusField = useFind((s) => s.focusField)
   const set = useFind((s) => s.set)
   const findRef = useRef<HTMLInputElement>(null)
+  const replaceRef = useRef<HTMLInputElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const [count, setCount] = useState({ n: 0, current: -1 })
   const [top, setTop] = useState(56)
@@ -118,14 +120,15 @@ export function FindBar({
     else setFindInputs({ active: false, query: '', opts: {} })
   }, [shown, editor])
 
-  // Opening (or Ctrl+F again) puts the keyboard in the find box, its words selected.
+  // Opening (or Ctrl+F again) puts the keyboard in the find box, its words selected; Ctrl+H in the Replace with box.
   useLayoutEffect(() => {
     if (!shown) return
     if (!findRef.current?.matches(':focus')) startAt.current = editor.state.selection.from
     moved.current = false
-    findRef.current?.focus()
-    findRef.current?.select()
-  }, [shown, focusTick, editor])
+    const box = focusField === 'replace' ? replaceRef.current : findRef.current
+    box?.focus()
+    box?.select()
+  }, [shown, focusTick, focusField, editor])
 
   // The bar sits just over the top of the page, below anything above the page (the reading bar, a guide).
   useLayoutEffect(() => {
@@ -287,6 +290,7 @@ export function FindBar({
       </div>
       <div className="mt-1.5 flex items-center gap-1.5">
         <Input
+          ref={replaceRef}
           value={replacement}
           onChange={(e) => set({ replacement: e.target.value })}
           onKeyDown={onReplaceKey}

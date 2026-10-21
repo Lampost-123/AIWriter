@@ -4,7 +4,7 @@ import { useId } from 'react'
 import type { OutlineSize } from '@shared/contracts/outline'
 import { Select } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { Segmented } from '@/features/generate/parts'
+import { Segmented } from '@/components/ui'
 import { SIZE_CHOICES, STAGE_CHAPTER_CHOICES } from './size'
 import { WHOLE_MOST_CHAPTERS, type PlanMode } from './stages'
 

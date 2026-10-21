@@ -440,6 +440,8 @@ export function CommandPalette(): React.JSX.Element {
   const listRef = useRef<HTMLDivElement>(null)
   // What was chosen: run once the palette has closed and focus is back where it belongs.
   const pending = useRef<{ run: () => Promise<void>; away: boolean } | null>(null)
+  // The choice was settled before the closing focus step came (see choose): that step then has nothing left to do.
+  const settledEarly = useRef(false)
   // Words typed a moment ago are saved first, so search finds them too.
   const saved = useRef<Promise<void>>(Promise.resolve())
   // Keys pressed while the list is still the one for what was in the box before (its search is a few
@@ -540,10 +542,13 @@ export function CommandPalette(): React.JSX.Element {
     if (next >= 0) point(options[next], next)
   }
 
-  const runPending = (): void => {
+  /** Focus back where Adam was (unless the choice goes to another page), then the choice: once. */
+  const settle = (): void => {
     const p = pending.current
     pending.current = null
-    if (p) void p.run()
+    if (!p) return
+    if (!p.away) giveFocusBack()
+    void p.run()
   }
 
   const choose = (o: Option): void => {
@@ -568,9 +573,18 @@ export function CommandPalette(): React.JSX.Element {
               away: true
             }
           : { run: () => openResult(o.hit.open), away: true }
+    settledEarly.current = false
     usePalette.setState({ open: false })
-    // Runs even if the closing focus step never comes (it always should).
-    setTimeout(runPending, 100)
+    // Runs even if the closing focus step never comes (it always should), or comes late: a busy moment can delay it
+    // past this, after the palette has gone. Not while the palette is still there (its focus trap would take the focus
+    // back): it looks again a moment later, unless the closing focus step has come meanwhile.
+    const fallback = (): void => {
+      if (!pending.current) return
+      if (document.querySelector(`[${PALETTE_LAYER}]`)) return void setTimeout(fallback, 50)
+      settledEarly.current = true
+      settle()
+    }
+    setTimeout(fallback, 100)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -639,14 +653,22 @@ export function CommandPalette(): React.JSX.Element {
           aria-describedby={undefined}
           onOpenAutoFocus={(e) => {
             e.preventDefault()
+            // Opened again before the last close finished: the action chosen then runs now, never on a later Esc.
+            if (pending.current) settle()
+            settledEarly.current = false
             inputRef.current?.focus()
           }}
           onCloseAutoFocus={(e) => {
             // Focus goes back where Adam was (usually the page), and only then does the chosen action
             // run, so an action that moves focus itself (a new scene puts the caret in it) has the last word.
             e.preventDefault()
-            if (!pending.current?.away) giveFocusBack()
-            runPending()
+            if (settledEarly.current) {
+              // Done already: giving focus back again would take it from what the choice opened (the world's name box).
+              settledEarly.current = false
+              return
+            }
+            if (pending.current) settle()
+            else giveFocusBack()
           }}
           // Keys pressed here stay here: the app's shortcuts underneath (Ctrl+G, Ctrl+Enter...) wait until it closes.
           onKeyDown={(e) => e.stopPropagation()}

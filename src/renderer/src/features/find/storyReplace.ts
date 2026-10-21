@@ -40,7 +40,7 @@ const scenesWord = (n: number): string => (n === 1 ? 'one scene' : `${n.toLocale
 
 /** "“Night”", "“Night” and “Dawn”", "“Night”, “Dawn” and 2 more". */
 function titles(list: { title: string }[]): string {
-  const q = list.map((s) => `“${s.title}”`)
+  const q = list.map((s) => `“${s.title.trim() || 'Untitled scene'}”`)
   if (q.length <= 2) return q.join(' and ')
   if (q.length === 3) return `${q[0]}, ${q[1]} and ${q[2]}`
   return `${q[0]}, ${q[1]} and ${q.length - 2} more`

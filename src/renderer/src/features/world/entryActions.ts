@@ -49,7 +49,7 @@ export async function deleteEntryWithUndo(e: Entry): Promise<boolean> {
   const noun = KIND_LABELS[e.kind].one.toLowerCase()
   announceDelete({
     message: `Deleted ${label(e)}.`,
-    noun: e.kind === 'lore' ? ['lore entry', 'lore entries'] : [noun, `${noun}s`],
+    noun: e.kind === 'lore' ? ['piece of lore', 'pieces of lore'] : [noun, `${noun}s`],
     undo: () =>
       api
         .restoreDeleted('entry', e.id)

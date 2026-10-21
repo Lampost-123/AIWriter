@@ -138,7 +138,7 @@ test('Add below with the steer box empty has no direction, not the last Generate
     await dock(win).getByRole('button', { name: /^More ways to write/ }).click()
     await win.getByRole('menuitem', { name: /^Draft options/ }).click()
     await win.getByLabel('Direction for this draft (optional)').fill('Tobin sells the ferry.')
-    await win.getByRole('button', { name: /^Generate draft/ }).click()
+    await win.getByRole('button', { name: /^Draft the scene.*\+G$/ }).click()
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId)).filter((g) => g.job === 'draft')[0]?.status, { timeout: 30_000 }).toBe('complete')
     await expect(dock(win)).toHaveAttribute('data-desk-dock', 'idle')
     // Add below from the dock, the steer box empty: no direction (it was the whole draft's).
@@ -188,7 +188,7 @@ async function generateWith(win: Page, direction: string): Promise<void> {
   await win.getByRole('button', { name: 'Draft options' }).click()
   await win.getByLabel('Direction for this draft (optional)').fill(direction)
   await win.keyboard.press('Escape')
-  await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+  await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
 }
 
 test('panels: the receipt at the foot of the page, with Write it in', async ({ launch }) => {

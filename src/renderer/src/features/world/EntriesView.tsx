@@ -6,6 +6,7 @@ import type { BuilderKind } from '@shared/contracts/builder'
 import { Button, EmptyState, IconButton, Input, Notice, Spinner, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { plainReason } from '@/lib/reason'
 import { useNewLook } from '@/features/look/look'
 import { useApp } from '@/lib/store'
 import { useCodex } from '@/features/codex/codexStore'
@@ -164,7 +165,7 @@ function EntriesScreen({ kind, entryId, from }: { kind: EntryKind; entryId: ID |
       if (!name) setQuery('')
       select(e.id)
     } catch (err) {
-      toast(`Couldn't create the ${noun}. ${(err as Error).message}`, { tone: 'danger' })
+      toast(`Couldn’t create the ${noun}. ${plainReason(err)}`, { tone: 'danger' })
     } finally {
       setCreating(false)
     }
@@ -415,7 +416,7 @@ const EntryRow = memo(function EntryRow({
       data-entry={entry.id}
       onClick={() => onSelect(entry.id)}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-100',
+        'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-(--dur-quick)',
         active ? 'bg-accent-soft' : 'hover:bg-surface-2'
       )}
     >

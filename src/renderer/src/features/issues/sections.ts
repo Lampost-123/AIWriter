@@ -27,7 +27,7 @@ export const SECTION_HINTS: Record<IssueSection, string> = {
   slips: 'Words that disagree with the memory, earlier scenes or the rules. Put them right in the words.',
   questions: 'Things only you can decide: what the scene had to do, whether the text or your note is right, voice and style.',
   craft: 'The critic’s notes on the writing. It reads only when you ask.',
-  threads: 'Plot threads to look at: left open too long, or waiting for their pay-off.',
+  threads: 'Plot threads to look at: left open too long, or waiting for their payoff.',
   memory: 'What the memory isn’t sure about in this scene.'
 }
 

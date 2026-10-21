@@ -55,7 +55,7 @@ test('Generate: the top bar says how the draft is going, and its card has the st
     await row(win, 'Morning Confrontation').click()
     await expect(prose(win)).toBeVisible()
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     const status = topBar(win).getByTestId('draft-status')
     const pill = status.getByRole('button')
     await expect(prose(win)).toContainText('The rain', { timeout: 60_000 })

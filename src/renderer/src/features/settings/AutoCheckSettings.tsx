@@ -3,9 +3,8 @@
 // tab still work whenever he asks. One button turns them all off (or back on), Check new words straight away included.
 // The memory keeper isn't here: it keeps the story's memory in step with the words, so it always runs.
 import { useId } from 'react'
-import { Button, SettingsSection } from '@/components/ui'
+import { Button, SettingsSection, Switch } from '@/components/ui'
 import { useApp } from '@/lib/store'
-import { Switch } from '@/features/world/parts/Switch'
 import type { Settings } from '@shared/types'
 
 type AutoKey = 'checkWhenDone' | 'checkAfterDraft' | 'checkSecondOpinion' | 'chapterCritic'

@@ -14,7 +14,7 @@ import { BLANK_DRAFT_OPTIONS, draftLength, resolveDraftOptions, type SceneDraftO
 import { LengthField } from '@/features/generate/LengthField'
 import { CREATIVITY_HINTS, shortModelName } from '@/features/generate/format'
 import { useDraftEstimate, useSceneCardInfo } from '@/features/generate/cardInfo'
-import { Segmented } from '@/features/generate/parts'
+import { Segmented } from '@/components/ui'
 import { setSteer, steerTaken, useDeskStore } from '@/features/desk/deskStore'
 import { DirectionComposer } from '@/features/direction/DirectionComposer'
 import { noteUsed } from '@/features/direction/store'

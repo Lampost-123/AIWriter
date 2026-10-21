@@ -169,7 +169,7 @@ export function RelationshipsSection({
                 {(id) => (
                   <Combobox
                     id={id}
-                    listLabel="Entries"
+                    listLabel="In your world"
                     query={query}
                     onQuery={(q) => {
                       setQuery(q)

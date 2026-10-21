@@ -133,7 +133,7 @@ const STATS: { key: keyof Omit<WorldCounts, 'storyList'>; label: string }[] = [
   { key: 'stories', label: 'Stories' },
   { key: 'scenes', label: 'Scenes' },
   { key: 'words', label: 'Words' },
-  { key: 'entries', label: 'World entries' }
+  { key: 'entries', label: 'Characters, places and lore' }
 ]
 
 /** The backup beside the world now: four numbers each, with what would change, and each story's words. */

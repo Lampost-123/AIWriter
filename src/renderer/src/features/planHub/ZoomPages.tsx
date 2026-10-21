@@ -300,8 +300,9 @@ export function ScenePage({
           <h2 className="zoom-t">{title}</h2>
         </div>
         <div className="zoom-acts">
+          {/* The main button while there is nothing written, as on the chapter's page; once written, Open the scene is the way on. */}
           <Button
-            variant="primary"
+            variant={written ? 'secondary' : 'primary'}
             icon={<PenLine size={14} />}
             onClick={() => writeScene(storyId, scene.id)}
             data-scene-tool="write"

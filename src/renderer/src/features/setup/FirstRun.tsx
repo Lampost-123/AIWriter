@@ -23,6 +23,7 @@ import { ModelStep } from './ModelStep'
 import { StyleStep, type StyleSaver } from './StyleStep'
 import { ReadAloudStep } from './ReadAloudStep'
 import { SetupDesk } from './SetupDesk'
+import { SampleBook } from './SampleBook'
 
 export function FirstRun(): React.JSX.Element | null {
   const step = useSetup((s) => s.step)
@@ -270,37 +271,30 @@ async function finishSetup(build: boolean): Promise<void> {
 
 /**
  * The New look's "Not sure yet?": the sample world as a small book on the step, its cover in the harbour's colours,
- * with Explore and the Welcome screen's other ways in.
+ * with Explore, and under it the Welcome screen's other ways in as a quiet row of links.
  */
 function SampleWorldCard({ busy, onExplore }: { busy: false | 'create' | 'sample'; onExplore: () => void }): React.JSX.Element {
   return (
-    <div className="mt-8 flex gap-5 rounded-[16px] bg-raise p-4 pr-5 shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]">
-      <div aria-hidden className="setup-book relative h-[118px] w-[86px] shrink-0">
-        <span className="setup-book-pages" />
-        <span className="setup-book-cover">
-          <span className="setup-book-title">The Keeper’s Light</span>
-          <svg viewBox="0 0 60 44" className="setup-book-art">
-            <path d="M0 44 L0 34 C14 30 22 31 30 33 C40 35 48 32 60 30 L60 44 Z" fill="currentColor" opacity="0.5" />
-            <path d="M38 32 L42 32 L41 16 L39 16 Z" fill="currentColor" />
-            <rect x="37.6" y="13" width="4.8" height="3.4" rx="0.8" fill="var(--sx-lamp, #ffe9b8)" />
-            <path d="M40 14.6 L4 8 L4 20 Z" fill="var(--sx-lamp, #ffe9b8)" opacity="0.28" />
-          </svg>
-        </span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="setup-eyebrow !mb-1">Not sure yet?</p>
-        <p className="font-heading text-[17px] font-semibold text-fg">Explore the sample world</p>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-          A small finished world to look round first: a short story set in Gullhaven, with its characters, places and memory filled in.
-          Nothing in it costs anything.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button icon={<BookOpen size={15} />} loading={busy === 'sample'} disabled={!!busy} onClick={onExplore}>
+    <div className="sample-book-host mt-8 rounded-[16px] bg-raise p-4 pr-5 shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]">
+      <div className="flex gap-5">
+        <SampleBook />
+        <div className="min-w-0 flex-1">
+          <p className="setup-eyebrow !mb-1">Not sure yet?</p>
+          <p className="font-heading text-[17px] font-semibold text-fg">Explore the sample world</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+            A small finished world to look round first: a short story set in Gullhaven, with its characters, places and memory filled in.
+            Nothing in it costs anything.
+          </p>
+          <Button className="mt-3" icon={<BookOpen size={15} />} loading={busy === 'sample'} disabled={!!busy} onClick={onExplore}>
             Explore a sample world first
           </Button>
-          {WELCOME_ACTIONS.length ? <WelcomeActionButtons actions={FROM_SETUP} /> : null}
         </div>
       </div>
+      {WELCOME_ACTIONS.length ? (
+        <div className="mt-4 border-t border-line pt-2.5">
+          <WelcomeActionButtons className="-ml-2.5 gap-1" size="sm" variant="ghost" icons={false} actions={FROM_SETUP} />
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 // Settings › Models › Writing temperature (Adam, 2026-10-20): Auto (the creativity's own temperature) or Adam's own,
 // for every request that writes the story's words. The memory, checks, planning and the rest keep their own.
 // The rule and the ranges live in shared/temperature.ts.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProviderConfig } from '@shared/types'
 import { CREATIVITY_PRESETS, writerTemperature } from '@shared/defaults'
 import {
@@ -14,10 +14,10 @@ import {
   temperatureCeiling,
   temperatureIgnored
 } from '@shared/temperature'
-import { Input, Notice, SettingsSection } from '@/components/ui'
+import { Input, Notice, Segmented, SettingsSection, Slider } from '@/components/ui'
+import { registerFlusher } from '@/lib/flush'
+import { parseTemperature } from './typed'
 import { useApp } from '@/lib/store'
-import { cn } from '@/lib/cn'
-import { Segmented } from '@/features/generate/parts'
 
 type Mode = 'auto' | 'custom'
 const MODES: { value: Mode; label: string }[] = [
@@ -26,6 +26,10 @@ const MODES: { value: Mode; label: string }[] = [
 ]
 
 const show = (n: number): string => n.toFixed(2).replace(/0$/, '')
+
+/** How long typing must pause before a typed number is saved. */
+const TYPING_PAUSE_MS = 700
+
 
 export function WritingTemperature({ providers }: { providers: ProviderConfig[] }): React.JSX.Element {
   const stored = useApp((s) => s.settings?.writingTemperature)
@@ -44,9 +48,13 @@ export function WritingTemperature({ providers }: { providers: ProviderConfig[] 
   const ignored = writer ? temperatureIgnored({ baseUrl, modelId, sampling: writer.sampling }, thinking) : null
   const value = own ?? auto
 
-  // The box holds what is being typed; it settles on Enter or leaving it.
+  // The box holds what is being typed. It is saved after a short pause, on Enter or leaving it, and before the window
+  // closes or the page changes, so a number typed is never lost.
   const [typed, setTyped] = useState(show(value))
-  useEffect(() => setTyped(show(value)), [value])
+  const editing = useRef(false)
+  useEffect(() => {
+    if (!editing.current) setTyped(show(value))
+  }, [value])
 
   const save = (n: number | null): void => void update({ writingTemperature: n == null ? null : cleanWritingTemperature(n) })
   const choose = (m: Mode): void => {
@@ -54,15 +62,42 @@ export function WritingTemperature({ providers }: { providers: ProviderConfig[] 
     // DeepSeek starts where DeepSeek suggests for stories; any other model where Auto had it.
     save(deepSeek ? Math.min(DEEPSEEK_STORY_TEMPERATURE, ceiling) : auto)
   }
-  const settle = (): void => {
-    const n = Number(typed.replace(',', '.'))
-    if (typed.trim() === '' || !Number.isFinite(n)) return setTyped(show(value))
-    save(n)
-    setTyped(show(cleanWritingTemperature(n) ?? value))
+  /** Saves what is typed, if it is a number that differs from what is kept. `tidy` also shows it as it was kept. */
+  const settle = (tidy: boolean): void => {
+    const n = parseTemperature(typed)
+    if (n == null) {
+      if (tidy) {
+        editing.current = false
+        setTyped(show(value))
+      }
+      return
+    }
+    const kept = cleanWritingTemperature(n)
+    if (kept != null && kept !== own) save(kept)
+    if (tidy) {
+      editing.current = false
+      setTyped(show(kept ?? value))
+    }
   }
+  const settleRef = useRef(settle)
+  settleRef.current = settle
+  // After a pause in typing; and before closing or switching worlds, and when the page goes (only while typing).
+  useEffect(() => {
+    if (!editing.current) return
+    const t = setTimeout(() => settleRef.current(false), TYPING_PAUSE_MS)
+    return () => clearTimeout(t)
+  }, [typed])
+  useEffect(() => {
+    const off = registerFlusher(() => {
+      if (editing.current) settleRef.current(false)
+    })
+    return () => {
+      off()
+      if (editing.current) settleRef.current(false)
+    }
+  }, [])
 
   const custom = mode === 'custom'
-  const fill = ((value - WRITING_TEMPERATURE_MIN) / (WRITING_TEMPERATURE_MAX - WRITING_TEMPERATURE_MIN)) * 100
   const clamped = custom && own != null && own > ceiling
 
   return (
@@ -72,18 +107,21 @@ export function WritingTemperature({ providers }: { providers: ProviderConfig[] 
     >
       <div data-testid="writing-temperature" className="flex flex-col gap-3">
         <Segmented label="Writing temperature" value={mode} onChange={choose} options={MODES} className="w-[240px]" />
-        <div className={cn('flex max-w-[480px] items-center gap-3 transition-opacity duration-150', !custom && 'opacity-50')}>
-          <input
-            type="range"
+        <div className="flex max-w-[480px] items-center gap-3">
+          <Slider
             aria-label="Temperature"
             min={WRITING_TEMPERATURE_MIN}
             max={WRITING_TEMPERATURE_MAX}
             step={WRITING_TEMPERATURE_STEP}
             value={value}
             disabled={!custom}
-            onChange={(e) => save(Number(e.target.value))}
-            className="st-range min-w-0 flex-1"
-            style={{ '--fill': `${fill}%` } as React.CSSProperties}
+            valueText={show}
+            onLive={(v) => {
+              editing.current = false
+              setTyped(show(v))
+            }}
+            onCommit={(v) => update({ writingTemperature: cleanWritingTemperature(v) })}
+            className="min-w-0 flex-1"
           />
           <div className="w-[68px] shrink-0">
             <Input
@@ -91,10 +129,13 @@ export function WritingTemperature({ providers }: { providers: ProviderConfig[] 
               inputMode="decimal"
               value={typed}
               disabled={!custom}
-              onChange={(e) => setTyped(e.target.value)}
-              onBlur={settle}
+              onChange={(e) => {
+                editing.current = true
+                setTyped(e.target.value)
+              }}
+              onBlur={() => settle(true)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') settle()
+                if (e.key === 'Enter') settle(true)
               }}
               className="text-center tabular-nums"
             />

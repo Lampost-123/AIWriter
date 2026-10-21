@@ -2556,7 +2556,7 @@ export class EditorAgent {
         const id = this.scene(a.scene)
         const s = sceneWords(this.db, id)
         if (!s) throw new Mistake('That scene no longer exists.')
-        const label = this.place.storyId ? sceneLabelIn(this.outline(), id) : `“${s.title}”`
+        const label = this.place.storyId ? sceneLabelIn(this.outline(), id) : `“${s.title.trim() || 'Untitled scene'}”`
         const heading = this.place.storyId ? this.sceneHeading(id) : label
         const card = repo.getScene(this.db, id).card
         const cardText = [
@@ -2598,7 +2598,7 @@ export class EditorAgent {
               const goal = (cards.get(s.id)?.goal ?? '').trim()
               const at = o.scenes.indexOf(s)
               const mark = s.id === this.place.sceneId ? ` ${OPEN_MARK}` : open >= 0 && at > open ? ' (later)' : ''
-              return `  Sc ${si + 1}: ${s.title.trim() || 'Untitled'} (${s.status}, ${s.wordCount} words)${goal ? ` — goal: ${goal}` : ''}${mark}`
+              return `  Sc ${si + 1}: ${s.title.trim() || 'Untitled scene'} (${s.status}, ${s.wordCount} words)${goal ? ` — goal: ${goal}` : ''}${mark}`
             })
           return [`Ch ${ci + 1}: ${c.title.trim() || 'Untitled'}`, ...(scenes.length ? scenes : ['  (no scenes)'])].join('\n')
         })

@@ -5,9 +5,10 @@
 // draft keeps writing and Continue is instant. App.tsx decides when it shows (useApp.home).
 
 import * as M from '@radix-ui/react-dropdown-menu'
-import { ArrowRight, BookPlus, ChevronRight, CookingPot, LibraryBig, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type IconType } from '@/components/ui/icons'
+import { ArrowRight, BookOpen, BookPlus, ChevronRight, CookingPot, PenLine, Plus, Search, Settings as SettingsIcon, WandSparkles, type IconType } from '@/components/ui/icons'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { LastPlace, LibraryWorld } from '@shared/contracts/library'
+import type { RecipeSummary } from '@shared/contracts/recipes'
 import { Button, Card, Field, IconButton, Input, Kbd, Notice, toast } from '@/components/ui'
 import { flushBeforeWorldChange } from '@/lib/flush'
 import { isShortcut } from '@/lib/shortcuts'
@@ -17,10 +18,11 @@ import { Harbour } from '@/components/art/Harbour'
 import { useOutlineStore } from '@/features/binder/outlineStore'
 import { createWorldAndBuild } from '@/features/worldBuilder/open'
 import { openSampleWorld } from '@/features/setup/setupStore'
+import { SampleBook } from '@/features/setup/SampleBook'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
-import { WELCOME_ACTIONS, type WelcomeAction } from '@/features/welcome/welcomeActions'
+import { WELCOME_ACTIONS } from '@/features/welcome/welcomeActions'
 import { DeleteWorldDialog, RecentlyDeletedWorlds } from './DeletedWorlds'
-import { loadLibrary, useLibrary } from './libraryStore'
+import { exclusive, loadLibrary, useLibrary } from './libraryStore'
 import { MissingLibrary } from './MissingLibrary'
 import { DriftingTexture, InkMark, rise, useOpening } from './Opening'
 import { continueWriting, newStoryIn } from './startActions'
@@ -28,6 +30,7 @@ import { continueText, filterWorlds, orderWorlds, SEARCH_FROM } from './startLog
 import { WorldCard } from './WorldCard'
 import { listenForRecipes, useRecipes } from '@/features/recipes/recipeStore'
 import { recipeName } from '@/features/recipes/recipeLogic'
+import './start.css'
 
 /** Whether a key or the pointer has been pressed since the window opened. */
 let pressed = false
@@ -187,7 +190,10 @@ export function StartScreen(): React.JSX.Element {
                 </div>
               ) : null}
               {worlds && worlds.length ? <WorldList worlds={worlds} openId={world?.id ?? null} onDelete={setDeleting} /> : null}
-              {overview ? <RecentlyDeletedWorlds deleted={overview.deleted} style={rise(Math.min(8, (worlds?.length ?? 0) + 3))} /> : null}
+              {/* The sample world and the imports: under the worlds when there are some (Continue, starting something
+                  and the worlds come first), straight under Create a world when there are none. */}
+              <OtherWays order={Math.min(8, (worlds?.length ?? 0) + (empty ? 1 : 3))} />
+              {overview ? <RecentlyDeletedWorlds deleted={overview.deleted} style={rise(Math.min(8, (worlds?.length ?? 0) + 4))} /> : null}
             </>
           )}
         </div>
@@ -306,7 +312,7 @@ function Tile({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13.5px] font-medium leading-[20px] text-fg">{label}</span>
-        <span id={hintId} className="line-clamp-2 block text-[12px] leading-[17px] text-muted">
+        <span id={hintId} className="line-clamp-2 text-[12px] leading-[17px] text-muted">
           {hint}
         </span>
       </span>
@@ -314,71 +320,93 @@ function Tile({
   )
 }
 
-/** The other ways to start (the sample world, and WELCOME_ACTIONS: importing a manuscript or a world file). */
-function OtherWays({ busy, setBusy }: { busy: string | null; setBusy: (id: string | null) => void }): React.JSX.Element {
+/**
+ * The other ways to start: the sample world as a book cover (as on the setup's first step), and under it
+ * WELCOME_ACTIONS (importing a manuscript or a world file, Story recipes) as one row of tiles.
+ */
+function OtherWays({ order }: { order: number }): React.JSX.Element {
+  // Which control is working (for its spinner); `exclusive` keeps the rest of the start screen waiting meanwhile, so
+  // New story… and the like can't open a world while the sample world or an import is opening one.
+  const [busy, setBusy] = useState<string | null>(null)
   const worldBusy = useLibrary((s) => s.busy)
-  const run = async (a: WelcomeAction): Promise<void> => {
-    setBusy(a.id)
-    try {
-      await a.run()
-    } catch (e) {
-      toast((e as Error).message, { tone: 'danger' })
-    } finally {
-      setBusy(null)
-    }
-  }
+  const run = (id: string, work: () => void | Promise<void>): Promise<void> =>
+    exclusive(async () => {
+      setBusy(id)
+      try {
+        await work()
+      } catch (e) {
+        toast((e as Error).message, { tone: 'danger' })
+      } finally {
+        setBusy(null)
+      }
+    })
   return (
-    <>
-      <Tile
-        icon={LibraryBig}
-        label="Explore the sample world"
-        hint="A short finished story with its characters, places and memory filled in"
-        busy={busy === 'sample'}
-        disabled={!!busy || worldBusy}
-        onClick={() => {
-          setBusy('sample')
-          void openSampleWorld().finally(() => setBusy(null))
-        }}
-      />
-      {WELCOME_ACTIONS.map((a) => (
-        <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a)} />
-      ))}
-    </>
+    <section aria-labelledby="start-other" className="start-rise mt-10" style={rise(order)}>
+      <h2 id="start-other" className={cn(sectionTitle, 'mb-2')}>
+        Other ways to start
+      </h2>
+      <div className="sample-book-host flex items-center gap-5 rounded-xl border border-line bg-surface py-4 pl-5 pr-6 shadow-soft">
+        <SampleBook />
+        <div className="min-w-0 flex-1">
+          <h3 className="font-heading text-[17px] font-semibold leading-snug text-fg">Explore the sample world</h3>
+          <p className="mt-1 max-w-[520px] text-[12.5px] leading-relaxed text-muted">
+            A short finished story set in Gullhaven, with its characters, places and memory filled in. Look round before you start your
+            own; nothing in it costs anything.
+          </p>
+          <Button
+            className="mt-3"
+            icon={<BookOpen size={15} />}
+            loading={busy === 'sample'}
+            disabled={!!busy || worldBusy}
+            onClick={() => void run('sample', openSampleWorld)}
+          >
+            Open the sample world
+          </Button>
+        </div>
+      </div>
+      {/* Three ways in (WELCOME_ACTIONS), so they make one even row. */}
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        {WELCOME_ACTIONS.map((a) => (
+          <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a.id, a.run)} />
+        ))}
+      </div>
+    </section>
   )
 }
 
-/** Start something new: a world, a story in one of the worlds, the sample world, or an import. */
+/** Start something new: a world, a story in one of the worlds (by hand, with AI, or from a recipe). */
 function StartNew({ worlds, order, onNewWorld }: { worlds: LibraryWorld[] | null; order: number; onNewWorld: () => void }): React.JSX.Element {
-  const [busy, setBusy] = useState<string | null>(null)
   // Something else on the start screen is opening or closing a world: these wait for it.
   const worldBusy = useLibrary((s) => s.busy)
   const openId = useApp((s) => s.world?.id ?? null)
   const choices = useMemo(() => orderWorlds(worlds ?? [], openId), [worlds, openId])
+  const recipes = useReadyRecipes()
+  // Three ways to make something make one row; with a recipe to start from, the four go two by two, so none sits alone.
+  const withRecipe = recipes.length > 0 && choices.length > 0
   return (
     <section aria-labelledby="start-new" className="start-rise mt-8" style={rise(order)}>
       <h2 id="start-new" className={cn(sectionTitle, 'mb-2')}>
         Start something new
       </h2>
-      <div className="grid grid-cols-3 gap-2">
-        <Tile icon={Plus} label="New world" hint="Characters, places and lore for a new set of stories" disabled={!!busy || worldBusy} onClick={onNewWorld} />
+      <div className={cn('grid gap-2', withRecipe ? 'grid-cols-2' : 'grid-cols-3')}>
+        <Tile icon={Plus} label="New world…" hint="Characters, places and lore for a new set of stories" disabled={worldBusy} onClick={onNewWorld} />
         <WorldPickTile
           icon={BookPlus}
           label="New story…"
           hint="A new book, prequel or side story in one of your worlds"
           worlds={choices}
-          disabled={!!busy || worldBusy}
+          disabled={worldBusy}
           onPick={(worldId) => void newStoryIn(worldId)}
         />
         <WorldPickTile
           icon={WandSparkles}
-          label="Build a story with AI…"
-          hint="Give the Story builder your idea: it plans the cast, the world and the outline"
+          label="Build with AI…"
+          hint="A new story from your idea: the AI plans the cast, the world and the outline"
           worlds={choices}
-          disabled={!!busy || worldBusy}
+          disabled={worldBusy}
           onPick={(worldId) => void newStoryIn(worldId, { withAi: true })}
         />
-        <RecipeTile worlds={choices} disabled={!!busy || worldBusy} />
-        <OtherWays busy={busy} setBusy={setBusy} />
+        {withRecipe ? <RecipeTile recipes={recipes} worlds={choices} disabled={worldBusy} /> : null}
       </div>
     </section>
   )
@@ -428,11 +456,13 @@ function WorldPickTile({
  * that world with the recipe already chosen (as a recipe's own "Start a story from it" does). Only once there is a
  * finished recipe and a world to put the story in.
  */
-function RecipeTile({ worlds, disabled }: { worlds: LibraryWorld[]; disabled: boolean }): React.JSX.Element | null {
+function useReadyRecipes(): RecipeSummary[] {
   const list = useRecipes((s) => s.list)
   useEffect(() => listenForRecipes(), [])
-  const ready = (list ?? []).filter((r) => r.status === 'ready')
-  if (!ready.length || !worlds.length) return null
+  return useMemo(() => (list ?? []).filter((r) => r.status === 'ready'), [list])
+}
+
+function RecipeTile({ recipes: ready, worlds, disabled }: { recipes: RecipeSummary[]; worlds: LibraryWorld[]; disabled: boolean }): React.JSX.Element {
   const start = (recipeId: string, worldId: string): void => {
     useRecipes.setState({ forStory: recipeId })
     void newStoryIn(worldId)
@@ -475,13 +505,12 @@ function RecipeTile({ worlds, disabled }: { worlds: LibraryWorld[]; disabled: bo
   )
 }
 
-/** With no worlds at all: make the first one (by name, or from a summary), or start another way. */
+/** With no worlds at all: make the first one (by name, or from a summary). The other ways to start follow it (OtherWays). */
 function CreateWorldCard(): React.JSX.Element {
   const createWorld = useApp((s) => s.createWorld)
   const [name, setName] = useState('')
   // Which way the world is being made: 'build' opens the World builder in it once it is made.
   const [making, setMaking] = useState<false | 'create' | 'build'>(false)
-  const [busy, setBusy] = useState<string | null>(null)
 
   const create = async (build = false): Promise<void> => {
     if (!name.trim() || making) return
@@ -496,51 +525,48 @@ function CreateWorldCard(): React.JSX.Element {
   }
 
   return (
-    <>
-      <Card className="start-rise p-5">
-        <h2 className="text-[15px] font-semibold text-fg">Create a world</h2>
-        <p className="mb-4 mt-1 text-[13px] leading-relaxed text-muted">
-          A world holds the characters, places and lore shared by every story set in it. You can add books, chapters and scenes once it's made.
-        </p>
-        <form
-          className="flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void create()
-          }}
-        >
-          <Field label="World name">
-            {(id) => <Input id={id} autoFocus value={name} placeholder="For example, The Northern Reaches" onChange={(e) => setName(e.target.value)} />}
-          </Field>
-          <div className="flex gap-2">
-            <Button variant="primary" size="lg" type="submit" className="flex-1" loading={making === 'create'} disabled={!name.trim() || !!making}>
-              Create world
-            </Button>
-            <Button
-              size="lg"
-              type="button"
-              className="flex-1"
-              icon={<WandSparkles size={15} />}
-              loading={making === 'build'}
-              disabled={!name.trim() || !!making}
-              title="Create the world, then lay it out from a summary you type or paste"
-              onClick={() => void create(true)}
-            >
-              Build from a summary
-            </Button>
-          </div>
-        </form>
-      </Card>
-      <section aria-labelledby="start-other" className="start-rise mt-8" style={rise(1)}>
-        <h2 id="start-other" className={cn(sectionTitle, 'mb-2')}>
-          Or start another way
-        </h2>
-        {/* Four ways (the sample world, the two imports, Story recipes): two by two, so none sits alone on a row. */}
-        <div className="grid grid-cols-2 gap-2">
-          <OtherWays busy={busy} setBusy={setBusy} />
+    <Card className="start-rise p-5">
+      <h2 className="font-heading text-[18px] font-semibold leading-snug text-fg">Create a world</h2>
+      <p className="mb-4 mt-1 text-[13px] leading-relaxed text-muted">
+        A world holds the characters, places and lore shared by every story set in it. You can add books, chapters and scenes once it's made.
+      </p>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void create()
+        }}
+      >
+        <Field label="World name">
+          {(id) => <Input id={id} autoFocus value={name} placeholder="For example, The Northern Reaches" onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <div className="flex gap-2">
+          <Button
+            data-start-main
+            variant="primary"
+            size="lg"
+            type="submit"
+            className="flex-1"
+            loading={making === 'create'}
+            disabled={!name.trim() || !!making}
+          >
+            Create world
+          </Button>
+          <Button
+            size="lg"
+            type="button"
+            className="flex-1"
+            icon={<WandSparkles size={15} />}
+            loading={making === 'build'}
+            disabled={!name.trim() || !!making}
+            title="Create the world, then lay it out from a summary you type or paste"
+            onClick={() => void create(true)}
+          >
+            Build from a summary
+          </Button>
         </div>
-      </section>
-    </>
+      </form>
+    </Card>
   )
 }
 

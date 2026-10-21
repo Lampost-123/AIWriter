@@ -5,7 +5,7 @@ import { CircleCheck, Clock, EyeOff, RotateCcw, SearchCheck } from '@/components
 import { useState } from 'react'
 import type { Issue, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
-import { Badge, Button, EmptyState, toast } from '@/components/ui'
+import { Badge, Button, Checkbox, EmptyState, toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
@@ -45,15 +45,7 @@ export function IssuesTab({
       <div className={cn('mb-3 flex min-h-8 items-center gap-3', nothing && !groups.ignored && 'hidden')}>
         <p className="flex-1 text-[13px] text-muted">{nothing ? null : issueSummary(groups)}</p>
         {groups.ignored ? (
-          <label className="flex cursor-default items-center gap-2 text-[12.5px] text-muted">
-            <input
-              type="checkbox"
-              checked={showIgnored}
-              onChange={(e) => onShowIgnored(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[var(--accent)]"
-            />
-            Show ignored ({groups.ignored})
-          </label>
+          <Checkbox checked={showIgnored} onChange={onShowIgnored} label={`Show ignored (${groups.ignored})`} />
         ) : null}
       </div>
       {nothing ? (

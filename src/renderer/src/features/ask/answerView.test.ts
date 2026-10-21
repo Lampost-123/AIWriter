@@ -8,6 +8,7 @@ import {
   leadWords,
   optionWords,
   readyWords,
+  QUICK_ACTIONS,
   starterCards,
   withBeat,
   withoutBeat
@@ -112,5 +113,10 @@ describe('the empty state', () => {
     expect(named[1].question).toBe('Did I already say how old Wren is?')
     expect(starterCards(['Wren'], EXAMPLES)[0].question).toBe('What could go wrong for Wren in this scene?')
     expect(starterCards([], EXAMPLES).map((c) => c.question)).toEqual([EXAMPLES[0], EXAMPLES[1], EXAMPLES[3], EXAMPLES[2]])
+  })
+  it('calls each starter by one name, on the cards and the chips over the box alike', () => {
+    const cards = starterCards(['Wren'], EXAMPLES)
+    expect(cards.map((c) => c.label)).toEqual(['Ideas', 'Check', 'Tighten', 'Spelling'])
+    for (const q of QUICK_ACTIONS) expect(q.label).toBe(cards.find((c) => c.kind === q.kind)?.label)
   })
 })

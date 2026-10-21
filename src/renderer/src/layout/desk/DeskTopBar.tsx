@@ -3,7 +3,8 @@
 // story (switch stories, its settings), with the sample world's chip. Middle: the rooms. Right: an update waiting, the
 // memory when it is reading or in trouble, the command bar, Check (this scene, chapter or story), the status island, focus
 // mode and Settings.
-// Nothing in it is cut short at the sizes the desk is made for; in a small window the command bar narrows first.
+// Nothing in it is cut short at the sizes the desk is made for; in a small window the command bar narrows first, then the
+// world's name, and the story's name always keeps enough to read (down to 1024px, the smallest window).
 import { useRef } from 'react'
 import { House, Settings as SettingsIcon } from '@/components/ui/icons'
 import { IconButton } from '@/components/ui'
@@ -52,8 +53,8 @@ export function DeskTopBar(): React.JSX.Element {
       // The rooms sit in the middle of the window; a long world or story name moves them along rather than being cut
       // short (under 1440px the sample world's chip steps aside, and only in the smallest windows do the names give way).
       // Under 1200px the buttons on the right keep all the room they need and the rooms move along a little, rather than
-      // running under them.
-      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 max-[1200px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
+      // running under them, with a little less space between the three, for the story's name.
+      className="desk-topbar group/bar relative z-30 grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-4 max-[1200px]:grid-cols-[minmax(0,1fr)_auto_auto] max-[1200px]:gap-2.5 min-[1440px]:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)]"
     >
       <div className="flex min-w-0 items-center">
         {/* Back to the start screen, where Adam picks what to work on. */}
@@ -71,8 +72,9 @@ export function DeskTopBar(): React.JSX.Element {
         >
           <LampMark />
         </button>
-        {/* The world and the story; renaming the world happens over both, so nothing moves. */}
-        <div className="relative ml-2 flex min-w-0 items-center">
+        {/* The world and the story; renaming the world happens over both, so nothing moves. In a small window the
+            world's name gives way first ("Sample w…"), and the story's keeps enough to read (desk.css, .desk-crumb). */}
+        <div className="desk-crumb relative ml-2 flex min-w-0 items-center">
           <WorldMenu trigger={worldButton} />
           <span aria-hidden className="mx-[3px] font-heading text-[17px] leading-5 text-faint">
             /
@@ -95,6 +97,8 @@ export function DeskTopBar(): React.JSX.Element {
           <KeeperStatus quiet />
         </span>
         <div data-tour="command" className={cn('flex min-w-0 shrink justify-end', 'w-[240px] max-[1600px]:w-[150px] max-[1180px]:w-[104px]',
+            // The smallest windows: its magnifier alone, so the story's name keeps its room.
+            'max-[1100px]:w-9!',
             // With Scene details beside it (the writing page), it narrows sooner, so the bar still fits.
             'group-has-[[data-drawer-toggle]]/bar:max-[1599px]:w-[64px]',
             'group-has-[[data-update-slot]>[role=status]:not([aria-hidden=true])]/bar:w-9')}>

@@ -295,3 +295,13 @@ export const HOME_WIDE_BASE = { w: 2340, h: 720 }
  * cast and the week on the right. 1920 to 2560 keep the one column.
  */
 export const homeTwoColumns = (w: number): boolean => w >= HOME_TWO_COLUMNS_FROM
+
+/**
+ * Below this much room beside the spine the home is drawn narrow (a 1024px window with the slim spine, or about 1280
+ * with the full one): a smaller book beside the title, slimmer chapter cards, and the week across the foot.
+ */
+export const HOME_NARROW_BELOW = 1060
+/** The book's width on the home: 220px, or 168px when the home is narrow. */
+export const homeBookWidth = (narrow: boolean): number => (narrow ? 168 : 220)
+/** Whether the home is drawn narrow in a room `w` wide (0 before it is measured: not narrow). */
+export const homeNarrow = (w: number): boolean => w > 0 && w < HOME_NARROW_BELOW

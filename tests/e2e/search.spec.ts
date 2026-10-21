@@ -99,7 +99,7 @@ test('Ctrl+K finds words in a scene, an entry by another name, a summary and a p
   // Nothing typed: the places visited lately (not the open scene or entry), and the most useful actions.
   await win.keyboard.press('Control+K')
   await expect(group(win, 'Recent').getByRole('option')).toHaveCount(1)
-  await expect(group(win, 'Recent')).toContainText('Scene 2')
+  await expect(group(win, 'Recent')).toContainText('Untitled scene')
   await expect(group(win, 'Suggested').getByRole('option', { name: 'World', exact: true })).toBeVisible()
   // Moving down and back up the list with the arrow keys (it wraps around).
   const first = palette(win).getByRole('option').first()

@@ -142,6 +142,7 @@ export function SceneRowContent({
       {renaming && h ? (
         <InlineTitle
           label="Scene title"
+          placeholder="Untitled scene"
           value={scene.title}
           className="h-6 text-[13px]"
           onCommit={(t) => h.rename('scene', scene.id, t)}

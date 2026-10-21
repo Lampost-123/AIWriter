@@ -17,8 +17,11 @@ function selectedWords(): string | null {
   return text.trim() && !text.includes('\n') && text.length <= 120 ? text : null
 }
 
-/** Shows the find bar over the open scene, with the words selected in the page (if any) to find. */
-export function openFindInScene(): void {
+/**
+ * Shows the find bar over the open scene, with the words selected in the page (if any) to find. Ctrl+H puts the
+ * keyboard in its Replace with box (`field: 'replace'`), Ctrl+F in Find.
+ */
+export function openFindInScene(field: 'find' | 'replace' = 'find'): void {
   const app = useApp.getState()
   if (!app.sceneId) {
     toast(`Open a scene first to find words in it. ${shortcutText('findInStory')} finds them in the whole story.`)
@@ -27,7 +30,7 @@ export function openFindInScene(): void {
   if (app.view.kind !== 'write') app.navigate({ kind: 'write' })
   const words = selectedWords()
   const s = useFind.getState()
-  s.set({ sceneOpen: true, storyOpen: false, focusTick: s.focusTick + 1, ...(words ? { query: words } : {}) })
+  s.set({ sceneOpen: true, storyOpen: false, focusTick: s.focusTick + 1, focusField: field, ...(words ? { query: words } : {}) })
 }
 
 /** Shows find and replace across the open story. */

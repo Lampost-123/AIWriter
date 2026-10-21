@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
+import { useContext, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { EmptyArt, type EmptyArtName } from '@/components/art/EmptyArt'
+import { SettingsSavedContext } from './settingsSaved'
 
 export function EmptyState({
   icon,
@@ -96,9 +97,14 @@ export function SettingsSection({
   children?: ReactNode
   className?: string
 }): React.JSX.Element {
+  // In Settings, a quiet "Saved" after the title once a change made here is saved (features/settings/SettingsSaved).
+  const saved = useContext(SettingsSavedContext)
+  const self = useRef<HTMLElement>(null)
   return (
     // The New look: each section is a card of its own.
     <section
+      ref={self}
+      data-settings-section
       className={cn('look-new:rounded-card look-new:bg-raise look-new:p-5 look-new:shadow-[var(--elev-1),inset_0_0_0_1px_var(--line)]', className)}
     >
       <div className="mb-3 flex items-end justify-between gap-4">
@@ -106,6 +112,7 @@ export function SettingsSection({
           <div className="flex items-center gap-2">
             <h2 className="min-w-0 truncate text-[15px] font-semibold text-fg look-new:font-heading look-new:text-[17px]">{title}</h2>
             {badge}
+            {saved ? <saved.Note saved={saved.savedIn !== null && saved.savedIn === self.current} /> : null}
           </div>
           {description ? <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p> : null}
         </div>

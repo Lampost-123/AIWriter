@@ -208,6 +208,11 @@
   color: var(--muted);
   background: var(--hub-sunk);
 }
+/* A chapter's size: its two fields read as two, not one run of labels. */
+.build-panel-row[data-chapter-size] {
+  align-items: flex-end;
+  column-gap: 24px;
+}
 .build-field {
   display: flex;
   flex-direction: column;

@@ -4,14 +4,13 @@
 // The dialog says how the export is getting on, and closes once the file is saved, with a toast
 // "Exported ‘X’" and Show in folder.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ID, Outline } from '@shared/types'
 import type { BibleFormat, ManuscriptFormat } from '@shared/contracts/transfer'
-import { Button, Dialog, Field, Select, Spinner } from '@/components/ui'
+import { Button, Checkbox, Dialog, Field, Segmented, Select, Spinner } from '@/components/ui'
 import { api } from '@/lib/api'
 import { flushAll } from '@/lib/flush'
 import { useApp } from '@/lib/store'
-import { Segmented } from '@/features/generate/parts'
 import { openExportBible, remember, remembered, useExportDialogs } from './exportStore'
 import {
   BIBLE_FORMATS,
@@ -203,22 +202,9 @@ function ExportStoryDialog(): React.JSX.Element {
   )
 }
 
-/** A checkbox that can show "some" (a chapter with only some of its scenes picked). */
+/** A tick box that can show "some" (a chapter with only some of its scenes picked). */
 function Check({ state, onChange, label }: { state: 'all' | 'some' | 'none'; onChange: () => void; label: string }): React.JSX.Element {
-  const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = state === 'some'
-  }, [state])
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      aria-label={label}
-      checked={state === 'all'}
-      onChange={onChange}
-      className="h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
-    />
-  )
+  return <Checkbox size="sm" aria-label={label} checked={state === 'all'} indeterminate={state === 'some'} onChange={() => onChange()} />
 }
 
 function ScenePicker({ outline, picked, onChange }: { outline: Outline; picked: Set<ID>; onChange: (p: Set<ID>) => void }): React.JSX.Element {
