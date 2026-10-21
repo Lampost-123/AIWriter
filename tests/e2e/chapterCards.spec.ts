@@ -51,7 +51,7 @@ async function addScene(win: Page, chapter: string, title: string): Promise<void
   await row.hover()
   await row.getByRole('button', { name: 'Add a scene to this chapter' }).click()
   const rename = binder(win).getByRole('textbox', { name: 'Scene title' })
-  await expect(rename).toHaveValue('Untitled scene')
+  await expect(rename).toHaveValue('')
   await rename.fill(title)
   await rename.press('Enter')
   await expect(sceneRow(win, title)).toBeVisible()

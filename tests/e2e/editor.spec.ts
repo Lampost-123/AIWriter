@@ -20,7 +20,7 @@ async function addScene(win: Page, title: string): Promise<void> {
   await chapter.getByRole('button', { name: 'Add a scene to this chapter' }).click()
   // A new scene is untitled until it is named (its number would go stale as scenes move).
   const rename = win.getByRole('textbox', { name: 'Scene title' })
-  await expect(rename).toHaveValue('Untitled scene')
+  await expect(rename).toHaveValue('')
   await rename.fill(title)
   await rename.press('Enter')
 }

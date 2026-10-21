@@ -163,7 +163,7 @@ export function StoryHome(): React.JSX.Element {
               className="home-book a-book"
               style={at(40)}
               onClick={continueWriting}
-              aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title}` : 'Open the book'}
+              aria-label={lastScene ? `Open the book where you left off, at ${lastScene.title || 'Untitled scene'}` : 'Open the book'}
             >
               <BookCover title={title} kicker={kicker} foot={world ? `A ${world.name.replace(/^Sample world:\s*/i, '')} story` : ''} hue={cover.hue} art={cover.art} width={homeBookWidth(narrow)} live />
             </button>

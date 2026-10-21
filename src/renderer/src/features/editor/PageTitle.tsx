@@ -29,6 +29,7 @@ export function PageTitle({ sceneId, fallbackTitle }: { sceneId: ID; fallbackTit
         <div className="mt-2 flex">
           <InlineTitle
             label="Scene title"
+            placeholder="Untitled scene"
             value={title}
             className="h-[42px] font-heading text-[30px] font-semibold tracking-[-0.015em]"
             onCommit={(t) => actions.renameScene(sceneId, t)}

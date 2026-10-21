@@ -27,7 +27,6 @@ async function sampleWorld(
 async function size(app: ElectronApplication, win: Page, w: number, h: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [cw, ch]) => BrowserWindow.getAllWindows()[0].setContentSize(cw, ch), [w, h] as [number, number])
   await expect.poll(async () => Math.abs(((await win.evaluate('innerWidth')) as number) - w)).toBeLessThanOrEqual(1)
-  await win.waitForTimeout(150)
 }
 
 /** How far the window, or one element, scrolls sideways (0 when it doesn't). */
@@ -47,13 +46,13 @@ test('at 1024 x 700 the home, the board and the top bar fit, and the story’s n
   const { app, win } = await sampleWorld(launch)
   await size(app, win, 1024, 700)
 
-  // The top bar on the writing page: the story's name shows, clear of the rooms.
+  // The top bar on the writing page: the story's name shows, clear of the rooms. (Polled: a slow relayout after the
+  // window or the room changes mustn't fail it.)
   const check = async (where: string): Promise<void> => {
-    expect(await spill(win), `the window at ${where}`).toBeLessThanOrEqual(0)
-    const s = await storyName(win)
+    await expect.poll(() => spill(win), `the window at ${where}`).toBeLessThanOrEqual(0)
     // Most of "The Keeper's Light" (all of it but in the tightest room, Write, where it may lose its last letters).
-    expect(s.shown, `the story's name's width at ${where}`).toBeGreaterThanOrEqual(100)
-    expect(s.gap, `room between the story and the rooms at ${where}`).toBeGreaterThanOrEqual(0)
+    await expect.poll(async () => (await storyName(win)).shown, `the story's name's width at ${where}`).toBeGreaterThanOrEqual(100)
+    await expect.poll(async () => (await storyName(win)).gap, `room between the story and the rooms at ${where}`).toBeGreaterThanOrEqual(0)
   }
   await check('Write')
 
@@ -61,16 +60,22 @@ test('at 1024 x 700 the home, the board and the top bar fit, and the story’s n
   await win.getByRole('button', { name: 'Story home' }).click()
   await expect(home(win)).toBeVisible()
   await check('the story home')
-  expect(await spill(win, '[data-desk-home]')).toBeLessThanOrEqual(0)
-  expect(await spill(win, '.home-shelf-row')).toBeLessThanOrEqual(0)
-  const book = (await home(win).locator('.home-book .book-cover').boundingBox())!
-  const title = (await home(win).getByRole('heading', { level: 1, name: 'The Keeper’s Light' }).boundingBox())!
-  expect(book.x + book.width, 'the book ends before the title starts').toBeLessThanOrEqual(title.x)
+  await expect.poll(() => spill(win, '[data-desk-home]')).toBeLessThanOrEqual(0)
+  await expect.poll(() => spill(win, '.home-shelf-row')).toBeLessThanOrEqual(0)
+  await expect
+    .poll(async () => {
+      const book = (await home(win).locator('.home-book .book-cover').boundingBox())!
+      const title = (await home(win).getByRole('heading', { level: 1, name: 'The Keeper’s Light' }).boundingBox())!
+      return title.x - (book.x + book.width)
+    }, 'the book ends before the title starts')
+    .toBeGreaterThanOrEqual(0)
   for (const name of ['The Night Ferry', 'The Drowned Steps']) {
-    const cut = await home(win)
-      .locator('.home-chap-title', { hasText: name })
-      .evaluate((e) => e.scrollWidth > e.clientWidth)
-    expect(cut, `${name} whole on the shelf`).toBe(false)
+    await expect
+      .poll(() =>
+        home(win)
+          .locator('.home-chap-title', { hasText: name })
+          .evaluate((e) => e.scrollWidth > e.clientWidth), `${name} whole on the shelf`)
+      .toBe(false)
   }
 
   // The story board, Build with AI, the world and the check: the window never scrolls sideways (the board pans inside
@@ -131,11 +136,14 @@ test('at 1024 x 700 the plan pages’ header line reads whole, and Story recipes
     await win.getByRole('button', { name: page }).click()
     await expect(line).toBeVisible()
     // Not cut off: the whole line fits in the lines it has.
-    expect(await line.evaluate((e) => e.scrollHeight - e.clientHeight), page).toBeLessThanOrEqual(1)
-    expect(await spill(win), page).toBeLessThanOrEqual(0)
+    await expect.poll(() => line.evaluate((e) => e.scrollHeight - e.clientHeight), page).toBeLessThanOrEqual(1)
+    await expect.poll(() => spill(win), page).toBeLessThanOrEqual(0)
   }
-  const make = (await win.getByRole('button', { name: 'Make a recipe from a story' }).boundingBox())!
-  const write = (await win.getByRole('button', { name: 'Write one yourself' }).boundingBox())!
-  expect(Math.abs(make.y - write.y)).toBeLessThanOrEqual(1)
-  expect(Math.abs(make.height - write.height)).toBeLessThanOrEqual(1)
+  await expect
+    .poll(async () => {
+      const make = (await win.getByRole('button', { name: 'Make a recipe from a story' }).boundingBox())!
+      const write = (await win.getByRole('button', { name: 'Write one yourself' }).boundingBox())!
+      return Math.max(Math.abs(make.y - write.y), Math.abs(make.height - write.height))
+    })
+    .toBeLessThanOrEqual(1)
 })

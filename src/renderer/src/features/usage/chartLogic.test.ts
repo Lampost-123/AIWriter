@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageBar } from '@shared/contracts/usage'
-import { MODEL_INKS, OTHER_INK, modelColours, modelName, niceTicks, percentWords, shares, stackOf } from './chartLogic'
+import { MODEL_INKS, OTHER_INK, modelColours, modelName, niceTicks, percentWords, shares, stackOf, wordTicks } from './chartLogic'
 
 describe('the usage charts', () => {
   it('gives each model a colour by spending, and the seventh and later share Other', () => {
@@ -27,6 +27,14 @@ describe('the usage charts', () => {
       expect(t[t.length - 1]).toBeGreaterThanOrEqual(max)
       expect(t.length).toBeLessThanOrEqual(6)
     }
+  })
+
+  it('puts round numbers of words on the scale in words, never part of a word', () => {
+    // 150k tokens is 112.5k words: the scale goes in round words (not 37.5k, 75k, 113k from the tokens).
+    expect(wordTicks(112_500)).toEqual([0, 50_000, 100_000, 150_000])
+    expect(wordTicks(1.5)).toEqual([0, 1, 2])
+    expect(wordTicks(0.75)).toEqual([0, 1])
+    expect(wordTicks(0)).toEqual([0])
   })
 
   it('stacks a bar by model, the rest as Other, and an older bar as one piece', () => {

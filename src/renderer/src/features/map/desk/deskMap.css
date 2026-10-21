@@ -112,6 +112,7 @@
   font-size: 12px;
   line-height: 16px;
   color: var(--faint);
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 /* A narrow page (the smallest window, beside the area's list): the count goes above the choices, so they stay beside

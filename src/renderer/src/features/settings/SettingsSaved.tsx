@@ -1,11 +1,13 @@
 // A small "Saved" note in the heading of the Settings section a change was just made in (look-and-feel idea 7), so
 // Adam always knows a change stuck. Settings save themselves (through the store's updateSettings, from many parts of
 // the app), so rather than wire each one, this watches the page: the section last clicked, typed in or moved, and the
-// settings changing within a few seconds of it. A save that fails changes nothing, so it shows no note.
+// settings changing within a few seconds of it. Only a real change counts: a save that fails (the settings are read
+// again, unchanged) or a check that changes nothing shows no note.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SettingsSavedContext } from '@/components/ui/settingsSaved'
 import { useApp } from '@/lib/store'
 import { SaveNote } from '@/features/world/parts/SaveNote'
+import { sameData } from './savedLogic'
 
 /** How long after a click or a key in a section a change of the settings still counts as made there. */
 const SAVE_WINDOW_MS = 4000
@@ -29,7 +31,7 @@ export function SettingsSaved({ children }: { children: ReactNode }): React.JSX.
     }
     for (const k of EVENTS) el.addEventListener(k, touched, true)
     const off = useApp.subscribe((s, prev) => {
-      if (!prev.settings || s.settings === prev.settings) return
+      if (!prev.settings || !s.settings || sameData(s.settings, prev.settings)) return
       const l = last.current
       if (!l?.section || !l.section.isConnected || performance.now() - l.at > SAVE_WINDOW_MS) return
       setSavedIn(l.section)

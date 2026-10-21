@@ -34,6 +34,14 @@ export function niceTicks(max: number, steps = 4): number[] {
   return out
 }
 
+/**
+ * The scale for a count of words (the chart's tokens shown as words): round numbers of words, never part of a word,
+ * so a quiet day's scale doesn't say "1" twice.
+ */
+export function wordTicks(maxWords: number): number[] {
+  return niceTicks(Math.ceil(maxWords)).filter((t) => Number.isInteger(t))
+}
+
 /** One bar's stacked parts, bottom up, by `measure`, in the models' colours (models off the list go to Other). */
 export function stackOf(bar: UsageBar, colours: Map<string, string>, measure: 'cost' | 'tokens'): { key: string; ink: string; value: number }[] {
   const parts = bar.models ?? []

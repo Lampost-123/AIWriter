@@ -250,7 +250,7 @@ export function placeLabel(db: DB, sceneId: ID): string {
   const ch = outline.chapters.findIndex((c) => c.id === scene?.chapterId)
   const sc = outline.scenes.filter((s) => s.chapterId === scene?.chapterId).findIndex((s) => s.id === sceneId)
   // A title that only says "Scene 2" isn't said twice.
-  const title = /^\s*(scene\s+[\w-]+|untitled scene)\s*$/i.test(scene?.title ?? '') ? '' : (scene?.title.trim() ?? '')
+  const title = /^\s*scene\s+[\w-]+\s*$/i.test(scene?.title ?? '') ? '' : (scene?.title.trim() ?? '')
   return `Ch ${ch + 1}, Sc ${sc + 1}${title ? ` “${title}”` : ''}`
 }
 

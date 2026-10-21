@@ -60,12 +60,14 @@ test('in focus mode the scene panel left open makes no room: the page sits in th
   await win.locator('.scene-prose').click()
   await win.keyboard.press('F11')
   await expect.poll(() => win.evaluate<boolean>("'focus' in document.documentElement.dataset")).toBe(true)
+  // In the middle of the window: no room kept for the drawer (that would move it about 180px), only the margin notes'
+  // column's small shift left of centre where the window has room for it (deskFit.ts MARGIN_SHIFT, 32px at most).
   await expect
     .poll(async () => {
       const sheet = (await win.locator('.desk-sheet').boundingBox())!
       return Math.abs(Math.round(sheet.x + sheet.width / 2 - 720))
     })
-    .toBeLessThanOrEqual(2)
+    .toBeLessThanOrEqual(32)
   await win.keyboard.press('F11')
 })
 

@@ -353,13 +353,21 @@ function ReadAloudFact({ entry, rev }: { entry: Entry; rev: number }): React.JSX
     }
   }, [entry.id, rev, voices])
   const go = (): void => useVoiceReveal.setState((s) => ({ id: entry.id, n: s.n + 1 }))
+  // While it loads the slot is kept (unseen), so a voiced character's fact doesn't push the row about when it comes.
+  if (text === null)
+    return (
+      <div className="dz-fact invisible" aria-hidden>
+        <span className="dz-caps">Read-aloud voice</span>
+        <span className="dz-fact-v">&nbsp;</span>
+      </div>
+    )
   if (!text) return null
   return (
     <div className="dz-fact">
       <span className="dz-caps">Read-aloud voice</span>
       <button
         type="button"
-        className={cn('dz-fact-v dz-fact-link', !text && 'is-empty')}
+        className="dz-fact-v dz-fact-link"
         title={`${entry.name}'s read-aloud voice: ${text}. Change it below.${on ? '' : ' (Read aloud is off.)'}`}
         onClick={go}
       >

@@ -16,8 +16,11 @@ export interface SliderProps {
   min: number
   max: number
   step: number
-  /** Once, when the slider is let go (or a key moved it), with the value it settled on. Not called if nothing changed. */
-  onCommit: (value: number) => void
+  /**
+   * Once, when the slider is let go (or a key moved it), with the value it settled on. Not called if nothing changed.
+   * Return the save: if it fails, the slider goes back to `value` (the caller says what went wrong).
+   */
+  onCommit: (value: number) => void | Promise<unknown>
   /** At every step while it moves, for a live preview. */
   onLive?: (value: number) => void
   /** A visible label: shown as "Label: value" (with `format`) and naming the slider. */
@@ -65,6 +68,8 @@ export function Slider({
   const [live, setLive] = useState(value)
   const held = useRef(false)
   const committed = useRef(value)
+  const saved = useRef(value)
+  saved.current = value
   const input = useRef<HTMLInputElement>(null)
   // A saved value arriving (from here or elsewhere) shows, unless the slider is being held: it never jumps back mid-drag.
   useEffect(() => {
@@ -76,7 +81,14 @@ export function Slider({
     held.current = false
     if (!Number.isFinite(v) || v === committed.current) return
     committed.current = v
-    onCommit(v)
+    const saving = onCommit(v)
+    // The save failed: back to the value that is really saved (unless the slider was moved again meanwhile).
+    if (saving)
+      saving.catch(() => {
+        if (committed.current !== v) return
+        committed.current = saved.current
+        if (!held.current) setLive(saved.current)
+      })
   }
   // The browser's own "change" comes once a drag ends, and at once for each key press: exactly when to save.
   const commitRef = useRef(commit)

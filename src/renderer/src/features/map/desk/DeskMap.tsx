@@ -6,6 +6,7 @@ import './deskMap.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AsOf, ID } from '@shared/types'
 import type { MapGroup } from '@shared/contracts/worldViews'
+import type { CodexCard } from '@shared/contracts/entryViews'
 import { Plus } from '@/components/ui/icons'
 import { Button, EmptyState, Select } from '@/components/ui'
 import { api } from '@/lib/api'
@@ -14,23 +15,28 @@ import { AsSeenIn } from '@/features/views/AsSeenIn'
 import { hasOtherKinds, inSentence, stopIndex } from '@/features/views/asOfLogic'
 import { StoryFilter, useViewStory, useWorldView, ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { MapStage } from './MapStage'
-import { offMapLine } from './deskMapLogic'
+import { offMapLine, offMapTitle, untiedIn } from './deskMapLogic'
 
-/** The world's characters, by id and name, read again as the world changes (to say who isn't on the map). */
-function useCharacters(): Map<ID, string> | null {
-  const rev = useApp((s) => s.entriesRev)
-  const [names, setNames] = useState<Map<ID, string> | null>(null)
+/**
+ * The world's cards (each with the stories it is in), to say which of the story's characters aren't on the map. Read
+ * only while there is a map to say it under, and again as entries or the memory change.
+ */
+function useCards(wanted: boolean): CodexCard[] | null {
+  const entriesRev = useApp((s) => s.entriesRev)
+  const memoryRev = useApp((s) => s.memoryRev)
+  const [cards, setCards] = useState<CodexCard[] | null>(null)
   useEffect(() => {
+    if (!wanted) return
     let live = true
     api.listCodex().then(
-      (cards) => live && setNames(new Map(cards.filter((c) => c.kind === 'character').map((c) => [c.id, c.name.trim() || 'Unnamed']))),
-      () => live && setNames(null)
+      (list) => live && setCards(list),
+      () => live && setCards(null)
     )
     return () => {
       live = false
     }
-  }, [rev])
-  return names
+  }, [wanted, entriesRev, memoryRev])
+  return cards
 }
 
 export function DeskMap(): React.JSX.Element {
@@ -71,12 +77,10 @@ export function DeskMap(): React.JSX.Element {
   const index = data ? (at ? Math.max(0, stopIndex(data.stops, at)) : (data.detail?.atStop ?? data.stops.length - 1)) : 0
   const pairs = data ? new Set(data.links.map((l) => (l.aId < l.bId ? `${l.aId}|${l.bId}` : `${l.bId}|${l.aId}`))).size : 0
   const group = groupId ? data?.groups.find((g) => g.id === groupId) : undefined
-  const characters = useCharacters()
-  const off = useMemo(() => {
-    if (!data || !characters) return null
-    const on = new Set(data.nodes.map((n) => n.id))
-    return offMapLine([...characters].filter(([id]) => !on.has(id)).map(([, name]) => name))
-  }, [data, characters])
+  const cards = useCards(!!data?.any)
+  // Only this story's characters, and only those tied to no one anywhere along it (the slider may be before a tie).
+  const untied = useMemo(() => (data && cards ? untiedIn(data.storyId, cards, data.everyone) : []), [data, cards])
+  const off = offMapLine(untied)
 
   return (
     <div className="dm" data-desk-map data-quick={quick || undefined}>
@@ -96,7 +100,7 @@ export function DeskMap(): React.JSX.Element {
               </span>
               {/* The map shows only characters tied to someone: who else there is, so the count isn't a puzzle. */}
               {off ? (
-                <span className="dm-count-off" title={`${off}, so not on the map. Add a relationship on their page.`}>
+                <span className="dm-count-off" title={offMapTitle(untied)}>
                   {off}
                 </span>
               ) : null}

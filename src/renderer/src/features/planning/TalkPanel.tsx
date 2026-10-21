@@ -285,7 +285,7 @@ export function TalkPanel({
             minRows={1}
             maxRows={6}
             placeholder={waiting ? 'Not quite? Say what to fix, and it builds on this change.' : placeholder}
-            className="flex-1 border-0! bg-transparent! px-1! text-[13.5px] ring-0!"
+            className="flex-1 border-0! bg-transparent! px-1! text-[13.5px] ring-0! focus-visible:outline-none!"
             disabled={!!disabled && !running}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {

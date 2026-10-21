@@ -126,6 +126,7 @@ export function DeskPageHead({ sceneId, fallbackTitle }: { sceneId: ID; fallback
         <div className="mt-3 flex h-[52px] items-center">
           <InlineTitle
             label="Scene title"
+            placeholder="Untitled scene"
             value={title}
             className="h-[52px] font-heading text-[44px] font-semibold tracking-[-0.012em]"
             onCommit={(t) => actions.renameScene(sceneId, t)}

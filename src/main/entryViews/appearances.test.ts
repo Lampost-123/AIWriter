@@ -84,7 +84,7 @@ describe('where an entry appears', () => {
     text(db, s.s12, 'Rain.\n\nThe bell rang twice. Mara kept her hood low, and Mara waited.')
     const [a] = appearancesOf(db, repo.getEntry(db, mara), repo.listEntries(db))
     expect(a.quote).toBe('Mara kept her hood low, and Mara waited.')
-    expect(a.title).toBe('Untitled scene')
+    expect(a.title).toBe('')
     // Quotes are remembered with the scene's words, so new words give a new quote.
     expect(appearancesOf(db, repo.getEntry(db, mara), repo.listEntries(db))[0].quote).toBe(a.quote)
     text(db, s.s12, 'Later, Mara slept.')

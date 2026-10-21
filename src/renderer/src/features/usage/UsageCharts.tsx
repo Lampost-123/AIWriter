@@ -8,14 +8,15 @@ import { useId, useMemo, useState } from 'react'
 import { dollars, type UsageBar, type UsageJobRow, type UsageModelRow, type UsageTotals, type UsageWorldRow } from '@shared/contracts/usage'
 import { cn } from '@/lib/cn'
 import { callWords, labelledBars, tokenWords, tokensWithCache } from './usageWords'
-import { OTHER_INK, modelColours, modelKey, modelName, niceTicks, percentWords, shares, stackOf } from './chartLogic'
+import { OTHER_INK, modelColours, modelKey, modelName, niceTicks, percentWords, shares, stackOf, wordTicks } from './chartLogic'
+import { WORDS_PER_TOKEN } from '@/features/settings/words'
 
 export type Measure = 'cost' | 'tokens'
 
-/** A short number for the scale: "$0.40", "$12", "250k", "1.5M". */
+/** A short number for the scale: "$0.40", "$12", "250k", "1.5M" (words, for the tokens measure: the scale is in words). */
 function scaleWords(v: number, measure: Measure): string {
   if (measure === 'cost') return v === 0 ? '$0' : v >= 10 ? `$${Math.round(v)}` : dollars(v)
-  return v === 0 ? '0' : tokenWords(v).replace(/ words?$/, '')
+  return v === 0 ? '0' : tokenWords(v / WORDS_PER_TOKEN).replace(/ words?$/, '')
 }
 
 const PLOT_H = 196
@@ -33,15 +34,16 @@ export function SpendBars({
 }): React.JSX.Element {
   const [hover, setHover] = useState<number | null>(null)
   const colours = useMemo(() => modelColours(models), [models])
-  const value = (b: UsageBar): number => (measure === 'cost' ? b.cost : b.tokens)
+  // Tokens are drawn as words, so the scale's round numbers are round numbers of words.
+  const value = (b: UsageBar): number => (measure === 'cost' ? b.cost : b.tokens * WORDS_PER_TOKEN)
   const top = Math.max(0, ...bars.map(value))
-  const ticks = niceTicks(top)
+  const ticks = measure === 'cost' ? niceTicks(top) : wordTicks(top)
   const scaleTop = ticks[ticks.length - 1] || 1
   const labels = labelledBars(bars.length)
   const tip = hover != null ? bars[hover] : null
   const most = bars.reduce((best, b, i) => (value(b) > value(bars[best] ?? b) ? i : best), 0)
   const summary = `${measure === 'cost' ? 'Spending' : 'Words read and written'} ${unit === 'day' ? 'day by day' : 'month by month'}: the most in one ${unit} was ${
-    measure === 'cost' ? dollars(top) : tokenWords(top)
+    measure === 'cost' ? dollars(top) : tokenWords(top / WORDS_PER_TOKEN)
   }${bars[most] && top > 0 ? `, on ${bars[most].label}` : ''}.`
   // A new stretch of time or measure: the bars grow again from the baseline. New figures in the same stretch (a call
   // finishing meanwhile) ease the bars to their new heights instead.

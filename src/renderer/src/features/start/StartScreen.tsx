@@ -20,9 +20,9 @@ import { createWorldAndBuild } from '@/features/worldBuilder/open'
 import { openSampleWorld } from '@/features/setup/setupStore'
 import { SampleBook } from '@/features/setup/SampleBook'
 import { NewWorldDialog } from '@/features/welcome/NewWorldDialog'
-import { WELCOME_ACTIONS, type WelcomeAction } from '@/features/welcome/welcomeActions'
+import { WELCOME_ACTIONS } from '@/features/welcome/welcomeActions'
 import { DeleteWorldDialog, RecentlyDeletedWorlds } from './DeletedWorlds'
-import { loadLibrary, useLibrary } from './libraryStore'
+import { exclusive, loadLibrary, useLibrary } from './libraryStore'
 import { MissingLibrary } from './MissingLibrary'
 import { DriftingTexture, InkMark, rise, useOpening } from './Opening'
 import { continueWriting, newStoryIn } from './startActions'
@@ -325,18 +325,21 @@ function Tile({
  * WELCOME_ACTIONS (importing a manuscript or a world file, Story recipes) as one row of tiles.
  */
 function OtherWays({ order }: { order: number }): React.JSX.Element {
+  // Which control is working (for its spinner); `exclusive` keeps the rest of the start screen waiting meanwhile, so
+  // New story… and the like can't open a world while the sample world or an import is opening one.
   const [busy, setBusy] = useState<string | null>(null)
   const worldBusy = useLibrary((s) => s.busy)
-  const run = async (a: WelcomeAction): Promise<void> => {
-    setBusy(a.id)
-    try {
-      await a.run()
-    } catch (e) {
-      toast((e as Error).message, { tone: 'danger' })
-    } finally {
-      setBusy(null)
-    }
-  }
+  const run = (id: string, work: () => void | Promise<void>): Promise<void> =>
+    exclusive(async () => {
+      setBusy(id)
+      try {
+        await work()
+      } catch (e) {
+        toast((e as Error).message, { tone: 'danger' })
+      } finally {
+        setBusy(null)
+      }
+    })
   return (
     <section aria-labelledby="start-other" className="start-rise mt-10" style={rise(order)}>
       <h2 id="start-other" className={cn(sectionTitle, 'mb-2')}>
@@ -355,10 +358,7 @@ function OtherWays({ order }: { order: number }): React.JSX.Element {
             icon={<BookOpen size={15} />}
             loading={busy === 'sample'}
             disabled={!!busy || worldBusy}
-            onClick={() => {
-              setBusy('sample')
-              void openSampleWorld().finally(() => setBusy(null))
-            }}
+            onClick={() => void run('sample', openSampleWorld)}
           >
             Open the sample world
           </Button>
@@ -367,7 +367,7 @@ function OtherWays({ order }: { order: number }): React.JSX.Element {
       {/* Three ways in (WELCOME_ACTIONS), so they make one even row. */}
       <div className="mt-2 grid grid-cols-3 gap-2">
         {WELCOME_ACTIONS.map((a) => (
-          <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a)} />
+          <Tile key={a.id} icon={a.icon} label={a.label} hint={a.hint ?? ''} busy={busy === a.id} disabled={!!busy || worldBusy} onClick={() => void run(a.id, a.run)} />
         ))}
       </div>
     </section>

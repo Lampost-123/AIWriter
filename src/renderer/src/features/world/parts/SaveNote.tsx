@@ -6,7 +6,8 @@ import type { SaveStatus } from './saver'
 /**
  * A quiet "Saved" note for autosaving forms. Writes take a few milliseconds, so
  * "Saving…" is never flashed: the note keeps showing "Saved" through later writes.
- * Its width is reserved so nothing around it moves.
+ * Its width is reserved so nothing around it moves. The words are there only while it shows, so a screen reader neither
+ * reads a hidden "Saved" by every heading nor misses the live region's news when a save happens.
  */
 export function SaveNote({ status, error, className }: { status: SaveStatus; error?: string | null; className?: string }): React.JSX.Element {
   const everSaved = useRef(false)
@@ -26,12 +27,12 @@ export function SaveNote({ status, error, className }: { status: SaveStatus; err
     >
       {isError ? (
         'Not saved yet'
-      ) : (
+      ) : showSaved ? (
         <>
           <Check size={12} aria-hidden />
           Saved
         </>
-      )}
+      ) : null}
     </span>
   )
 }

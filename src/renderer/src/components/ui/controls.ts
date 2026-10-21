@@ -5,6 +5,12 @@
 export const DISABLED = 'disabled:pointer-events-none disabled:opacity-50'
 
 /**
+ * Greyed out for a text box: the same half strength, but it still takes the pointer, so a long text in a disabled box
+ * (a premise while it streams in) can still be scrolled. Its edge doesn't light up under the pointer.
+ */
+export const DISABLED_TEXT = 'disabled:opacity-50 disabled:hover:border-line'
+
+/**
  * The focus ring: 2px of the accent, 2px out from the control, when the keyboard brought focus there (text boxes
  * show it whenever they are focused, as Chromium counts them as keyboard-focused). The same as the app-wide
  * `:focus-visible` rule in styles.css; said here so a control that draws its own outline can't lose it.

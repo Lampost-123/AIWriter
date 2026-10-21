@@ -9,6 +9,7 @@ import {
   hull,
   hullPath,
   offMapLine,
+  offMapTitle,
   medalScale,
   moodOf,
   nextOver,
@@ -20,6 +21,7 @@ import {
   spreadView,
   stretchFor,
   temperature,
+  untiedIn,
   tieKind,
   tieWords,
   warmth,
@@ -318,5 +320,25 @@ describe('offMapLine', () => {
     expect(offMapLine(['Iska Vey'])).toBe('Iska Vey has no ties yet')
     expect(offMapLine(['Iska Vey', 'Tom'])).toBe('Iska Vey and Tom have no ties yet')
     expect(offMapLine(['A', 'B', 'C'])).toBe('3 more have no ties yet')
+  })
+
+  it('names them all in the tooltip when there are three or more', () => {
+    expect(offMapTitle(['Iska Vey'])).toBe('Iska Vey has no ties yet, so not on the map. Add a relationship on their page.')
+    expect(offMapTitle(['A', 'B', 'C'])).toBe('A, B, C have no ties yet, so not on the map. Add a relationship on their page.')
+  })
+})
+
+describe('untiedIn', () => {
+  const card = (id: string, storyIds: string[], kind = 'character', name = id) => ({ id, kind, name, storyIds })
+  it('counts only this story’s characters that are tied nowhere along it', () => {
+    const cards = [
+      card('mara', ['b1']),
+      card('tobin', ['b1']), // tied later in the story: in everyone, so not counted
+      card('iska', ['b2']), // only in another book
+      card('inn', ['b1'], 'location'),
+      card('nell', ['b1', 'b2'], 'character', '  ')
+    ]
+    expect(untiedIn('b1', cards, [{ id: 'tobin' }])).toEqual(['mara', 'Unnamed'])
+    expect(untiedIn('b2', cards, [{ id: 'nell' }])).toEqual(['iska'])
   })
 })

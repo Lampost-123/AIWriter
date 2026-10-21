@@ -2542,7 +2542,7 @@ export class EditorAgent {
         const id = this.scene(a.scene)
         const s = sceneWords(this.db, id)
         if (!s) throw new Mistake('That scene no longer exists.')
-        const label = this.place.storyId ? sceneLabelIn(this.outline(), id) : `“${s.title}”`
+        const label = this.place.storyId ? sceneLabelIn(this.outline(), id) : `“${s.title.trim() || 'Untitled scene'}”`
         const heading = this.place.storyId ? this.sceneHeading(id) : label
         const card = repo.getScene(this.db, id).card
         const cardText = [

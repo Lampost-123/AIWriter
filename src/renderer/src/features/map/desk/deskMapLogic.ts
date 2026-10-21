@@ -523,3 +523,22 @@ export function offMapLine(names: string[]): string | null {
   if (names.length === 2) return `${names[0]} and ${names[1]} have no ties yet`
   return `${names.length.toLocaleString('en-GB')} more have no ties yet`
 }
+
+/** The line's tooltip: with three or more, it names them all. */
+export function offMapTitle(names: string[]): string {
+  const line = names.length > 2 ? `${names.join(', ')} have no ties yet` : (offMapLine(names) ?? '')
+  return `${line}, so not on the map. Add a relationship on their page.`
+}
+
+/**
+ * The story's characters with no tie anywhere along its slider (`everyone` is all the map can show there), in the
+ * order given. A character only in another story, or tied later in this one, isn't counted.
+ */
+export function untiedIn(
+  storyId: string,
+  cards: readonly { id: string; kind: string; name: string; storyIds: readonly string[] }[],
+  everyone: readonly { id: string }[]
+): string[] {
+  const on = new Set(everyone.map((p) => p.id))
+  return cards.filter((c) => c.kind === 'character' && c.storyIds.includes(storyId) && !on.has(c.id)).map((c) => c.name.trim() || 'Unnamed')
+}
