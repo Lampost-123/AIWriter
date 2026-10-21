@@ -51,6 +51,7 @@ import { fitSize, fitStageSize } from '@/features/outline/size'
 import { defaultMode, WHOLE_MOST_CHAPTERS, type PlanMode } from '@/features/outline/stages'
 import type { TreeNode } from '@/features/outline/tree'
 import { builderKey, briefOf, followRecipe, loadBrief, patchBrief, sizeForLength, useBuilders, writeIdea } from '@/features/storyBuilder/store'
+import { BriefFailed } from '@/features/storyBuilder/BriefFailed'
 import { IdeaStep } from '@/features/storyBuilder/IdeaStep'
 import { CodexTalk, useCodexLocked } from '@/features/storyBuilder/CodexStep'
 import { loadPlan, patchPlan, planOf } from '@/features/recipes/planStore'
@@ -109,6 +110,7 @@ export function PlanHub({ view }: { view: BuildView }): React.JSX.Element {
   const openStory = useApp((s) => s.storyId)
   const session = useOutlineHelper((st) => st.sessions[helperKey(worldId, storyId)])
   const brief = useBuilders((st) => st.builders[builderKey(storyId)]?.brief ?? null)
+  const briefFailed = useBuilders((st) => !!st.builders[builderKey(storyId)]?.briefFailed)
   const { outline } = useOutline()
   const shape = outline?.story.id === storyId ? outline : null
   // Once each time the page opens: the outline helper's session, whether the story is blank, and the idea.
@@ -137,6 +139,7 @@ export function PlanHub({ view }: { view: BuildView }): React.JSX.Element {
       </div>
     )
   }
+  if (!brief && briefFailed) return <BriefFailed storyId={storyId} />
   if (!shape || !session || session.blank === null || !brief) return <div className="h-full" data-plan-hub-loading />
   return <Hub story={story} shape={shape} session={session} view={view} />
 }
