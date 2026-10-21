@@ -1,5 +1,5 @@
-// The outline helper's parts for planning in stages and choosing where a Keep goes (2026-10-19), used by both looks'
-// suggestions (Suggestions.tsx, DeskSuggestions.tsx):
+// The outline helper's parts for planning in stages and choosing where a Keep goes (2026-10-19), used by Build with
+// AI's suggestion rows (planHub/LineSuggestions.tsx):
 // - StageRow, under an act or chapter: "Plan its chapters" / "Plan its scenes" while it holds none, then how that is
 //   going (Stop), and what went wrong, with Try again.
 // - KeepPlaceMenu, beside Keep on an act or chapter: keep it somewhere else in the binder (after a chosen act or chapter,
