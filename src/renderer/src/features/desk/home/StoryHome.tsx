@@ -358,7 +358,7 @@ function NextIdeas({ sceneId }: { sceneId: ID | null }): React.JSX.Element | nul
   const thinking = session?.status === 'running' && !ideas.length
   return (
     <div className="relative">
-      <button type="button" className={cn('home-ideas-btn', open && 'is-on')} aria-haspopup="dialog" aria-expanded={open} onClick={() => (open ? close() : show())}>
+      <button type="button" className={cn('home-ideas-btn', open && !closing && 'is-on')} aria-haspopup="dialog" aria-expanded={open && !closing} onClick={() => (open && !closing ? close() : show())}>
         <span className={cn('home-lamp-dot', session?.status === 'running' && 'is-busy')} aria-hidden />
         <span>Next scene ideas</span>
         <ChevronDown size={14} className="home-chev" />
