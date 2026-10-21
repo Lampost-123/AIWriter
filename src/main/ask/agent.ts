@@ -32,6 +32,7 @@ import { LOOKUP_TOOLS, runLookup, type LookupContext } from '../ai/lookups'
 import { LOAD_INSTRUCTIONS, loadInstructions, loadInstructionsTool } from '../ai/packs'
 import { askedFrom, askPoint, NOT_YET, type AskPoint } from './context'
 import { chatExp } from './exp'
+import { clip } from './history'
 import { ASK_PACKS, proposedTail } from './prompts'
 import {
   SCENE_CARD_WITH_NAMES,
@@ -834,7 +835,6 @@ export const fieldList = (kind: EntryKind): string =>
     .map((f) => `${f.key} (${f.label})`)
     .join(', ') || 'none (only summary, description and aliases)'
 
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const lower = (s: string): string => s.trim().toLocaleLowerCase()
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
 /** A whole number the model gave (as a number, or a string of digits), or undefined. */

@@ -13,7 +13,7 @@ import type { LogRow } from '../db/keeper'
 import { forgetCalled } from '../db/called'
 import { UserError } from '../util'
 import { changeInput, MAX_SAMPLE_LINES, patchFor, sampleLines, type FieldUndo, type Undo } from './apply'
-import { fieldValue } from './facts'
+import { fieldValue, liveChange } from './facts'
 import { suppressSummary } from './summaries'
 import { findQuote, plain, sceneParagraphs } from './text'
 import { spotIn, type Spot } from './track'
@@ -38,14 +38,6 @@ function line(db: DB, id: ID): LogRow & { u: Undo | null } {
 }
 
 const live = (db: DB, id: ID): Entry | null => repo.getEntries(db, [id])[0] ?? null
-
-function liveChange(db: DB, id: ID): Change | null {
-  try {
-    return mem.getChange(db, id)
-  } catch {
-    return null
-  }
-}
 
 /** Who wrote the version before the latest one of a fact. */
 function earlierOrigin(db: DB, factKind: 'entry' | 'change', id: ID): Origin {

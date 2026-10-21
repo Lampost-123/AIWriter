@@ -14,6 +14,15 @@ import { lowerFirstWord, plain, upperFirst } from './text'
 
 type DB = Database.Database
 
+/** A change as it is now, or null once it is gone (deleted, or never there). */
+export function liveChange(db: DB, id: ID): Change | null {
+  try {
+    return getChange(db, id)
+  } catch {
+    return null
+  }
+}
+
 export type SceneFact =
   | { kind: 'change'; key: string; change: Change; entry: Entry; origin: Origin; links: SourceLink[] }
   | { kind: 'field'; key: string; entry: Entry; field: string; origin: Origin; links: SourceLink[] }

@@ -21,6 +21,7 @@ import { keptStateBefore, storedState, storedStateAt } from '../continuity/track
 import { findInStory } from '../find/story'
 import { numbered, paraRef, type Para } from './anchor'
 import type { NewProposal, SceneWords, StoryView } from './agent'
+import { clip } from './history'
 
 type DB = Database.Database
 
@@ -135,7 +136,6 @@ export function extraProposeTools(): ToolSpec[] {
 
 const lower = (s: unknown): string => (typeof s === 'string' ? s.trim().toLocaleLowerCase() : '')
 const squash = (s: unknown): string => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim() : '')
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n[… cut short: ${s.length - max} more characters]` : s)
 const short = (s: string, max = SIDE_CHARS): string => {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t
