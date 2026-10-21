@@ -1,13 +1,14 @@
 // The open scene's card as the desk shows it (UI overhaul, phase 3): its place and point of view by name, its beats, and
-// how many of them are on the page already (shared/beats.ts), worked out again as the words change (at most about twice
-// a second). Kept in one small store, so the next-beat chip over the dock
-// and the scene card in the margin read the same thing; useSceneCardWatch (mounted once by the desk's page) fills it.
+// how many of them are on the page already (shared/beats.ts beatsDone: by their words, or written by a draft of the whole
+// scene, main/db/beatsWritten.ts), worked out again as the words change (at most about twice a second). Kept in one small
+// store, so the next-beat chip over the dock and the scene card in the margin read the same thing; useSceneCardWatch
+// (mounted once by the desk's page) fills it.
 import type { Editor } from '@tiptap/core'
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { ID, SceneCard } from '@shared/types'
-import { beatsOnPage, cardBeatsOf } from '@shared/beats'
-import { api } from '@/lib/api'
+import { beatsDone, cardBeatsOf, type BeatsWritten } from '@shared/beats'
+import { api, onEvent } from '@/lib/api'
 import { useApp } from '@/lib/store'
 import { cardIsEmpty } from '@/features/outline/ideasLogic'
 
@@ -26,9 +27,11 @@ interface DeskCardState {
   card: DeskCard | null
   /** How many of its beats, from the first, are on the page. */
   beatsDone: number
+  /** What the last draft of the whole scene wrote. */
+  written: BeatsWritten | null
 }
 
-export const useDeskCard = create<DeskCardState>(() => ({ card: null, beatsDone: 0 }))
+export const useDeskCard = create<DeskCardState>(() => ({ card: null, beatsDone: 0, written: null }))
 
 /** The open scene's card, or null while it loads (or for another scene). */
 export const useSceneCard = (sceneId: ID): DeskCard | null => useDeskCard((s) => (s.card?.sceneId === sceneId ? s.card : null))
@@ -49,24 +52,25 @@ export function useSceneCardWatch(editor: Editor, sceneId: ID | null): void {
 
   useEffect(() => {
     if (!sceneId) {
-      useDeskCard.setState({ card: null, beatsDone: 0 })
+      useDeskCard.setState({ card: null, beatsDone: 0, written: null })
       return
     }
     let live = true
     void (async () => {
       try {
-        const scene = await api.getScene(sceneId)
+        const [scene, written] = await Promise.all([api.getScene(sceneId), api.getBeatsWritten(sceneId).catch(() => null)])
         const [pov, place] = await Promise.all([nameOf(scene.card.povId), nameOf(scene.card.locationId)])
         if (!live) return
         const beats = cardBeatsOf(scene.card.beats)
         const text = editor.isDestroyed ? '' : editor.state.doc.textBetween(0, editor.state.doc.content.size, '\n', '\n')
         useDeskCard.setState({
           card: { sceneId, card: scene.card, empty: cardIsEmpty(scene.card), beats, pov, place },
-          beatsDone: beatsOnPage(beats, text)
+          beatsDone: beatsDone(beats, text, written),
+          written
         })
       } catch {
         // The scene went (deleted, another world): nothing to show.
-        if (live) useDeskCard.setState({ card: null, beatsDone: 0 })
+        if (live) useDeskCard.setState({ card: null, beatsDone: 0, written: null })
       }
     })()
     return () => {
@@ -83,7 +87,7 @@ export function useSceneCardWatch(editor: Editor, sceneId: ID | null): void {
       const c = useDeskCard.getState().card
       if (!c || c.sceneId !== sceneId || editor.isDestroyed) return
       const doc = editor.state.doc
-      const done = beatsOnPage(c.beats, doc.textBetween(0, doc.content.size, '\n', '\n'))
+      const done = beatsDone(c.beats, doc.textBetween(0, doc.content.size, '\n', '\n'), useDeskCard.getState().written)
       if (done !== useDeskCard.getState().beatsDone) useDeskCard.setState({ beatsDone: done })
     }
     const onUpdate = ({ transaction }: { transaction: { docChanged: boolean } }): void => {
@@ -92,8 +96,27 @@ export function useSceneCardWatch(editor: Editor, sceneId: ID | null): void {
       timer = setTimeout(count, SETTLE_MS)
     }
     editor.on('transaction', onUpdate)
+    // A draft of the whole scene (Generate, Write the whole chapter) notes its beats as it ends: read them again, then count.
+    let ask = 0
+    const reread = (id: ID): void => {
+      if (id !== sceneId) return
+      const mine = ++ask
+      void api
+        .getBeatsWritten(sceneId)
+        .catch(() => null)
+        .then((written) => {
+          if (mine !== ask || useDeskCard.getState().card?.sceneId !== sceneId) return
+          useDeskCard.setState({ written })
+          count()
+        })
+    }
+    const offDone = onEvent('generation:done', (p) => reread(p.sceneId))
+    const offChapter = onEvent('chapterWriter:sceneChanged', (p) => reread(p.sceneId))
     return () => {
       editor.off('transaction', onUpdate)
+      offDone()
+      offChapter()
+      ask++
       clearTimeout(timer)
     }
   }, [editor, sceneId])

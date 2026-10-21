@@ -6,6 +6,7 @@ import type { BeatsApi } from '@shared/contracts/beats'
 import { emit } from '../events'
 import { cancelBeatStart, startBeat } from '../beats'
 import { getBeatMarks, saveBeatMarks } from '../beats/marks'
+import { beatsWrittenIn } from '../db/beatsWritten'
 import { VARIANTS_WRITING, variantsBusy } from '../variants'
 import { UserError } from '../util'
 import * as world from '../world'
@@ -21,5 +22,6 @@ export const beatsHandlers: Handlers<keyof BeatsApi> = {
   },
   cancelBeatStart: (sceneId) => cancelBeatStart(sceneId),
   getBeatMarks: (sceneId) => getBeatMarks(world.db(), sceneId),
-  saveBeatMarks: (sceneId, marks) => saveBeatMarks(world.db(), sceneId, marks)
+  saveBeatMarks: (sceneId, marks) => saveBeatMarks(world.db(), sceneId, marks),
+  getBeatsWritten: (sceneId) => beatsWrittenIn(world.db(), sceneId)
 }

@@ -8,11 +8,13 @@ import * as gens from '../db/generations'
 import { insertChange, putSummary, setBlockMode, setDefaultExistsPoints, setPin } from '../db/memory'
 import { startFakeProvider, type FakeProvider } from '../../../tests/fake-provider/server.mjs'
 import { AUTO_LENGTH } from '@shared/defaults'
+import { draftWords } from '@shared/beats'
 import { SPEAKER_TAG_LINE } from './speakerTags'
 import { assembleContext, replyTokenLimit, replyTokens, sentEntryVersions } from './context'
 import { draftCost, isDrafting, onDraftActivity, startDraftJob, stopDraft, stopDraftsFor, type DraftActivity, type Emit } from './drafts'
 import { catchUpBeforeDraft, cleanOptions, gatherContextInput, setBeforeDraft } from './gather'
 import { countRaw } from './tokens'
+import { beatsWrittenIn, noteBeatsWritten } from '../db/beatsWritten'
 import { PLAN_GO, PLAN_HEAD } from '../plan/echo'
 
 let fake: FakeProvider
@@ -540,6 +542,18 @@ describe('drafting', () => {
     expect(normal.status).toBe('complete')
     expect(normal.cutOff).toBeUndefined()
     expect(normal.refused).toBeUndefined()
+  })
+
+  it('notes the card’s beats as written once a draft of the whole scene comes in full (Adam, 2026-10-21)', async () => {
+    const { emit } = recorder()
+    noteBeatsWritten(w.db, w.second.id, [], '')
+    // Cut off, a refusal sent back as words, or Add below: the beats aren't all written.
+    await start(w, emit, 'fake/length').done
+    await start(w, emit, 'fake/refuse-words').done
+    await start(w, emit, 'fake/writer', 'custom', { addBelow: true }).done
+    expect(beatsWrittenIn(w.db, w.second.id)).toBeNull()
+    const whole = await start(w, emit).done
+    expect(beatsWrittenIn(w.db, w.second.id)).toEqual({ beats: ['Mara meets Tobin', 'Someone knocks'], words: draftWords(whole.text) })
   })
 
   it('records how the settings were sent to a model that wants them differently', async () => {

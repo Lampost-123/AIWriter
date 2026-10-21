@@ -13,7 +13,7 @@ import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
 import type { ContextPreview, ID, SceneCard, StyleGuide } from '@shared/types'
 import { AUTO_LENGTH } from '@shared/defaults'
-import { beatsOnPage } from '@shared/beats'
+import { beatsDone, beatsOnPage, type BeatsWritten } from '@shared/beats'
 import { getSettings } from '../settings'
 import * as world from '../world'
 import { memoryModel } from '../keeper'
@@ -386,11 +386,15 @@ export function planForContinueOf(sceneId: ID, card: SceneCard, before: string):
   return planForContinue(k.plan, k.pov, { done: Math.max(matched, byPosition), outcome: card.outcome ?? '' })
 }
 
-/** How many of the scene card's beats, from the first, are on the page before Continue's cursor (@shared/beats beatsOnPage). */
-export function continueBeatsDone(card: SceneCard, before: string): number {
-  return beatsOnPage(
+/**
+ * How many of the scene card's beats, from the first, are on the page before Continue's cursor (@shared/beats beatsDone):
+ * by their words, or `written` by a draft of the whole scene (db/beatsWritten.ts; given only with the cursor at the end).
+ */
+export function continueBeatsDone(card: SceneCard, before: string, written: BeatsWritten | null = null): number {
+  return beatsDone(
     (card.beats ?? []).map((b) => b.trim()).filter(Boolean),
-    before
+    before,
+    written
   )
 }
 

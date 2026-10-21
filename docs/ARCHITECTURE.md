@@ -2340,6 +2340,25 @@ Owned by the Beat by beat part (`contracts/beats.ts`, `ipc/beats.ts`, `src/main/
 - **Remove this beat** keeps the scene in History ("Before beat N was taken out"), then takes the beat's paragraphs
   out as one undo step (Ctrl+Z puts them back, marker and all).
 
+## Beats an AI draft of the whole scene wrote (Adam, 2026-10-21)
+
+Write the whole chapter left every beat unticked and the desk never offered Mark done: which beats are on the page was
+found by the beat's own words alone (`shared/beats.ts` `beatsOnPage`), and the AI says a beat in words of its own.
+
+- **Noted as the draft ends** (`ai/drafts.ts`): a draft that comes in full (not cut off, not a refusal, not stopped) and
+  is of the whole scene (not Add below, one beat of Beat by beat, or a variant not yet picked) notes the card's beats
+  then, with up to 60 of the draft's longer words spread across it (`draftWords`), in the world's `meta` table (`beats_written:<scene id>`, `db/beatsWritten.ts`; no migration). That covers
+  Generate, Rewrite the scene and Write the whole chapter. The newest such draft's beats take the place of the last;
+  emptying the scene from Recently deleted takes the row away (`purgeTrash`).
+- **Read with the page** (`beatsDone`): the beats from the first that the draft wrote and the card still has word for
+  word, while the page still has at least half of the draft's words (not retyped, or undone back to older words), or
+  further by the words on the page; none on an empty page. A beat changed or added on the card since is for
+  the words to say. Used by the desk's next-beat chip and scene card (`features/desk/sceneCard.ts`, through
+  `getBeatsWritten`, read again on `generation:done` and `chapterWriter:sceneChanged`), Add below's briefing
+  (`ContextInput.beatsWritten`, from `ai/gather.ts`) and Continue's scene card (`continueBeatsDone`, only with the cursor
+  at the scene's end).
+- **Not done here**: Beat by beat keeps its own markers ("Beat markers" above).
+
 ## The AI manages plot threads (2026-10-08)
 
 Adam's choices: weave gently (an open thread comes in only where it fits; never forced), and the memory resolves a

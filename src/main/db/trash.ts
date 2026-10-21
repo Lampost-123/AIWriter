@@ -3,6 +3,7 @@ import { settlePlacements } from './memory'
 import { purgeActs } from './acts'
 import { CHAPTER_CARD_PREFIX } from '@shared/chapterCard'
 import { dropCalledOfGoneScenes } from './called'
+import { dropBeatsWrittenOfGoneScenes } from './beatsWritten'
 import { clearGoneChapters, dropPlansOfGoneThreads } from './threadPlans'
 import { dropSnapshotsOfGoneChapters } from './snapshots'
 import { dropCritiquesOfGone } from './critiques'
@@ -61,6 +62,8 @@ export function purgeTrash(db: DB, olderThanDays: number, nowMs: number = Date.n
     db.prepare("DELETE FROM meta WHERE substr(key, 1, 11) = 'beat_marks:' AND substr(key, 12) NOT IN (SELECT id FROM scenes)").run()
     // So does what a scene's words call its characters (db/called.ts, long story memory fix 12).
     dropCalledOfGoneScenes(db)
+    // And the beats a draft of the whole scene wrote (db/beatsWritten.ts).
+    dropBeatsWrittenOfGoneScenes(db)
     const delChapter = db.prepare('DELETE FROM chapters WHERE id = ?')
     for (const id of chapterSet) delChapter.run(id)
     // Chapter cards (`chapter_card:<chapter id>` in meta, repo.ts) go with their chapter. While it is only in Recently

@@ -4,6 +4,7 @@
 // off (or AIWRITE_BRIEF=off), or a brief that can't be put together, leaves the plan as it was. Beat by beat plans the
 // scene once (Adam's spec, 2026-10-19): its later beats get that plan and its brief with no call, while the card and the
 // direction read the same; Continue gets the scene's last plan while its words haven't moved on too far.
+import { draftWords } from '@shared/beats'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
@@ -279,6 +280,11 @@ describe('Continue gets the beats of the scene’s plan still to come, with no c
     const c = { ...card, beats: ['Osric climbs up the ladder', 'They argue about the weir', ''] }
     expect(continueBeatsDone(c as never, '')).toBe(0)
     expect(continueBeatsDone(c as never, 'Osric climbed up the ladder. They argued about the weir until dark.')).toBe(2)
+    // Written by a draft of the whole scene, in other words (Adam, 2026-10-21): done all the same, with words on the page.
+    const draft = 'He went up rung by rung. Then the quarrel over the sluice, until the lantern guttered.'
+    const written = { beats: ['Osric climbs up the ladder', 'They argue about the weir'], words: draftWords(draft) }
+    expect(continueBeatsDone(c as never, draft, written)).toBe(2)
+    expect(continueBeatsDone(c as never, '', written)).toBe(0)
   })
 })
 

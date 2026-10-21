@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { BlockMode, Change, EntryKind, EntryState, Pin, StyleGuide, ThreadDue } from '@shared/types'
 import { AUTO_LENGTH, cardLength, defaultStyleGuide, emptySceneCard } from '@shared/defaults'
+import { draftWords } from '@shared/beats'
 import type { SceneMemory, StorySoFar } from '../memory/types'
 import type { SceneState } from '@shared/continuity'
 import {
@@ -1184,6 +1185,15 @@ describe('blocks', () => {
     expect(final).not.toContain('Write the scene now')
     // Without Add below, the usual closing.
     expect(prepareContext(input()).finals.withPrevious.startsWith('Write the scene now.')).toBe(true)
+  })
+
+  it('Add below: the beats a draft of the whole scene wrote are done, whatever words it said them in (Adam, 2026-10-21)', () => {
+    const opts = { direction: '', targetWords: null, creativity: 'balanced' as const, addBelow: true }
+    const soFar = 'She came in out of the rain. The ferryman said he would take her across at first light.'
+    expect(prepareContext(input({ options: opts, soFar })).finals.withPrevious).toContain('the next beat on the scene card, beat 1 of 2')
+    const written = prepareContext(input({ options: opts, soFar, beatsWritten: { beats: ['Mara arrives at the tavern', "Tobin offers passage on Tobin's Ferry"], words: draftWords(soFar) } })).finals.withPrevious
+    expect(written).toContain('Beats 1 to 2 on the scene card are already on the page: done.')
+    expect(written).not.toContain('the next beat on the scene card')
   })
 
   it('block 7: places around the location only as far as they exist here', () => {
