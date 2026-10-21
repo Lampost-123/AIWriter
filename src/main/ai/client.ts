@@ -230,10 +230,7 @@ export interface StreamOutcome {
   retries: number
   /** The max_tokens the reply was finally asked with. */
   maxTokens: number
-  /**
-   * The model stopped because it reached the reply limit, or the stream closed part way with no sign the reply had
-   * finished, so the scene ends early (the text is kept).
-   */
+  /** The model stopped because it reached the reply limit, so the scene ends early (the text is kept). */
   cutOff: boolean
   /** How the reply limit and creativity settings were finally sent. */
   sentParams: SentParams
@@ -373,9 +370,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     /** The tools asked for, by their index in the stream (their parts arrive piece by piece). */
     calls: new Map<number, ToolCall>(),
     /** The call the latest piece went to (for servers that leave out each piece's index). */
-    lastSlot: null as number | null,
-    /** The stream closed after some words but with no sign that the reply had finished (cut short; the text is kept). */
-    unfinished: false
+    lastSlot: null as number | null
   }
   /** What an earlier try that came back empty already cost (a model that used up its limit thinking is still billed). */
   const spent = { completionTokens: 0, cost: 0, any: false }
@@ -424,7 +419,7 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
       finishReason: s.finishReason,
       retries,
       maxTokens,
-      cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens' || s.unfinished),
+      cutOff: status === 'complete' && (s.finishReason === 'length' || s.finishReason === 'max_tokens'),
       sentParams: { ...sent },
       effort,
       toolCalls,
@@ -498,7 +493,6 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
     s.reasoning = ''
     s.calls = new Map()
     s.lastSlot = null
-    s.unfinished = false
     const ctl = new AbortController()
     let timedOut = false
     const onAbort = (): void => ctl.abort()
@@ -654,7 +648,9 @@ export async function streamChat(o: StreamChatOptions): Promise<StreamOutcome> {
         // The stream closed without a word or a sign that it had finished.
         return { kind: 'fail', failure: { type: 'network', code: null, message: 'closed' }, retry: { kind: 'network' }, retryAfterMs: null }
       }
-      if (!done && !s.finishReason && s.text.trim()) s.unfinished = true
+      // Words came but no sign the reply had finished (review #3): the connection was lost part way, as when it is reset,
+      // so the draft is said to be cut short (the text is kept) and isn't taken as whole, its beats unticked.
+      if (!done && !s.finishReason && s.text.trim()) return { kind: 'fail', failure: { type: 'dropped' }, retry: null, retryAfterMs: null }
       return { kind: 'ok' }
     } finally {
       if (timer) clearTimeout(timer)

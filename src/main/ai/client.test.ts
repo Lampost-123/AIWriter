@@ -121,7 +121,7 @@ describe('streamChat', () => {
     expect(fake.requestCounts()['fake/drop']).toBe(1)
   })
 
-  it('says a reply was cut short when the stream closed after some words but without a sign it had finished', async () => {
+  it('takes a stream that closed after some words with no sign it had finished as dropped, keeping the text', async () => {
     const chunk = (content: string) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n`
     const closedEarly = (async () =>
       new Response(new Blob([chunk('The rain had not '), chunk('let up when Mara')]).stream(), {
@@ -130,8 +130,9 @@ describe('streamChat', () => {
       })) as typeof fetch
     const { outcome, retries } = await run('fake/writer', { fetchImpl: closedEarly })
     expect(outcome.text).toBe('The rain had not let up when Mara')
-    expect(outcome.status).toBe('complete')
-    expect(outcome.cutOff).toBe(true)
+    expect(outcome.status).toBe('error')
+    expect(outcome.failure).toEqual({ type: 'dropped' })
+    expect(outcome.error).toContain('The text that arrived is kept')
     expect(retries).toEqual([])
   })
 
