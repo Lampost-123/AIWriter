@@ -95,7 +95,9 @@ export function listWorlds(): WorldSummary[] {
  * A world folder copied by hand (Explorer's "My world - Copy") carries the same
  * world id as the original, so opening by id could open either. The copy is a
  * separate world from then on: it gets its own id and "(copy)" on its name.
- * The open world, or else the oldest folder, keeps the original id.
+ * The open world, or else the one saved last, keeps the original id; when both were saved at the same moment (a
+ * copy made by hand), the older folder does. A folder's own date alone can't decide: a cloud app downloading the real
+ * world again makes its folder the newer one (review #9).
  */
 function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
   const byId = new Map<ID, WorldSummary[]>()
@@ -112,7 +114,7 @@ function separateCopies(worlds: WorldSummary[]): WorldSummary[] {
     }
     const keeper =
       group.find((w) => current && w.folder === current.folder) ??
-      [...group].sort((a, b) => age(a) - age(b) || a.folder.length - b.folder.length)[0]
+      [...group].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || age(a) - age(b) || a.folder.length - b.folder.length)[0]
     for (const w of group) {
       if (w === keeper) continue
       let d: Database.Database | null = null
