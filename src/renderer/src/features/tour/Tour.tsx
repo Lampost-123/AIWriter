@@ -142,7 +142,19 @@ function TourCard({
 }): React.JSX.Element {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  const height = 200
+  const card = useRef<HTMLDivElement>(null)
+  const nextButton = useRef<HTMLButtonElement>(null)
+  // The card's real height (its words differ step by step), measured before it is painted, so it is placed whole
+  // inside the window and never covers the part it talks about.
+  const [height, setHeight] = useState(220)
+  useLayoutEffect(() => {
+    const h = card.current?.offsetHeight
+    if (h && h !== height) setHeight(h)
+  })
+  // The keyboard starts on Next. No focus ring for that unless Adam is using the keyboard (as the start screen does).
+  useEffect(() => {
+    nextButton.current?.focus({ preventScroll: true, focusVisible: keyboardDriven() } as FocusOptions)
+  }, [])
   // Under the target when there is room, else above it, else in the middle; kept inside the window.
   let top = (vh - height) / 2
   let left = (vw - CARD_W) / 2
@@ -156,9 +168,23 @@ function TourCard({
 
   return (
     <div
-      className={cn('fixed rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl', glide && 'tour-glide')}
+      ref={card}
+      className={cn(
+        'fixed rounded-xl border border-line bg-surface p-5 text-fg shadow-2xl',
+        // The New look: raised like a dialog, with a hairline ring.
+        'look-new:rounded-2xl look-new:border-transparent look-new:bg-raise look-new:shadow-[var(--elev-3),0_0_0_1px_var(--line)]',
+        glide && 'tour-glide'
+      )}
       style={{ left, top, width: CARD_W }}
     >
+      {/* How far through: a short bar in the accent that grows step by step (the selection's speed; at once from
+          the keyboard and with less motion). */}
+      <div aria-hidden className="mb-3 h-[3px] overflow-hidden rounded-full bg-surface-3">
+        <div
+          className={cn('h-full rounded-full bg-accent', glide && 'transition-[width] duration-(--dur-base) ease-glide')}
+          style={{ width: `${((index + 1) / TOUR_STEPS.length) * 100}%` }}
+        />
+      </div>
       <div key={index} className={glide ? 'animate-fade-in' : undefined}>
         <p className="text-[11.5px] font-semibold uppercase tracking-wide text-faint">
           Step {index + 1} of {TOUR_STEPS.length}
@@ -178,7 +204,7 @@ function TourCard({
               Back
             </Button>
           ) : null}
-          <Button variant="primary" size="sm" autoFocus onClick={onNext}>
+          <Button ref={nextButton} variant="primary" size="sm" onClick={onNext}>
             {last ? 'Finish' : 'Next'}
           </Button>
         </div>

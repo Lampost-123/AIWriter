@@ -1,0 +1,8 @@
+/*
+  The start screen's main button (Create world) keeps its own colour while it waits for a name: a little dimmed, not
+  faded to a grey block (the desk's ink is near-white in Dark and near-black in Light, so the usual half-strength fade
+  turns it grey). Plain CSS outside Tailwind's layers, so it wins over the Button's own disabled fade.
+*/
+.start-screen [data-start-main]:disabled {
+  opacity: 0.68;
+}
