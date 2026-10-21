@@ -5,7 +5,6 @@ import { ChevronLeft, ChevronRight } from '@/components/ui/icons'
 import type { AsOf, AsOfStop } from '@shared/types'
 import { IconButton } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { useNewLook } from '@/features/look/look'
 import { inSentence, longestLabel, nextChange, stopIndex } from './asOfLogic'
 
 export function AsOfSlider({
@@ -22,7 +21,6 @@ export function AsOfSlider({
   label?: string
   className?: string
 }): React.JSX.Element | null {
-  const isNew = useNewLook()
   if (!stops.length) return null
   const found = stopIndex(stops, value)
   const index = found >= 0 ? found : stops.length - 1
@@ -73,7 +71,7 @@ export function AsOfSlider({
           className="absolute inset-x-0 top-1/2 h-5 w-full -translate-y-1/2 cursor-pointer accent-[var(--accent)]"
         />
         {/* The New look: a faint tick for every scene along the track (not when there are too many to tell apart). */}
-        {isNew && stops.length > 2 && stops.length <= 120 ? (
+        {stops.length > 2 && stops.length <= 120 ? (
           <div aria-hidden className="pointer-events-none absolute inset-x-[7px] top-[-3px] h-1.5">
             {stops.map((_, i) => (
               <span key={i} className="absolute h-1.5 w-px -translate-x-1/2 bg-line-strong" style={{ left: at(i) }} />

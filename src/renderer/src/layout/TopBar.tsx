@@ -27,7 +27,6 @@ import { KeeperStatus } from '@/features/memory/KeeperStatus'
 import { WritingStatus } from '@/features/progress/WritingStatus'
 import { useDraft } from '@/features/generate/draftRun'
 import { openScene } from '@/features/memory/openScene'
-import { AskButton } from '@/features/ask/AskButton'
 import { WorldFileItems } from '@/features/transfer/WorldFileItems'
 import { FocusButton } from '@/features/look/FocusLayer'
 import { WordCountButton } from '@/features/goals/WordCounts'
@@ -40,7 +39,6 @@ import { openRecipes } from '@/features/recipes/recipeStore'
 import { UpdateBanner } from './UpdateBanner'
 import { DrawnTick } from '@/components/ui/DrawnTick'
 import { Trail } from './Trail'
-import { useNewLook } from '@/features/look/look'
 import { SampleWorldChip } from '@/features/setup/SampleWorldBar'
 import { CheckButton } from '@/features/check/CheckButton'
 
@@ -49,13 +47,12 @@ function SaveIndicator(): React.JSX.Element {
   const state = useApp((s) => s.saveState)
   const writing = useApp((s) => s.view.kind === 'write')
   const label = saveNote(state, writing)
-  const isNew = useNewLook()
-  // The New look: "Saved" is a small green tick that draws itself each time.
+  // "Saved" is a small green tick that draws itself each time.
   const [saves, setSaves] = useState(0)
   useEffect(() => {
     if (state === 'saved') setSaves((n) => n + 1)
   }, [state])
-  if (isNew && label === 'Saved') {
+  if (label === 'Saved') {
     return (
       <span aria-live="polite" className="flex min-w-[64px] shrink-0 items-center justify-end gap-1 whitespace-nowrap text-[12px] text-faint">
         <DrawnTick key={saves} size={14} draw className="text-success" />
@@ -359,7 +356,6 @@ export function TopBar(): React.JSX.Element {
   const generating = useDraft((s) => s.phase !== 'idle' && s.sceneId === draftScene)
   const draftElsewhere = !!draftScene && !generating && (view.kind !== 'write' || draftScene !== sceneId)
   const hasWorld = useApp((s) => s.world !== null)
-  const isNew = useNewLook()
   const worldButton = useRef<HTMLButtonElement>(null)
   const layout = settings?.layout
   const floatingBinder = useFloatingBinder()
@@ -393,10 +389,8 @@ export function TopBar(): React.JSX.Element {
       {/* The world's name and the search box: renaming the world happens over both, so nothing in the bar moves. */}
       <div className="relative flex min-w-0 items-center gap-1">
         <WorldMenu trigger={worldButton} />
-        {/* Search needs an open world (with none, the bar is only the way to Settings). The New look has it on the
-            right, and the trail of where Adam is beside the world's name. */}
-        {hasWorld && !isNew ? <SearchBox /> : null}
-        {hasWorld && isNew ? <Trail /> : null}
+        {/* The trail of where Adam is, beside the world's name (search is on the right; both need an open world). */}
+        {hasWorld ? <Trail /> : null}
         <RenameWorld trigger={worldButton} />
       </div>
       {/* The free middle of the bar: a downloaded update is offered here, so nothing below moves for it.
@@ -413,15 +407,15 @@ export function TopBar(): React.JSX.Element {
       >
         <UpdateBanner />
       </div>
-      {/* The New look: the sample world says so here, as a chip (Classic has a bar under the top bar). */}
-      {isNew ? <SampleWorldChip /> : null}
+      {/* The sample world says so here, as a chip. */}
+      <SampleWorldChip />
       {/* The memory keeper's quiet status: a slot that is always there, empty while all is well. */}
       {/* Write the whole chapter, or Generate's draft, while it works: how far it has got; a click says more, with Stop. */}
       {hasWorld ? <WritingStatus /> : null}
       {hasWorld ? <KeeperStatus /> : null}
       {/* The one Check: this scene, chapter or story (the calm overhaul). */}
       {hasWorld ? <CheckButton /> : null}
-      {hasWorld && isNew ? <SearchBox /> : null}
+      {hasWorld ? <SearchBox /> : null}
       {/* The bar fits the smallest window with the longest world name, so what follows never wraps. */}
       {view.kind === 'write' ? (
         // Writing by hand: click for the selection's, chapter's and story's counts and today's writing.
@@ -440,15 +434,14 @@ export function TopBar(): React.JSX.Element {
         </button>
       ) : null}
       <SaveIndicator />
-      {/* The New look has Ask the world and Settings on the area rail. */}
-      {hasWorld && !isNew ? <AskButton /> : null}
       {/* In the smallest windows the bar has no room for it (F11 and the palette still reach focus mode). */}
       {hasWorld ? (
         <span className="hidden min-[1000px]:flex">
           <FocusButton />
         </span>
       ) : null}
-      {isNew && hasWorld ? null : (
+      {/* With a world open, Settings is on the area rail (as Ask the world is). */}
+      {hasWorld ? null : (
         <IconButton
           label="Settings"
           title={withShortcut('Settings', 'settings')}

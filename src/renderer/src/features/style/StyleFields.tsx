@@ -1,6 +1,5 @@
 import { cn } from '@/lib/cn'
 import { BookOpen, Eye, Feather, Palette, Pencil, ShieldCheck, type IconType } from '@/components/ui/icons'
-import { useNewLook } from '@/features/look/look'
 import { memo, useId, type ReactNode } from 'react'
 import type { EffectiveStyle, StyleTextKey } from '@shared/style'
 import type { Spelling, StyleGuide } from '@shared/types'
@@ -212,8 +211,7 @@ const GROUP_ICONS: Record<string, { icon: IconType; tile: string }> = {
 
 /** A titled group of fields, set off from the one above by a rule. */
 export function Group({ title, children }: { title: string; children: ReactNode }): React.JSX.Element {
-  const isNew = useNewLook()
-  const mark = isNew ? GROUP_ICONS[title] : undefined
+  const mark = GROUP_ICONS[title]
   return (
     <section className="flex flex-col gap-4 border-t border-line pt-6 look-new:border-transparent look-new:pt-4">
       <h3 className="text-[11.5px] font-semibold uppercase tracking-wide text-faint look-new:flex look-new:items-center look-new:gap-2.5 look-new:font-heading look-new:text-[20px] look-new:normal-case look-new:tracking-[-0.01em] look-new:text-fg">
