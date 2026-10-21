@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { DeepPartial, EntryKind, ID, MemoryStatus, Settings, Story, World } from '@shared/types'
 import type { BuilderKind, BuilderStart } from '@shared/contracts/builder'
-import { useToasts } from '@/components/ui/Toast'
+import { toast, useToasts } from '@/components/ui/Toast'
 import { lastSceneOf } from '@/features/binder/lastScene'
 import { patchDraftOptions, type SceneDraftOptions } from '@/features/generate/draftOptions'
 import { pageTransition, type Flip } from '@/features/look/viewTransition'
@@ -367,7 +367,14 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   async updateSettings(patch) {
-    const settings = await api.updateSettings(patch)
+    let settings: Settings
+    try {
+      settings = await api.updateSettings(patch)
+    } catch (e) {
+      // Said once here for every setting (a locked or full disk); callers that go on to do more still see it fail.
+      toast('That setting couldn’t be saved. Try again.', { tone: 'danger' })
+      throw e
+    }
     set({ settings })
   },
 

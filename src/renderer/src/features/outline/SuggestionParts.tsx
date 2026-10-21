@@ -1,8 +1,8 @@
 // What a suggestion's card holds, on screen (2026-10-19, after "the Edit form can't edit what it makes"): every part the
 // AI gave a chapter or scene (point of view, characters, location, When, mood, plot threads) shown quietly under its
 // words, and editable in its Edit form with the same pickers as a scene card (people, places and plot threads from the
-// codex, or a name typed in, whose page is made when it is kept). Shared by the panels (Suggestions.tsx) and the desk
-// (DeskSuggestions.tsx).
+// codex, or a name typed in, whose page is made when it is kept). Used by Build with AI's suggestion rows
+// (planHub/LineSuggestions.tsx) and the Edit form (Suggestions.tsx).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Entry, EntryKind, ID } from '@shared/types'

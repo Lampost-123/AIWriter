@@ -13,19 +13,19 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import * as M from '@radix-ui/react-dropdown-menu'
 import type { ID } from '@shared/types'
-import { BookOpen, Lightbulb, MessageCircleQuestion, MoreHorizontal, PenLine, Plus, Sparkles, Square, SquarePen, X } from '@/components/ui/icons'
-import { Button, toast } from '@/components/ui'
+import { BookOpen, Lightbulb, MessageCircleQuestion, MoreHorizontal, PenLine, Square, SquarePen, X } from '@/components/ui/icons'
+import { toast } from '@/components/ui'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { editorBridge } from '@/lib/editorBridge'
 import { pressShortcut } from '@/lib/shortcuts'
 import { useApp, type View } from '@/lib/store'
 import { AutoTextarea } from '@/features/world/parts/AutoTextarea'
-import { FreshText } from '@/features/planning/FreshText'
 import { PlanInterview, usePlanSession } from '@/features/outline/PlanInterview'
 import { closePlanInterview, startPlanInterview } from '@/features/outline/planInterviewStore'
 import { applyIdea, askIdeas, ideasKey, setWish, stopIdeas, useSceneIdeas } from '@/features/outline/ideasStore'
 import { parseIdeas, type SceneIdea } from '@/features/outline/parse'
+import { IdeaCard, IdeasFooter } from '@/features/outline/IdeaCard'
 import { planScene, scenePlanKey, stopScenePlan, useScenePlans } from '@/features/outline/scenePlanStore'
 import { RowMenuItem } from '@/features/binder/RowMenu'
 import { sceneName, type LineScene } from './hubLogic'
@@ -273,31 +273,11 @@ export function IdeasInline({ sceneId, onClose }: { sceneId: ID; onClose: () => 
         }}
       />
       {shown.length ? (
-        <ol className="build-ideas-list">
+        <div className="build-ideas-list flex flex-col gap-2">
           {shown.map(({ idea, i }) => (
-            <li key={`${session?.taskId}-${i}`} className={cn('build-idea', !idea.complete && 'is-arriving')} data-idea>
-              <div className="min-w-0 flex-1">
-                <p className="build-idea-t">
-                  <FreshText text={idea.title.trim() || `Idea ${i + 1}`} live={running} />
-                </p>
-                {idea.summary ? (
-                  <p className="build-idea-s">
-                    <FreshText text={idea.summary} live={running} />
-                  </p>
-                ) : null}
-                {idea.beats.length ? <p className="build-idea-b">{idea.beats.length === 1 ? '1 beat' : `${idea.beats.length} beats`}: {idea.beats[0]}{idea.beats.length > 1 ? '…' : ''}</p> : null}
-              </div>
-              <div className="build-idea-actions">
-                <Button size="sm" variant="ai" icon={<Plus size={12} />} disabled={!idea.complete} onClick={() => void use(idea)} aria-label={`Use “${idea.title.trim() || `Idea ${i + 1}`}”`}>
-                  Use this
-                </Button>
-                <button type="button" className="hub-txt" onClick={() => setGone((g) => new Set([...g, i]))} aria-label={`Dismiss “${idea.title.trim() || `Idea ${i + 1}`}”`}>
-                  Dismiss
-                </button>
-              </div>
-            </li>
+            <IdeaCard key={`${session?.taskId}-${i}`} idea={idea} n={i} live={running} onUse={() => void use(idea)} onDismiss={() => setGone((g) => new Set([...g, i]))} />
           ))}
-        </ol>
+        </div>
       ) : null}
       {used ? <p className="hub-go-s">One went on the scene’s card. Undo in its message takes it off and brings the ideas back.</p> : null}
       {session?.problem && !ideas.length && !running ? (
@@ -306,20 +286,9 @@ export function IdeasInline({ sceneId, onClose }: { sceneId: ID; onClose: () => 
         </p>
       ) : null}
       {session?.note ? <p className="hub-go-s">{session.note}</p> : null}
-      <div className="hub-go">
-        {running ? (
-          <>
-            <HubStatus text={session?.retrying ?? (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Reading the scenes before it, the plan and the open threads…')} size={20} />
-            <Button size="sm" icon={<Square size={10} fill="currentColor" />} onClick={() => stopIdeas(sceneId)}>
-              Stop
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" variant={ideas.length ? 'secondary' : 'ai'} icon={<Sparkles size={13} />} onClick={() => void askIdeas(sceneId)} data-ask-ideas>
-            {ideas.length || used ? 'Three more ideas' : 'Suggest three ideas'}
-          </Button>
-        )}
-      </div>
+      <IdeasFooter className="hub-go" running={running} hasIdeas={ideas.length > 0 || used} onMore={() => void askIdeas(sceneId)} onStop={() => stopIdeas(sceneId)}>
+        {running ? <HubStatus text={session?.retrying ?? (ideas.length ? `Writing idea ${Math.min(ideas.length, 3)} of 3…` : 'Reading the scenes before it, the plan and the open threads…')} size={20} /> : null}
+      </IdeasFooter>
     </section>
   )
 }

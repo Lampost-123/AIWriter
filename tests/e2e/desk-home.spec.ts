@@ -115,11 +115,11 @@ test('the story home: Next scene ideas for the next planned scene, asked for onl
     await button.click()
     const ideas = win.getByRole('dialog', { name: 'Ideas for the next scene' })
     await expect(ideas).toContainText('Fog on the Quay · Chapter Two, scene 3 · planned')
-    await expect(ideas.locator('li')).toHaveCount(3)
-    await expect(ideas.locator('li').nth(1)).toContainText('A debt called in.')
+    await expect(ideas.locator('[data-idea]')).toHaveCount(3)
+    await expect(ideas.locator('[data-idea]').nth(1)).toContainText('A debt called in')
     expect(fake.requestCounts()).toEqual({ 'fake/writer': 1 })
-    // Add to the plan: the story board, with the ideas beside it.
-    await ideas.getByRole('button', { name: 'Add to the plan' }).click()
+    // Choose one on the board: the story board, with the ideas beside it.
+    await ideas.getByRole('button', { name: 'Choose one on the board' }).click()
     await expect(rooms(win).getByRole('button', { name: /^Plan/ })).toHaveAttribute('aria-current', 'page')
   } finally {
     await fake.close()

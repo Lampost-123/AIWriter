@@ -6,9 +6,7 @@
 // Generate (undo in the page): exactly one mounted user of the hook should ask for them, or a key would act twice.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import type { Creativity, ID, ModelChoice } from '@shared/types'
-import { AUTO_LENGTH, cardLength } from '@shared/defaults'
 import { toast } from '@/components/ui'
-import { api } from '@/lib/api'
 import { editorBridge } from '@/lib/editorBridge'
 import { escapeTaken } from '@/lib/escape'
 import { layerOpen } from '@/lib/layers'
@@ -21,7 +19,8 @@ import { takeShowPlan } from '@/features/planReview/store'
 import { castBuilding, useBuildWatch, watchBuilds } from './buildWatch'
 import { usePolish } from './polishRun'
 import { withPolish } from './polish'
-import { estimateDraftCost, shortModelName } from './format'
+import { shortModelName } from './format'
+import { useDraftEstimate, useSceneCardInfo } from './cardInfo'
 import { useDraftWait } from '@/features/waits/useDraftWait'
 import { useDelayed } from './parts'
 
@@ -116,8 +115,7 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
 
   // Kept in the store (each scene's own), so the Context tab previews the briefing with the same options.
   const opts = useApp((s) => s.draftOptions[sceneId] ?? BLANK_DRAFT_OPTIONS)
-  const [cardWords, setCardWords] = useState<number | null | undefined>(undefined)
-  const [cardPlanned, setCardPlanned] = useState<boolean | null>(null)
+  const { cardWords, cardPlanned, loadCard, rev: cardRev, expire: expireCard } = useSceneCardInfo(sceneId)
   const [hasText, setHasText] = useState(false)
   // This scene's draft, if Generate is writing one (it carries on while Adam is in another scene), or its polish pass.
   const draftPhase = useDraft((d) => (d.sceneId === sceneId ? d.phase : 'idle'))
@@ -130,9 +128,6 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
   const beforeChoice = useRef<HTMLElement | null>(null)
   const [choiceByKey, setChoiceByKey] = useState(false)
   const [choiceFromOptions, setChoiceFromOptions] = useState(false)
-  const [estimate, setEstimate] = useState<number | null>(null)
-  /** Bumped when the card may have changed, so the estimate is worked out again. */
-  const [estimateRev, setEstimateRev] = useState(0)
 
   const phaseRef = useRef(phase)
   phaseRef.current = phase
@@ -152,33 +147,6 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
 
   // ---------- Scene card target length ----------
 
-  const lastCardLoad = useRef(0)
-  const loadCard = useCallback(
-    (force = false) => {
-      if (!force && Date.now() - lastCardLoad.current < 5000) return
-      lastCardLoad.current = Date.now()
-      setEstimateRev((n) => n + 1)
-      api
-        .getScene(sceneId)
-        .then((s) => {
-          if (s.id !== sceneId) return
-          setCardWords(cardLength(s.card))
-          const c = s.card
-          setCardPlanned(c.beats.some((b) => b.trim() !== '') || [c.goal, c.outcome, c.notes].some((t) => t.trim() !== ''))
-        })
-        .catch(() => undefined)
-    },
-    [sceneId]
-  )
-
-  useEffect(() => {
-    setCardWords(undefined)
-    setCardPlanned(null)
-    setEstimate(null)
-    lastCardLoad.current = 0
-    loadCard(true)
-  }, [sceneId, loadCard])
-
   // Another scene: a question about the last one's text no longer applies.
   useEffect(() => setPopover((p) => (p === 'choose' ? null : p)), [sceneId])
 
@@ -191,29 +159,8 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
 
   // ---------- Estimated cost (only for models with prices) ----------
 
-  // Keyed on the values, not the settings object, which is replaced whenever any setting is saved.
-  const promptPrice = writer?.promptPrice ?? null
-  const completionPrice = writer?.completionPrice ?? null
-  const hasPrices = promptPrice != null && completionPrice != null
-  const writerKey = writer ? `${writer.providerId}/${writer.modelId}/${writer.contextLength ?? ''}` : null
-  useEffect(() => {
-    if (!writerKey || !hasPrices || cardWords === undefined) {
-      setEstimate(null)
-      return
-    }
-    let live = true
-    const t = setTimeout(() => {
-      api
-        .previewContext(sceneId, { direction: opts.direction, targetWords, creativity })
-        // Auto is estimated at a typical scene's length.
-        .then((p) => live && setEstimate(estimateDraftCost(p.budget.used, targetWords ?? AUTO_LENGTH.typical, { promptPrice, completionPrice })))
-        .catch(() => live && setEstimate(null))
-    }, 400)
-    return () => {
-      live = false
-      clearTimeout(t)
-    }
-  }, [sceneId, writerKey, hasPrices, promptPrice, completionPrice, cardWords, targetWords, opts.direction, creativity, estimateRev])
+  const hasPrices = writer?.promptPrice != null && writer?.completionPrice != null
+  const estimate = useDraftEstimate({ sceneId, writer, cardWords, targetWords, direction: opts.direction, creativity, rev: cardRev })
 
   // ---------- Streaming ----------
 
@@ -232,8 +179,8 @@ export function useGenerate(sceneId: ID, o: GenerateOptions = {}): Generate {
 
   // A draft has ended: the card may have changed meanwhile, so the next look reads it again.
   useEffect(() => {
-    if (phase === 'idle') lastCardLoad.current = 0
-  }, [phase])
+    if (phase === 'idle') expireCard()
+  }, [phase, expireCard])
 
   // ---------- Writing during a build (2026-10-17) ----------
 

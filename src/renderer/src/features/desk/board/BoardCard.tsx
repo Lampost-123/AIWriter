@@ -3,7 +3,7 @@
 // happens, when, and its words. "AI idea" in amber while a scene planned from an AI idea has no words. A click opens
 // the scene; ⋯ opens its card in the drawer; it can be picked up and dragged (Alt+arrows from the keyboard). Each card
 // tilts a little and straightens as the pointer comes to it.
-import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react'
+import { memo, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardSceneCard } from '@shared/contracts/worldViews'
 import type { ID, SceneMeta } from '@shared/types'
@@ -36,7 +36,9 @@ export function Pin({ kind, style, inline, title, sceneId }: { kind: PinKind; st
 /** What happens in a scene, for its card: the card's goal, else its first beat. */
 export const cardSummary = (card: BoardSceneCard | null): string => card?.goal.trim() || card?.beats.find((b) => b.trim())?.trim() || ''
 
-export function BoardCard({
+// Memoised, and given only what is its own (where it is dragged to, how far it makes room) with callbacks that take its
+// id, so a drag redraws the card being dragged and the ones moving aside, not every card (review #25).
+export const BoardCard = memo(function BoardCard({
   box,
   scene,
   card,
@@ -46,8 +48,8 @@ export function BoardCard({
   fresh,
   lifted,
   delay,
-  style,
-  dragging,
+  drag,
+  shift,
   onPointerDown,
   onOpen,
   onKeyDown,
@@ -65,13 +67,15 @@ export function BoardCard({
   /** Its thread is picked out in the legend. */
   lifted: boolean
   delay: number
-  style?: CSSProperties
-  dragging: boolean
-  onPointerDown: (e: PointerEvent<HTMLElement>) => void
-  onOpen: () => void
-  onKeyDown: (e: KeyboardEvent) => void
+  /** Being dragged: how far it has moved from its place. */
+  drag: { dx: number; dy: number } | null
+  /** Moving aside for a card being dragged, by this much (0: where it is). */
+  shift: number
+  onPointerDown: (e: PointerEvent<HTMLElement>, id: ID) => void
+  onOpen: (id: ID) => void
+  onKeyDown: (e: KeyboardEvent, id: ID) => void
   /** A planned scene with nothing on its card: its ideas, in the board's drawer. */
-  onIdeas?: () => void
+  onIdeas?: (id: ID) => void
   /** The place's drawing (the drawing library), shown on its tile when it has no portrait. */
   placeMotif?: string
 }): React.JSX.Element {
@@ -80,6 +84,12 @@ export function BoardCard({
   const summary = cardSummary(card)
   const title = scene.title.trim() || 'Untitled scene'
   const words = scene.wordCount
+  const dragging = !!drag
+  const style: CSSProperties | undefined = drag
+    ? { transform: `translate(${drag.dx}px, ${drag.dy}px) rotate(1.5deg) scale(1.03)`, zIndex: 20, transition: 'none' }
+    : shift
+      ? { transform: `translateY(${shift}px) rotate(${box.tilt}deg)` }
+      : undefined
   const label = [
     title,
     scene.status,
@@ -95,12 +105,12 @@ export function BoardCard({
       data-board-card={scene.id}
       className={cn('board-card', current && 'is-current', fresh && 'is-fresh', lifted && 'is-lifted', dragging && 'is-dragging', !summary && 'is-bare')}
       style={{ left: box.x, top: box.y, '--r': `${box.tilt}deg`, '--d': `${delay}ms`, ...style } as CSSProperties}
-      onPointerDown={onPointerDown}
+      onPointerDown={(e) => onPointerDown(e, scene.id)}
     >
       <span className="board-c-rules" aria-hidden />
       <span className="board-c-margin" aria-hidden />
       {/* The whole card opens the scene (and is what is picked up). */}
-      <button type="button" className="board-c-open" aria-label={label} title="Open the scene (drag to move it; Alt+arrows from the keyboard)" onClick={onOpen} onKeyDown={onKeyDown} />
+      <button type="button" className="board-c-open" aria-label={label} title="Open the scene (drag to move it; Alt+arrows from the keyboard)" onClick={() => onOpen(scene.id)} onKeyDown={(e) => onKeyDown(e, scene.id)} />
       {ai ? (
         <span className="board-c-ai">
           <Sparkles size={10} />
@@ -135,7 +145,7 @@ export function BoardCard({
           aria-label={`Ideas for ${title}`}
           title="Three directions for this scene, from the memory and the open threads"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={onIdeas}
+          onClick={() => onIdeas(scene.id)}
         >
           <Sparkles size={12} />
           Ideas
@@ -156,4 +166,4 @@ export function BoardCard({
       </button>
     </div>
   )
-}
+})

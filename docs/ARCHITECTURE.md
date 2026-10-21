@@ -3663,7 +3663,7 @@ critic's notes (`critique/`) and what the checks send to the model are unchanged
   latest draft · 6 checks · 1 issue open", "none left open" once all are settled; what the check found until the issues
   are read), and under it when it ran ("5 minutes ago"). Each report keeps a fingerprint of the words its checks read
   (`CheckReport.textHash`, `reportHash`); `getCheckReport` says `changed` when the scene's words differ, and the card
-  then says "The scene changed since this check" (checked every few seconds while it shows, as the critique is; a report
+  then says "The scene changed since this check" (checked each time the open scene is saved while it shows; a report
   from before, or one with only the contract checked as a draft landed, never says so).
 - **Later**, beside Ignore (the Issues tab in both looks, Classic's Consistency page and the desk's Check room): the
   issue stays open but is hidden, and not counted on the badges or the tab, until the paragraph its words are in changes
@@ -3933,7 +3933,7 @@ chapter, and a scene's plot threads, picked from the codex with the scene card's
 codex doesn't have stands for itself, `codexNames.ts`, and gets a page when kept); `NodeEdit.card`, `setsUp` and
 `paysOff` go into `keepPlan`. **Suggest again** never drops what Adam hadn't decided on: the batch moves to
 `HelperSession.earlier` (newest first) and shows folded under the new ones as "Earlier suggestions"
-(`EarlierSuggestions.tsx`, on the outline helper's page, a chapter's plan and a recipe's plan), each batch with its own
+(`planHub/LineSuggestions.tsx` `EarlierBatches`, on the story page and a chapter's page in Build with AI), each batch with its own
 Keep, Edit, Discard and Undo (by its task id: `KeepOptions.runId`) and "Put these away" (`putAwayEarlier`, with Undo).
 
 **Writing style presets** (`src/shared/stylePresets.ts`, `features/style/StylePresets.tsx`): one click sets genres,

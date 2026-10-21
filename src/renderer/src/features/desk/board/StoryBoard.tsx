@@ -7,7 +7,7 @@
 // scene stands, and say so on hover: done green, drafted grey, planned hollow, planned from an AI idea amber. A card opens its scene; its ⋯
 // opens its card in the drawer; dragged, it moves (the others make room), with Undo. Cards | Outline switches to a
 // compact list. The board scrolls both ways inside the room, so it sits beside the story's spine at any window size.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CodexCard } from '@shared/contracts/entryViews'
 import type { BoardMarks, BoardSceneCard, ThreadsBoard } from '@shared/contracts/worldViews'
 import type { ID, Outline, SceneMeta } from '@shared/types'
@@ -16,6 +16,7 @@ import { Check, Plus, Sparkles } from '@/components/ui/icons'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
+import { LoadFailed, useLoaded } from '@/lib/useLoaded'
 import * as actions from '@/features/binder/actions'
 import { useOutline, useOutlineStore } from '@/features/binder/outlineStore'
 import { keyboardDriven, reducedMotion, tokenMs } from '@/features/look/motion'
@@ -38,21 +39,7 @@ import './strings.css'
 const fmt = (x: number): string => x.toLocaleString('en-GB')
 
 /** Loads something for the board, again whenever `deps` change; the last value stays while the next loads. */
-export function useBoardData<T>(load: () => Promise<T> | null, deps: unknown[]): T | null {
-  const [value, setValue] = useState<T | null>(null)
-  const key = JSON.stringify(deps)
-  useEffect(() => {
-    let live = true
-    const p = load()
-    if (!p) return
-    p.then((v) => live && setValue(v)).catch(() => undefined)
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  return value
-}
+export const useBoardData = <T,>(load: () => Promise<T> | null, deps: unknown[]): T | null => useLoaded(load, deps).value
 
 /** The threads for the strings: where each is set up and paid off, from the cards and the memory. */
 export function threadsIn(board: ThreadsBoard | null, cards: Record<ID, BoardSceneCard> | null): ThreadIn[] {
@@ -108,11 +95,17 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
   const view = useBoardStore((s) => s.view)
   const arriving = useArrival('board')
 
-  const cards = useBoardData(() => api.listSceneCards(storyId), [storyId, outlineRev, briefingRev])
-  const board = useBoardData(() => api.getThreadsBoard(storyId), [storyId, outlineRev, briefingRev, memoryRev])
-  const codex = useBoardData<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev])
+  const cardsLoad = useLoaded(() => api.listSceneCards(storyId), [storyId, outlineRev, briefingRev])
+  const boardLoad = useLoaded(() => api.getThreadsBoard(storyId), [storyId, outlineRev, briefingRev, memoryRev])
+  const codexLoad = useLoaded<CodexCard[]>(() => api.listCodex(), [entriesRev, memoryRev])
   const marksRev = useBoardStore((s) => s.marksRev)
-  const marks = useBoardData<BoardMarks>(() => api.getBoardMarks(), [outlineRev, marksRev])
+  const marksLoad = useLoaded<BoardMarks>(() => api.getBoardMarks(), [outlineRev, marksRev])
+  const cards = cardsLoad.value
+  const board = boardLoad.value
+  const codex = codexLoad.value
+  const marks = marksLoad.value
+  // A part that failed to load says so once, at the top, and Try again reads every failed part again.
+  const failed = [cardsLoad, boardLoad, codexLoad, marksLoad].filter((l) => l.failed)
   const people = useMemo(() => new Map((codex ?? []).map((c) => [c.id, c])), [codex])
   const ai = useMemo(() => new Set(marks?.aiIdeas ?? []), [marks])
 
@@ -150,6 +143,7 @@ export function StoryBoard({ storyId, chapterId, ideasFor }: { storyId: ID; chap
           ) : null}
           {/* The plot threads, beside the board's buttons: hover one to pick out its string; click to keep it picked. */}
           {view === 'cards' && board ? <Legend threads={board.threads} drawn={new Set(layout.strings.map((s) => s.id))} /> : null}
+          {failed.length ? <LoadFailed onRetry={() => failed.forEach((l) => l.retry())} /> : null}
         </div>
         <div className="board-ctl">
           <ViewSwitch />
@@ -466,6 +460,16 @@ function Cards({
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && other) void moveCard(id, other.id, Math.min(box.index, count(other.id)))
   }
 
+  // The cards' callbacks stay the same from draw to draw, so a drag redraws only the cards it moves (BoardCard is memoised).
+  const live = useRef({ startDrag, keyMove })
+  live.current = { startDrag, keyMove }
+  const onCardPointerDown = useCallback((e: ReactPointerEvent<HTMLElement>, id: ID) => live.current.startDrag(e, id), [])
+  const onCardKeyDown = useCallback((e: React.KeyboardEvent, id: ID) => live.current.keyMove(e, id), [])
+  const onCardOpen = useCallback((id: ID) => {
+    if (justDragged.current) return
+    useApp.getState().selectScene(id)
+  }, [])
+
   return (
     <div className={cn('board-wrap', drag?.moving && 'is-dragging')}>
       <div ref={scroller} className="board-scroller" data-board-scroller>
@@ -505,7 +509,6 @@ function Cards({
             const scene = scenes.get(box.id)
             if (!scene) return null
             const dragging = drag?.moving && drag.id === box.id
-            const shift = room.get(box.id) ?? 0
             return (
               <BoardCard
                 key={box.id}
@@ -518,22 +521,13 @@ function Cards({
                 fresh={box.id === fresh}
                 lifted={litScenes.has(box.id)}
                 delay={260 + i * 40}
-                style={
-                  dragging
-                    ? { transform: `translate(${drag.dx}px, ${drag.dy}px) rotate(1.5deg) scale(1.03)`, zIndex: 20, transition: 'none' }
-                    : shift
-                      ? { transform: `translateY(${shift}px) rotate(${box.tilt}deg)` }
-                      : undefined
-                }
-                dragging={!!dragging}
-                onPointerDown={(e) => startDrag(e, box.id)}
-                onOpen={() => {
-                  if (justDragged.current) return
-                  useApp.getState().selectScene(box.id)
-                }}
-                onKeyDown={(e) => keyMove(e, box.id)}
+                drag={dragging ? { dx: drag.dx, dy: drag.dy } : null}
+                shift={room.get(box.id) ?? 0}
+                onPointerDown={onCardPointerDown}
+                onOpen={onCardOpen}
+                onKeyDown={onCardKeyDown}
                 placeMotif={cards?.[box.id]?.locationId ? motifs.get(cards[box.id].locationId!) : undefined}
-                onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? () => openIdeasFor(box.id) : undefined}
+                onIdeas={scene.status === 'planned' && scene.wordCount === 0 && (cards?.[box.id]?.empty ?? false) ? openIdeasFor : undefined}
               />
             )
           })}
