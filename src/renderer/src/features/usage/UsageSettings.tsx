@@ -14,22 +14,19 @@ import {
   limitDollars,
   type UsagePeriod,
   type UsageReport,
-  type UsageScope,
-  type UsageTotals
+  type UsageScope
 } from '@shared/contracts/usage'
-import { Button, Card, EmptyState, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
+import { Button, EmptyState, Field, Input, Notice, SettingsSection, Spinner, toast } from '@/components/ui'
 import { api, onEvent } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { plainReason } from '@/lib/reason'
 import { useApp } from '@/lib/store'
 import { Segmented } from '@/features/generate/parts'
-import { SpendChart } from './SpendChart'
-import { useNewLook } from '@/features/look/look'
 import { ModelSplit, RowBars, SpendBars, jobRows, worldRows, type Measure } from './UsageCharts'
 import { modelColours, modelKey, modelName } from './chartLogic'
 import './usage.css'
 import { carryOn, setSpend, useSpend } from './spendStore'
-import { PERIODS, callWords, callsAndTokens, costNotes, shareOf, tokenWords, tokensWithCache } from './usageWords'
+import { PERIODS, callWords, callsAndTokens, costNotes, shareOf, tokenWords } from './usageWords'
 
 /** True once `on` has stayed true for `ms`, so quick loads never flash a placeholder. */
 function useDelayed(on: boolean, ms = 200): boolean {
@@ -54,8 +51,7 @@ export function UsageSettings(): React.JSX.Element {
   const [loading, setLoading] = useState(false)
   const spend = useSpend((s) => s.state)
   const ask = useRef(0)
-  const isNew = useNewLook()
-  // The New look: the charts in dollars or in tokens.
+  // The charts in dollars or in tokens.
   const [measure, setMeasure] = useState<Measure>('cost')
 
   const load = useCallback(async (): Promise<void> => {
@@ -105,121 +101,20 @@ export function UsageSettings(): React.JSX.Element {
   }
 
   const limit = spend?.limit ?? null
-  if (isNew) {
-    return (
-      <NewUsage
-        month={month}
-        report={report}
-        limit={limit}
-        loading={loading}
-        worldOpen={worldOpen}
-        period={period}
-        setPeriod={setPeriod}
-        scope={scope}
-        setScope={setScope}
-        measure={measure}
-        setMeasure={setMeasure}
-      />
-    )
-  }
   return (
-    <div className="flex flex-col gap-9 animate-fade-in">
-      <Headline month={month} limit={limit} />
-      <LimitSection />
-      {month.anyEver || report.anyEver ? (
-        <SettingsSection
-          title="Spending"
-          description={
-            scope === 'world' && worldOpen && report.worldName
-              ? `Only ${report.worldName}.`
-              : `Every world in your library${report.worlds > 1 ? ` (${report.worlds} worlds)` : ''}.`
-          }
-          actions={loading ? <Spinner size={14} /> : null}
-        >
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Segmented label="Which stretch of time" value={period} onChange={setPeriod} options={PERIODS} className="shrink-0 whitespace-nowrap" />
-            {worldOpen ? (
-              <Segmented
-                className="shrink-0 whitespace-nowrap"
-                label="Which worlds"
-                value={scope}
-                onChange={setScope}
-                options={[
-                  { value: 'library', label: 'All worlds' },
-                  { value: 'world', label: 'This world' }
-                ]}
-              />
-            ) : null}
-          </div>
-          <Card className="p-4">
-            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <div className="text-[22px] font-semibold tabular-nums text-fg">{dollars(report.total.cost)}</div>
-              <div className="text-[12.5px] tabular-nums text-muted">{callsAndTokens(report.total)}</div>
-            </div>
-            {report.bars.length ? (
-              // A stretch with no AI use keeps the chart's room (nothing jumps between stretches) and says so.
-              <div className="relative">
-                <SpendChart bars={report.bars} unit={report.unit} />
-                {report.total.calls === 0 ? (
-                  <p className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-[13px] text-muted">
-                    No AI use in this stretch of time.
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="py-6 text-center text-[13px] text-muted">No AI use in this stretch of time.</p>
-            )}
-          </Card>
-          {report.total.calls > 0 ? (
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Breakdown
-                title="By model"
-                rows={report.models.map((m) => ({ key: `${m.modelId}\t${m.provider}`, name: m.modelId || 'Unknown model', sub: m.provider, t: m }))}
-              />
-              <Breakdown title="By job" rows={report.jobs.map((j) => ({ key: j.key, name: j.label, sub: null, t: j }))} />
-            </div>
-          ) : null}
-          <Notes report={report} />
-        </SettingsSection>
-      ) : (
-        <Card>
-          <EmptyState icon={<ChartColumn size={20} />} title="No AI use yet">
-            Once you generate a draft, or the memory reads a scene, what each AI call cost shows here, day by day, by
-            model and by job.
-          </EmptyState>
-        </Card>
-      )}
-    </div>
-  )
-}
-
-function Headline({ month, limit }: { month: UsageReport; limit: number | null }): React.JSX.Element {
-  const spent = month.total.cost
-  const share = shareOf(spent, limit)
-  return (
-    <Card className="p-5">
-      <div className="text-[12px] font-medium uppercase tracking-wide text-faint">This month</div>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[30px] font-semibold leading-tight tabular-nums text-fg">{dollars(spent)}</span>
-        {limit != null ? <span className="text-[14px] text-muted">of your {limitDollars(limit)} limit</span> : null}
-      </div>
-      <div className="mt-1 text-[12.5px] tabular-nums text-muted">
-        {month.total.calls ? callsAndTokens(month.total) : 'No AI use yet this month.'}
-        {month.worlds > 1 ? ` · across ${month.worlds} worlds` : ''}
-      </div>
-      {limit != null ? (
-        <div
-          className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-3"
-          role="progressbar"
-          aria-label="This month's spending against your limit"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(share * 100)}
-        >
-          <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${share * 100}%` }} />
-        </div>
-      ) : null}
-    </Card>
+    <NewUsage
+      month={month}
+      report={report}
+      limit={limit}
+      loading={loading}
+      worldOpen={worldOpen}
+      period={period}
+      setPeriod={setPeriod}
+      scope={scope}
+      setScope={setScope}
+      measure={measure}
+      setMeasure={setMeasure}
+    />
   )
 }
 
@@ -330,41 +225,6 @@ function LimitSection(): React.JSX.Element {
         </p>
       ) : null}
     </SettingsSection>
-  )
-}
-
-interface BreakdownRow {
-  key: string
-  name: string
-  sub: string | null
-  t: UsageTotals
-}
-
-function Breakdown({ title, rows }: { title: string; rows: BreakdownRow[] }): React.JSX.Element {
-  const most = Math.max(0, ...rows.map((r) => r.t.cost))
-  return (
-    <Card className="p-4">
-      <h3 className="mb-2 text-[11.5px] font-semibold uppercase tracking-wide text-faint">{title}</h3>
-      <ul className="flex flex-col">
-        {rows.map((r) => (
-          <li key={r.key} className="border-t border-line py-2 first:border-t-0 first:pt-0">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="min-w-0 truncate text-[13px] font-medium text-fg" title={r.name}>
-                {r.name}
-              </span>
-              <span className="shrink-0 text-[13px] tabular-nums text-fg">{dollars(r.t.cost)}</span>
-            </div>
-            <div className="mt-0.5 flex items-baseline justify-between gap-3 text-[11.5px] tabular-nums text-muted">
-              <span className="min-w-0 truncate">{r.sub ? `${r.sub} · ${r.t.calls.toLocaleString('en-US')} ${r.t.calls === 1 ? 'call' : 'calls'}` : `${r.t.calls.toLocaleString('en-US')} ${r.t.calls === 1 ? 'call' : 'calls'}`}</span>
-              <span className="shrink-0">{tokensWithCache(r.t)}</span>
-            </div>
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-              <div className="h-full rounded-full bg-accent/70" style={{ width: `${most > 0 ? (r.t.cost / most) * 100 : 0}%` }} />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Card>
   )
 }
 
