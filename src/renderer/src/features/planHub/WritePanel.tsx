@@ -20,7 +20,7 @@ import { useApp } from '@/lib/store'
 import { planScene, stopScenePlan } from '@/features/outline/scenePlanStore'
 import { ChapterPlanReview } from '@/features/chapterWriter/ChapterPlanReview'
 import { LIMIT_WORDS, planWords, reportHeading } from '@/features/chapterWriter/chapterWriterLogic'
-import { showReport, startChapterWriter, stopChapterWriter, undoChapterWriter, useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
+import { openChapterPlan, showReport, startChapterWriter, stopChapterWriter, undoChapterWriter, useChapterWriter } from '@/features/chapterWriter/chapterWriterStore'
 import { chapterName, type LineChapter } from './hubLogic'
 import { writeStep } from './buildLogic'
 import { HubStatus } from './HubStatus'
@@ -252,7 +252,25 @@ export function WritePanel({ storyId, chapter }: { storyId: ID; chapter: LineCha
         </div>
       ) : null}
       {words?.warning ? <p className="build-panel-s">{words.warning}</p> : null}
-      {other ? <Notice>The AI is writing another chapter now. Wait for it to finish, or stop it from the top bar.</Notice> : null}
+      {other?.stage === 'review' ? (
+        // The top bar has no Stop while a plan waits: the way to read it or let it go is here (2026-10-21, Adam was stuck).
+        <Notice
+          action={
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="primary" onClick={openChapterPlan} data-other-plan-open>
+                Read the plan
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void stopChapterWriter()} data-other-plan-cancel>
+                Cancel it
+              </Button>
+            </div>
+          }
+        >
+          The AI has planned another chapter, and the plan is waiting for you. Read it to write that chapter, or cancel it to plan this one.
+        </Notice>
+      ) : other ? (
+        <Notice>The AI is writing another chapter now. Wait for it to finish, or stop it from the top bar.</Notice>
+      ) : null}
       {error ? (
         <p className="cw-error" role="alert">
           {error}
