@@ -87,7 +87,6 @@ export const ASKS_FIRST: ReadonlySet<ApiMethod> = new Set<ApiMethod>([
   'storyCodexChat',
   'redoCodexItem',
   'buildStoryCodex',
-  'startStoryOutline',
   'startPlanChat',
   'startPlanRedo',
   'recipeChat',

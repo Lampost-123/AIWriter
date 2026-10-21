@@ -43,7 +43,7 @@ const beatMarksIn = (folder: string, sceneId: string): SceneBeatMarks | null => 
   }
 }
 
-/** A world folder like the app makes: world.db (WAL, as the app keeps it), history.db with one snapshot, a picture. */
+/** A world folder like the app makes: world.db (WAL, as the app keeps it), history.db with one snapshot, and the images/ folder older worlds have. */
 function makeWorld(name = 'Northern Reaches', withHistory = true): { folder: string; id: string; sceneId: string } {
   const folder = join(library, name)
   mkdirSync(join(folder, 'images', 'maps'), { recursive: true })
@@ -122,7 +122,7 @@ async function refused(p: Promise<unknown>): Promise<UserError> {
 }
 
 describe('the .aiwrite file', () => {
-  it('exports a world with its history and images (never its backups), and imports it as a new world', async () => {
+  it('exports a world with its history (never its backups or an old images folder), and imports it as a new world', async () => {
     const w = makeWorld()
     const out = join(root, 'Northern Reaches.aiwrite')
     const steps: string[] = []
@@ -132,7 +132,7 @@ describe('the .aiwrite file', () => {
     expect(existsSync(`${out}.partial`)).toBe(false)
 
     const files = unzipSync(readFileSync(out))
-    expect(Object.keys(files)).toEqual(['manifest.json', 'world.db', 'history.db', 'images/maps/reach.png'])
+    expect(Object.keys(files)).toEqual(['manifest.json', 'world.db', 'history.db'])
     const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString('utf8'))
     expect(manifest).toMatchObject({ format: WORLD_FILE_FORMAT, formatVersion: 1, appVersion: '0.6.0', worldName: 'Northern Reaches', history: true })
 
@@ -151,10 +151,17 @@ describe('the .aiwrite file', () => {
     // The chapter card comes with it, and so does what its scene follows (the same ids in the imported world).
     expect(chapterCardIn(made.folder, w.sceneId)).toEqual({ when: 'Day 4, dawn', mood: 'Hushed', sceneWhen: 'Day 4, dawn' })
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
-    expect(readFileSync(join(made.folder, 'images', 'maps', 'reach.png'))).toEqual(Buffer.from([1, 2, 3, 4]))
+    expect(existsSync(join(made.folder, 'images'))).toBe(false)
     expect(readdirSync(join(made.folder, 'backups'))).toEqual([])
     // Nothing is left half-made in the library.
     expect(readdirSync(other)).toEqual(['Northern Reaches'])
+
+    // A file from an older AI Write, with an images/ folder in it, still imports; the folder is left behind.
+    const old = join(root, 'Older.aiwrite')
+    writeFileSync(old, zipSync({ ...files, 'images/maps/reach.png': new Uint8Array([1, 2, 3, 4]) }))
+    const older = await importWorld({ file: old, library: other, appVersion: '0.6.0', takenNames: ['Northern Reaches'] })
+    expect(sceneText(older.folder, w.sceneId)).toBe(TEXT)
+    expect(existsSync(join(older.folder, 'images'))).toBe(false)
   })
 
   it('exports the open world from its own connection, with what was written a moment ago', async () => {
@@ -239,19 +246,12 @@ describe('the .aiwrite file', () => {
 
   it('takes only its own files from a zip, never a path outside the world folder', () => {
     expect(stagedName('world.db')).toBe('world.db')
-    expect(stagedName('images/a/b.png')).toBe('images/a/b.png')
+    expect(stagedName('history.db')).toBe('history.db')
+    // An older file's pictures folder is left behind.
+    expect(stagedName('images/a/b.png')).toBeNull()
     expect(stagedName('images/../../evil.exe')).toBeNull()
-    expect(stagedName('images/..\\evil.exe')).toBeNull()
-    expect(stagedName('images/C:/evil')).toBeNull()
     expect(stagedName('backups/old.db')).toBeNull()
     expect(stagedName('../world.db')).toBeNull()
-    // Names Windows would change or read as a device.
-    expect(stagedName('images/CON')).toBeNull()
-    expect(stagedName('images/nul.png')).toBeNull()
-    expect(stagedName('images/com1/a.png')).toBeNull()
-    expect(stagedName('images/a./b.png')).toBeNull()
-    expect(stagedName('images/a.png ')).toBeNull()
-    expect(stagedName('images/console.png')).toBe('images/console.png')
   })
 
   it('clears away an import the app stopped in the middle of, but never one that is already a whole world', () => {
@@ -273,7 +273,7 @@ describe('the .aiwrite file', () => {
 })
 
 describe('Make a copy', () => {
-  it('copies a world with its history and images, as a world of its own named "(copy)"', async () => {
+  it('copies a world with its history, as a world of its own named "(copy)"', async () => {
     const w = makeWorld()
     const made = await copyWorld({ source: { folder: w.folder, db: null }, library, name: 'Northern Reaches (copy)' })
     expect(made.folder).toBe(join(library, 'Northern Reaches copy'))
@@ -286,7 +286,7 @@ describe('Make a copy', () => {
     expect(sceneText(made.folder, w.sceneId)).toBe(TEXT)
     expect(beatMarksIn(made.folder, w.sceneId)).toEqual(BEAT_MARKS(w.sceneId))
     expect(snapshotsIn(made.folder)).toEqual([TEXT])
-    expect(existsSync(join(made.folder, 'images', 'maps', 'reach.png'))).toBe(true)
+    expect(existsSync(join(made.folder, 'images'))).toBe(false)
     // Its own empty backups folder; the original is untouched.
     expect(readdirSync(join(made.folder, 'backups'))).toEqual([])
     expect(metaOf(w.folder, 'id')).toBe(w.id)

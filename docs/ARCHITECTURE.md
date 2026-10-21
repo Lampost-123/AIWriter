@@ -39,7 +39,7 @@ src/main/        Electron main process
                  keyword and by meaning (its own file, search-index.db, and the search model in model/:
                  onnxruntime-node, or a TypeScript reader where that can't start)
   index.ts       Window, lifecycle, flush-on-close
-  world.ts       The open world (one folder: world.db, images/, backups/)
+  world.ts       The open world (one folder: world.db, history.db, backups/)
   db/            migrations.ts (append-only), repo.ts and other modules holding all SQL (no Electron imports)
   settings.ts    App settings (userData/settings.json) and writing preferences (library folder)
   secrets.ts     API keys, encrypted with safeStorage, kept out of worlds and backups
@@ -1359,7 +1359,7 @@ page with an optional monthly limit; themes finished (accent colour, reduced mot
 full pass against the no-jank checks and the speed budgets. The data model stays frozen (migrations 1 and 2).
 
 - **A world travels with its history.** Export, import and Make a copy carry the world folder's `history.db`
-  with `world.db`, plus `images/`; never `backups/`, the speech server, its downloads or the audio cache, and
+  with `world.db` (portraits are in world.db); never `backups/`, the speech server, its downloads or the audio cache, and
   never API keys (`secrets.ts`). Character voices and "Say it as" are in world.db's `meta`, so they travel. A
   missing or damaged `history.db` never stops a world opening: History starts afresh. An imported or copied
   world gets a new id, so it never collides with the one it came from.
@@ -1375,7 +1375,7 @@ full pass against the no-jank checks and the speed budgets. The data model stays
 - A `.aiwrite` file (`worldFile.ts`) is a zip: `manifest.json` first (format `aiwrite-world`, `formatVersion`,
   the app's version, the world's name, when, world.db's `user_version`, whether history is in it), then `world.db`
   and `history.db` each copied with SQLite's online backup (the open world's own connection; another world's
-  read-only) and made self-contained, then `images/`. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
+  read-only) and made self-contained. Files are streamed through fflate's `Zip`/`Unzip` in 1 MB
   pieces, so the window never stalls and a big world never sits whole in memory. A history.db that can't be read
   is left out (the toast says so); the export still succeeds. The search index (`search-index.db`, story memory
   step 5) is never in it: it is made again from the world wherever it is opened.
@@ -1387,7 +1387,7 @@ full pass against the no-jank checks and the speed budgets. The data model stays
   no manifest (`not-a-world-file`), a file cut short or a world.db failing `quick_check` (`damaged-world-file`),
   and a newer format, schema or app version (`newer-world-file`). A history.db in the file that isn't SQLite is
   dropped; deeper damage is handled by History's own open path (set aside, start afresh). Zip entries outside
-  `manifest.json`, `world.db`, `history.db` and `images/` are ignored (`stagedName`).
+  `manifest.json`, `world.db` and `history.db` are ignored (`stagedName`), an older file's `images/` included.
 - Manuscripts (`manuscript.ts`) are read from the stored editor documents (plain text for scenes without one):
   paragraphs with italics and bold, block quotes, and one scene break between scenes or where Adam put one. Deleted
   chapters and scenes never come in (`getOutline`), nor scenes with no words. Chapters keep their number in the

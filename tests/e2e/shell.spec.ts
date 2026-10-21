@@ -221,8 +221,8 @@ test('a world that fails to open leaves the current world open and saving', asyn
 
   // Something in World B's folder is in the way, so it can't be opened.
   const b = (await invoke(win, 'listWorlds')).find((w) => w.name === 'World B')!
-  rmSync(join(b.folder, 'images'), { recursive: true, force: true })
-  writeFileSync(join(b.folder, 'images'), 'not a folder')
+  rmSync(join(b.folder, 'backups'), { recursive: true, force: true })
+  writeFileSync(join(b.folder, 'backups'), 'not a folder')
   await switchWorld(win, 'World A', 'World B')
   await expect(win.getByText(/couldn't open that world/)).toBeVisible()
   expect((await invoke(win, 'getWorld'))?.name).toBe('World A')

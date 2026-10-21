@@ -12,7 +12,7 @@ import { isReservedName } from './library/names'
 import { recipesDir } from './recipes/paths'
 import { finishStaged } from './transfer/worldFile'
 
-// The open world: one folder in the library holding world.db, images/ and backups/.
+// The open world: one folder in the library holding world.db, history.db and backups/.
 
 export interface OpenWorld {
   id: ID
@@ -199,7 +199,6 @@ function activate(folder: string): World {
     migrate(d)
     id = repo.getMeta(d, 'id')
     if (!id) throw new UserError('This folder does not hold an AI Write world.')
-    mkdirSync(join(folder, 'images'), { recursive: true })
     mkdirSync(join(folder, 'backups'), { recursive: true })
   } catch (e) {
     if (d.open) d.close()

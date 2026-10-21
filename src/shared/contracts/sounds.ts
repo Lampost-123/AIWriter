@@ -153,8 +153,6 @@ export interface SoundsApi {
    * engine heard the words (kept beside the clip), else an estimate by the words' place in the clip.
    */
   soundCueTimes(req: CueTimesRequest): Promise<{ seconds: number[]; aligned: boolean }>
-  /** The sound library in Settings. */
-  listSoundLibrary(): Promise<LibrarySound[]>
   /** Empties the sound library (kept aside for Undo for a couple of minutes). */
   clearSoundLibrary(): Promise<SoundsStatus>
   /** Undo for clearSoundLibrary. */

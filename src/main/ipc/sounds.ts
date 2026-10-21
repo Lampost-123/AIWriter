@@ -33,7 +33,6 @@ export const soundsHandlers: Handlers<keyof SoundsApi> = {
   soundAudio: (soundId) => sounds.soundAudio(soundId),
   makeSoundNow: (soundId) => sounds.makeSoundNow(soundId),
   soundCueTimes: (req) => cueTimes(req),
-  listSoundLibrary: () => sounds.listSoundLibrary(),
   clearSoundLibrary: () => sounds.clearSoundLibrary(),
   undoClearSoundLibrary: () => sounds.undoClearSoundLibrary(),
   retakeSound: (soundId) => sounds.retakeSound(soundId),

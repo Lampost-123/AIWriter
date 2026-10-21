@@ -240,11 +240,6 @@ export interface StoryBuilderApi {
    * voices), in the background; the worldBuilder:* events say how it goes. One Undo (undoWorldBuild) takes it back.
    */
   buildStoryCodex(input: { buildId: ID; storyId: ID; items: CodexItem[] }): Promise<void>
-  /**
-   * The outline step: a premise (when the story has none) and acts, chapters and scene cards from the brief, the
-   * recipe and the codex. Streams as task events with job 'outline', in the outline helper's form.
-   */
-  startStoryOutline(input: StoryOutlineRequest): Promise<{ generationId: ID }>
   /** Talks a plan of acts, chapters and scenes over (see PlanChatRequest). */
   startPlanChat(input: PlanChatRequest): Promise<{ generationId: ID }>
   /** Does one act, chapter or scene card of a plan again (see PlanRedoRequest). */
