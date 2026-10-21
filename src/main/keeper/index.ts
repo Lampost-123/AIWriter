@@ -18,6 +18,7 @@ import { isLocalUrl, providerWho } from '../ai/errors'
 import { setBeforeDraft, setStandAt, withStageRead, type BeforeDraft } from '../ai/gather'
 import { emit } from '../events'
 import * as kdb from '../db/keeper'
+import { trimOldPrompts } from '../db/generations'
 import { Keeper, NO_MODEL, idleStatus } from './engine'
 import { setContentNote, contentNoteFor, type MemoryModel } from './model'
 import { effectiveStyle } from '@shared/style'
@@ -119,6 +120,13 @@ export function initKeeper(): void {
       setAsideWordingClashes(w.db)
     } catch (e) {
       console.warn('Could not set aside the issues that only differ in wording', e)
+    }
+    // Review #22: old AI prompts (memory reads above all, one per scene per read) are let go, all but the newest few of
+    // each scene and job; their replies, costs and tokens stay.
+    try {
+      trimOldPrompts(w.db)
+    } catch (e) {
+      console.warn('Could not let go of old AI prompts', e)
     }
     keeper = new Keeper({
       db: w.db,
