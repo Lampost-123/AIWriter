@@ -11,12 +11,12 @@ import type { Issue, IssueSeverity, IssueSource } from '@shared/contracts/checks
 import type { ID } from '@shared/types'
 import { ArrowUpRight, Clock, EyeOff, RotateCcw } from '@/components/ui/icons'
 import { DrawnTick } from '@/components/ui/DrawnTick'
-import { Spinner } from '@/components/ui'
+import { Checkbox, Spinner } from '@/components/ui'
 import { TickNumber } from '@/components/ui/TickNumber'
 import { cn } from '@/lib/cn'
 import { useFlip } from '@/lib/useFlip'
 import { useApp } from '@/lib/store'
-import { reducedMotion } from '@/features/look/motion'
+import { reducedMotion, tokenMs } from '@/features/look/motion'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
 import { useChecks } from '../checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from '../consistencyLogic'
@@ -25,8 +25,6 @@ import { ignoreIssue, laterIssue, reopenIssue } from '../IssuesTab'
 import { openEntry, openIssue, openThread } from '../open'
 import { EntryMark, ISSUE_KIND_ICONS, SeverityPill, useEntryLook } from './marks'
 
-/** How long a card takes to fold away before it goes. */
-const FOLD_MS = 180
 
 type Filter = 'all' | IssueSeverity
 const FILTERS: { id: Filter; label: string }[] = [
@@ -118,7 +116,7 @@ export function DeskIssues({
           return n
         })
       )
-    }, FOLD_MS)
+    }, tokenMs(document.documentElement, '--dur-exit'))
   }
 
   if (nothing) {
@@ -142,10 +140,7 @@ export function DeskIssues({
         <Filters value={filter} counts={counts} onChange={setFilter} />
         <p className="ck-summary">{issueSummary(groups)}</p>
         {groups.ignored ? (
-          <label className="ck-toggle">
-            <input type="checkbox" checked={showIgnored} onChange={(e) => onShowIgnored(e.target.checked)} />
-            Show ignored ({groups.ignored})
-          </label>
+          <Checkbox checked={showIgnored} onChange={onShowIgnored} label={`Show ignored (${groups.ignored})`} />
         ) : null}
       </div>
       {!shown.story.length && !shown.chapters.length ? (
@@ -421,10 +416,7 @@ function AllClear({
         </p>
         <div className="ck-clear-acts">
           {ignored ? (
-            <label className="ck-toggle">
-              <input type="checkbox" checked={showIgnored} onChange={(e) => onShowIgnored(e.target.checked)} />
-              Show ignored ({ignored})
-            </label>
+            <Checkbox checked={showIgnored} onChange={onShowIgnored} label={`Show ignored (${ignored})`} />
           ) : null}
         </div>
       </div>

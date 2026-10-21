@@ -37,12 +37,13 @@ export function DeskLibrary(): React.JSX.Element {
       line={`${INTRO} Make one from a story you admire, then start a new story of your own from it.`}
       left={
         <>
-          <div className="flex flex-col gap-2">
-            <button type="button" className="plan-ai-btn" onClick={startMaking}>
+          {/* Side by side once the columns stack (a smaller window), so neither stretches across the whole page. */}
+          <div className="plan-actions grid gap-2">
+            <button type="button" className="plan-ai-btn justify-center" onClick={startMaking}>
               <FileUp size={17} aria-hidden />
               <span>Make a recipe from a story</span>
             </button>
-            <Button size="lg" icon={<Plus size={15} />} onClick={() => void writeOne()}>
+            <Button size="lg" className="h-11" icon={<Plus size={15} />} onClick={() => void writeOne()}>
               Write one yourself
             </Button>
           </div>
