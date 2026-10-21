@@ -9,6 +9,8 @@ import type { ContentIntensity, ContextPreview, DraftOptions, GenerationRecord, 
 import { CREATIVITY_PRESETS, countWords, writerTemperature } from '@shared/defaults'
 import { writingTemperatureFor } from '@shared/temperature'
 import * as gens from '../db/generations'
+import * as repo from '../db/repo'
+import { noteBeatsWritten } from '../db/beatsWritten'
 import { newId, now, UserError } from '../util'
 import { asksForTags, SpeakerTagFilter, type WriterSpeaker } from './speakerTags'
 import { knownParams, levelOfEffort, streamChat, thinkingEffort, type ChatTarget, type SentParams, type StreamChatOptions, type StreamOutcome } from './client'
@@ -417,6 +419,16 @@ async function run(job: Job, req: DraftRequest, params: GenerationParams, fallba
       !!refused ||
       (outcome.failure?.type === 'http' && outcome.failure.status === 403) ||
       (status === 'complete' && looksLikeRefusalReply(job.text)))
+  // A draft of the whole scene that came in full wrote every beat on its card, whatever words it said them in (Adam,
+  // 2026-10-21): noted for the desk's chip, Add below and Continue (db/beatsWritten.ts). Not Add below, one beat of Beat
+  // by beat, or a variant not yet picked.
+  if (!job.closed && db.open && status === 'complete' && !cutOff && !turnedDown && !req.options.addBelow && !req.partOf?.variant && !req.partOf?.beat) {
+    try {
+      noteBeatsWritten(db, job.sceneId, repo.getScene(db, job.sceneId).card.beats, job.text)
+    } catch (e) {
+      console.error('Could not note the beats the draft wrote', e)
+    }
+  }
   emit('generation:done', {
     generationId: job.id,
     sceneId: job.sceneId,

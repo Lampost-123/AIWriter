@@ -20,6 +20,7 @@ import { readerKnows } from './readerKnows'
 import { ownSampleOn } from '@shared/ownSample'
 import { ownWritingFor } from '../style/ownWriting'
 import type { ContextInput } from './context'
+import { beatsWrittenIn } from '../db/beatsWritten'
 
 type DB = Database.Database
 
@@ -98,6 +99,7 @@ export function gatherContextInput(
     style,
     scene: { title: scene.title, card: scene.card },
     memory,
+    beatsWritten: beatsWrittenIn(db, sceneId),
     // What this scene's words and the previous scene's call their characters (long story memory fix 12).
     called: { here: calledIn(db, sceneId), previous: calledIn(db, memory.previous?.sceneId) },
     pins: pinsForScene(db, sceneId),

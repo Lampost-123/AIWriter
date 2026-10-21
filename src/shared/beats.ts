@@ -38,6 +38,45 @@ export function beatsOnPage(beats: readonly string[], soFar: string | null | und
 /** The card's beats with words, trimmed (empty lines left out), as the chip and the card show them. */
 export const cardBeatsOf = (beats: readonly string[]): string[] => beats.map((b) => b.trim()).filter(Boolean)
 
+/**
+ * What a draft of the whole scene wrote (main/db/beatsWritten.ts): the card's beats it was written from, and a sample of
+ * its own longer words, by which its words are known to be the scene's still (draftWords).
+ */
+export interface BeatsWritten {
+  beats: string[]
+  words: string[]
+}
+
+/** The most of a draft's own words kept to know it by. */
+export const DRAFT_WORDS = 60
+/** The share of them the page must still have for the draft's beats to count. */
+const STILL_THERE = 0.5
+
+/** A sample of a draft's longer words (five letters or more, not little ones), spread across it from start to end. */
+export function draftWords(text: string): string[] {
+  const all = [...new Set(wordsOf(text).filter((w) => w.length >= 5 && !STOP.has(w)))]
+  if (all.length <= DRAFT_WORDS) return all
+  return Array.from({ length: DRAFT_WORDS }, (_, i) => all[Math.floor((i * all.length) / DRAFT_WORDS)])
+}
+
+/**
+ * How many of the card's beats, from the first, are done: those on the page by their words (beatsOnPage), or further, those
+ * a draft of the whole scene was written from (`written`), as long as the card still has them word for word, in order,
+ * and the page still has most of the draft's words (not retyped, or undone back to older words). None on an empty page.
+ * `beats` are the card's with words (cardBeatsOf).
+ */
+export function beatsDone(beats: readonly string[], soFar: string | null | undefined, written: BeatsWritten | null | undefined): number {
+  if (!soFar?.trim()) return 0
+  const onPage = beatsOnPage(beats, soFar)
+  if (!written?.words.length) return onPage
+  const page = new Set(wordsOf(soFar))
+  if (written.words.filter((w) => page.has(w)).length < written.words.length * STILL_THERE) return onPage
+  const wrote = new Set(written.beats.map((b) => b.trim()))
+  let fromDraft = 0
+  while (fromDraft < beats.length && wrote.has(beats[fromDraft].trim())) fromDraft++
+  return Math.max(onPage, fromDraft)
+}
+
 /** Where the scene stands against its beats, for the desk's next-beat chip. */
 export type BeatStand =
   | { kind: 'none' }

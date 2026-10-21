@@ -14,6 +14,7 @@
 // page can show where each beat begins after Finish and a restart, and an earlier beat can be written again
 // in place as a tracked change (`after` quotes what follows it).
 import type { DraftOptions, ID } from '../types'
+import type { BeatsWritten } from '../beats'
 
 export interface BeatStart {
   sceneId: ID
@@ -123,6 +124,8 @@ export interface BeatsApi {
   getBeatMarks(sceneId: ID): Promise<SceneBeatMarks | null>
   /** Keeps where the scene's beats are (tidied and kept to a sensible size); null forgets them. */
   saveBeatMarks(sceneId: ID, marks: SceneBeatMarks | null): Promise<void>
+  /** What the last draft of the whole scene wrote (main/db/beatsWritten.ts); null when none. */
+  getBeatsWritten(sceneId: ID): Promise<BeatsWritten | null>
 }
 
 export interface BeatsEvents {

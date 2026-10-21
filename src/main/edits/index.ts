@@ -24,6 +24,8 @@ import { editInput } from './input'
 import { calendarFor, CATCH_UP_LIMIT_MS, catchUpBeforeDraft, gatherContextInput, leftHereFor, stageWhere, standAtText, standKept } from '../ai/gather'
 import { sceneTail, SHORT_TAIL, stageScope, timelineFrom } from '../ai/context'
 import { continueBeatsDone, planForContinueOf } from '../plan'
+import { beatsWrittenIn } from '../db/beatsWritten'
+import type { BeatsWritten } from '@shared/beats'
 import { buildStoryIndex, stateOf } from '../storyIndex'
 import { clip } from '../ai/lookups/text'
 import { countWords } from '@shared/defaults'
@@ -114,14 +116,16 @@ export const CONTINUE_PREVIOUS_UNDER = 300
 /**
  * What Continue gets besides (2026-10-19): the end of the previous scene, with where it comes from, while the scene's own
  * words are short; the beats of the scene's plan made for the whole of it, those on the page marked done and the next
- * marked (plan/index.ts planForContinueOf); and how many of the card's beats are on the page (continueBeatsDone), so
+ * marked (plan/index.ts planForContinueOf); and how many of the card's beats are on the page (continueBeatsDone, with
+ * `written`: those a draft of the whole scene wrote, db/beatsWritten.ts), so
  * Continue's scene card marks them too.
  */
 export function continueExtras(
   input: Pick<EditInput, 'sceneId' | 'before'>,
   memory: Pick<SceneMemory, 'previous' | 'storyId'>,
   card: SceneCard,
-  storyTitle: string
+  storyTitle: string,
+  written: BeatsWritten | null = null
 ): Pick<EditWorld, 'previous' | 'plan' | 'beatsDone'> {
   const prev = memory.previous
   const short = countWords(input.before) < CONTINUE_PREVIOUS_UNDER
@@ -131,7 +135,7 @@ export function continueExtras(
     ? `This is how ${prev!.storyTitle.trim() || 'the story before'} ${prev!.otherStory!.ended ? 'ended' : 'had got to'}; this story (${storyTitle}) comes after it.`
     : 'This is how the scene before this one ended.'
   const plan = planForContinueOf(input.sceneId, card, input.before)
-  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}), beatsDone: continueBeatsDone(card, input.before) }
+  return { ...(text ? { previous: { lead, text } } : {}), ...(plan ? { plan } : {}), beatsDone: continueBeatsDone(card, input.before, written) }
 }
 
 /** The most lines Continue is given of everyone in the scene as the story index has them: each, and all together. */
@@ -242,7 +246,9 @@ export async function startEdit(raw: EditInput): Promise<EditStart> {
     // scene as the story index has them.
     ...(tool === 'continue'
       ? {
-          ...continueExtras(input, memory, scene.card, story.title),
+          // The beats a draft of the whole scene wrote count only with Continue at the scene's end: before the cursor, which
+          // of them are written is for the words to say.
+          ...continueExtras(input, memory, scene.card, story.title, input.after.trim() ? null : beatsWrittenIn(db, input.sceneId)),
           people: continuePeople(db, input, memory, scene.card, stand),
           // After continuePeople, which brings the story index up to date: what was left in this place on an earlier visit.
           leftHere: leftHereFor(db, input.sceneId, memory.storyId, scene.card.locationId, { asItBegins: !!input.after.trim(), stand })

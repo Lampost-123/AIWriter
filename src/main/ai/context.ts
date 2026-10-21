@@ -112,7 +112,8 @@ import { holdingsOf, itemHeads, namesOf } from '../memory/items'
 import { isRecallBlock, RECALL_ENTRIES, recallBlocks, recalledEntries, recalledWhy } from '../retrieval/briefing'
 import type { RecallInput } from '../retrieval/types'
 import type { Lesson } from '../checks/lessons'
-import { beatsOnPage, speechSamples } from './repetition'
+import { speechSamples } from './repetition'
+import { beatsDone, type BeatsWritten } from '@shared/beats'
 import { cleanKnows, happenedOf, pastDeathNote } from './knows'
 import { TIMELINE_LEVELS, timelineText, updatingNote, type TimelineContext } from './timeline'
 import { freshLooks, linkedPlaces, OFFSTAGE_LEAD, offScene, pastProfile, peopleWords, placeWords } from './briefingFixes'
@@ -202,6 +203,11 @@ export interface ContextInput {
    * they name, in full (long story memory fix 12). Left out: none.
    */
   soFar?: string
+  /**
+   * The card's beats a draft of the whole scene was written from (db/beatsWritten.ts): Add below counts them done with
+   * those on the page by their words (shared/beats.ts beatsDone). Left out: by the words alone.
+   */
+  beatsWritten?: BeatsWritten | null
   /**
    * What this scene's words and the previous scene's call their characters ("the Captain", "her brother"), as the memory
    * keeper read them (db/called.ts): the character is found by them in this scene's texts and at the previous scene's
@@ -2364,10 +2370,11 @@ export function prepareContext(input: ContextInput, extras: ContextExtras = {}):
     hasStand: !!input.continuityAtSoFar && blocks.some((b) => b.id === 'continuity'),
     previousStory: previousStory(input),
     tone: [input.story.tone, input.series?.tone, input.world.tone].map((t) => clean(t)).find(Boolean) ?? '',
-    // Adam's direction last of all (Generate, Add below), and Add below's beats already on the page (repetition.ts beatsOnPage).
+    // Adam's direction last of all (Generate, Add below), and Add below's beats already on the page (shared/beats.ts beatsDone:
+    // by their words, or written by a draft of the whole scene).
     direction: clean(input.options.direction),
     beats: card.beats.map((b) => b.trim()).filter(Boolean),
-    beatsDone: input.options.addBelow ? beatsOnPage(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar) : 0,
+    beatsDone: input.options.addBelow ? beatsDone(card.beats.map((b) => b.trim()).filter(Boolean), input.soFar, input.beatsWritten) : 0,
     // Generate's closing opens with the scene's point (overhaul, 2026-10-19): who wants what, against what, and the turn.
     point: {
       pov: sel.pov?.name ?? '',
