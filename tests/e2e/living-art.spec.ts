@@ -119,7 +119,7 @@ test('the empty pages have their pictures: the codex’s quill dips, the plot th
   await win.waitForTimeout(400)
   expect(await runningLoops(win)).toEqual([])
 
-  await palette(win, 'Codex')
+  await palette(win, 'World')
   const codex = win.locator('[data-empty-art="codex"]')
   await expect(codex).toBeVisible()
   await expect(win.getByRole('heading', { name: 'Nothing in the codex yet' })).toBeVisible()

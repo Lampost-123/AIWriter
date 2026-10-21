@@ -100,7 +100,7 @@ test('Ctrl+K finds words in a scene, an entry by another name, a summary and a p
   await win.keyboard.press('Control+K')
   await expect(group(win, 'Recent').getByRole('option')).toHaveCount(1)
   await expect(group(win, 'Recent')).toContainText('Scene 2')
-  await expect(group(win, 'Suggested').getByRole('option', { name: 'Codex' })).toBeVisible()
+  await expect(group(win, 'Suggested').getByRole('option', { name: 'World', exact: true })).toBeVisible()
   // Moving down and back up the list with the arrow keys (it wraps around).
   const first = palette(win).getByRole('option').first()
   await expect(first).toHaveAttribute('aria-selected', 'true')
@@ -111,7 +111,7 @@ test('Ctrl+K finds words in a scene, an entry by another name, a summary and a p
 
   // Another action: a page of the world.
   await win.keyboard.type('codex')
-  await expect(palette(win).getByRole('option', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
+  await expect(palette(win).getByRole('option', { name: 'World', exact: true })).toHaveAttribute('aria-selected', 'true')
   await win.keyboard.press('Enter')
   // The codex is the World area's Everything.
   await expect(areaRow(win, 'Everything')).toHaveAttribute('aria-current', 'page')
@@ -159,7 +159,7 @@ test('Esc gives focus back; ? lists the shortcuts, but not while typing; the top
   const list = shortcutsList(win)
   await expect(list).toBeVisible()
   const writing = list.getByRole('region', { name: 'Writing' })
-  await expect(writing.getByRole('listitem').filter({ hasText: 'Generate a draft of the scene' })).toContainText('Ctrl')
+  await expect(writing.getByRole('listitem').filter({ hasText: 'Draft the scene' })).toContainText('Ctrl')
   await expect(writing.getByRole('listitem').filter({ hasText: 'Mark scene done' })).toContainText('Enter')
   await expect(list.getByRole('region', { name: 'Moving around' }).getByRole('listitem').filter({ hasText: 'Search' })).toContainText('K')
   await expect(writing.getByRole('listitem').filter({ hasText: 'Focus mode: only the page' })).toContainText('F11')
@@ -178,7 +178,7 @@ test('Esc gives focus back; ? lists the shortcuts, but not while typing; the top
   await expect(prose(win)).toBeFocused()
 })
 
-test('Generate a draft and Stop the draft run from the palette, from any page', async ({ launch }) => {
+test('Draft the scene and Stop the draft run from the palette, from any page', async ({ launch }) => {
   const { startFakeProvider } = await import('../fake-provider/server.mjs')
   const fake = await startFakeProvider({ delayMs: 5, slowWords: 900, slowDelayMs: 20 })
   try {
@@ -191,7 +191,7 @@ test('Generate a draft and Stop the draft run from the palette, from any page', 
     // From another page, Generate goes back to the scene and starts the draft, as Ctrl+G does there.
     await openPage(win, 'Characters')
     await search(win, 'generate')
-    await expect(palette(win).getByRole('option', { name: 'Generate a draft' })).toHaveAttribute('aria-selected', 'true')
+    await expect(palette(win).getByRole('option', { name: 'Draft the scene' })).toHaveAttribute('aria-selected', 'true')
     await win.keyboard.press('Enter')
     await expect(prose(win)).toContainText('The rain')
 

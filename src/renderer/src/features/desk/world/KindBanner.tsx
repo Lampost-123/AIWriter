@@ -1,4 +1,4 @@
-// A kind's own page in the desk's World room (World › By kind): a banner over its cards with a fan of its most
+// A kind's own page in the desk's World room (World, on a kind's tab): a banner over its cards with a fan of its most
 // important entries' pictures, a title from the world's name ("The people of Gullhaven"), facts from its entries
 // ("1 protagonist · 2 supporting"), and two figures. And the "New …" card at the end of the kind's cards: a blank one,
 // or (for the kinds the builder makes) Build with AI and Quick start, in the AI's amber.

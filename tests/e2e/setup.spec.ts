@@ -143,7 +143,7 @@ test('the sample world opens from the first run with its story, codex and memory
 
   // The codex shows its people and places.
   await openPage(win, 'Codex')
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   for (const name of ['Wren Halloway', 'Iska Vey', 'The Gullhaven Light', 'The light is never dark']) {
     await expect(main(win).locator('[data-codex-card]').filter({ hasText: name }).first()).toBeVisible()
   }

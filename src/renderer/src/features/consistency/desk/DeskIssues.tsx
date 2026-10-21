@@ -3,14 +3,13 @@
 // for must fix), the kind of check that found it, what disagrees with what, the words from the story set as a quote with
 // a way to them in the scene, and what it disagrees with as small cards (an entry with its drawing). Filters by
 // severity, with their counts ticking as issues go. Later and Ignore fold the card away (the cards below close up, the
-// counts tick down; Undo in its toast brings it back). With nothing left, the all-clear: the lighthouse over a calm sea.
+// counts tick down; Undo in its toast brings it back). With nothing left, the all-clear: a tick, beside the room's lighthouse.
 // Behaviour is the Consistency page's own (IssuesTab.tsx): opening an issue's scene at its words, Later, Ignore and
 // Reopen.
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Issue, IssueSeverity, IssueSource } from '@shared/contracts/checks'
 import type { ID } from '@shared/types'
 import { ArrowUpRight, Clock, EyeOff, RotateCcw } from '@/components/ui/icons'
-import { LighthouseArt } from '@/components/art/RoomArt'
 import { DrawnTick } from '@/components/ui/DrawnTick'
 import { TickNumber } from '@/components/ui/TickNumber'
 import { cn } from '@/lib/cn'
@@ -18,7 +17,6 @@ import { useFlip } from '@/lib/useFlip'
 import { useApp } from '@/lib/store'
 import { reducedMotion } from '@/features/look/motion'
 import { ViewError, ViewLoading } from '@/features/timeline/viewParts'
-import { useChecks } from '../checkStore'
 import { issueSummary, KIND_WORDS, SEVERITY_WORDS, type IssueGroups } from '../consistencyLogic'
 import { CONTRACT_DETAIL, CONTRACT_WORDS, LATER_TITLE, RULE_DETAIL, RULE_WORDS, ignoredWords } from '@/features/issues/issuesLogic'
 import { ignoreIssue, laterIssue, reopenIssue } from '../IssuesTab'
@@ -123,7 +121,6 @@ export function DeskIssues({
   if (nothing) {
     return (
       <AllClear
-        storyId={storyId}
         storyTitle={storyTitle}
         ignored={groups.ignored}
         moment={hadIssues.current}
@@ -372,16 +369,18 @@ function Sources({ sources, storyId, storyScenes }: { sources: IssueSource[]; st
   )
 }
 
-/** Nothing to look at: the lighthouse over a calm sea, a tick drawn, and the way to check the whole story. */
+/**
+ * Nothing to look at: a tick drawn and what was checked. The room's own lighthouse (beside it) is the picture: a second one
+ * here showed the same scene twice. It says consistency issues, not issues, as the room's other reports (Repetition, Plot
+ * threads) keep their own counts beside it.
+ */
 function AllClear({
-  storyId,
   storyTitle,
   ignored,
   moment,
   showIgnored,
   onShowIgnored
 }: {
-  storyId: ID
   storyTitle: string
   ignored: number
   /** The last issue just went: the scene arrives with its moment. */
@@ -389,17 +388,15 @@ function AllClear({
   showIgnored: boolean
   onShowIgnored: (on: boolean) => void
 }): React.JSX.Element {
-  const running = useChecks((s) => s.run?.storyId === storyId)
   return (
     <div className="ck-clear" data-moment={moment || undefined} role="status">
-      <LighthouseArt clear state={running ? 'busy' : 'idle'} className="ck-clear-art" />
       <div className="ck-clear-words">
         <span className="ck-clear-tick" aria-hidden>
           <DrawnTick size={18} draw />
         </span>
-        <h2 className="ck-clear-title">{ignored ? 'Nothing left to look at' : 'No issues found'}</h2>
+        <h2 className="ck-clear-title">{ignored ? 'Nothing left to look at' : 'No consistency issues'}</h2>
         <p className="ck-clear-sub">
-          {ignored ? `Everything in ${storyTitle || 'this story'} is in hand.` : `All clear in ${storyTitle || 'this story'}.`} Scenes are checked
+          {ignored ? `Everything in ${storyTitle || 'this story'} is in hand.` : `Nothing in ${storyTitle || 'this story'} disagrees with the memory or with earlier scenes.`} Scenes are checked
           against the memory when you mark them done; Check this story looks for facts, knowledge and timeline that disagree across the
           whole of it. Anything found shows here, by chapter and scene.
         </p>

@@ -515,7 +515,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
           Add chapter
         </Button>
         <Button variant="ghost" size="sm" className="mt-1.5" icon={<ListTree size={14} />} onClick={() => openPlanHub(outline.story.id, { section: 'line' })}>
-          Plan it with AI
+          Build with AI
         </Button>
       </div>
     )
@@ -638,7 +638,7 @@ export function StoryTree({ outline }: { outline: Outline }): React.JSX.Element 
         className="flex h-8 w-full items-center gap-2 rounded-md pl-[9px] text-left text-[12.5px] text-faint animate-fade-in hover:bg-surface-2 hover:text-muted"
       >
         <ListTree size={14} />
-        {storyWords === 0 ? 'Plan it with AI' : 'Plan what happens next with AI'}
+        Build with AI
       </button>
 
       <RowMenu

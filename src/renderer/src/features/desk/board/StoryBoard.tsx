@@ -253,6 +253,21 @@ function Cards({
   const names = useMemo(() => new Map((board?.threads ?? []).map((t) => [t.id, t.name])), [board])
   const tags = useMemo(() => stringTags(layout), [layout])
   const canvas = useRef<HTMLDivElement>(null)
+  // The right edge's fade (board.css) stops at the scroll bars, which come and go with the board's size.
+  useEffect(() => {
+    const el = scroller.current
+    const wrap = el?.parentElement
+    if (!el || !wrap) return
+    const measure = (): void => {
+      wrap.style.setProperty('--board-sb-r', `${el.offsetWidth - el.clientWidth}px`)
+      wrap.style.setProperty('--board-sb-b', `${el.offsetHeight - el.clientHeight}px`)
+    }
+    measure()
+    const watch = new ResizeObserver(measure)
+    watch.observe(el)
+    if (canvas.current) watch.observe(canvas.current)
+    return () => watch.disconnect()
+  }, [])
   const [tip, setTip] = useState<{ id: ID; x: number; y: number } | null>(null)
   const lineOf = (id: ID): string => {
     const s = layout.strings.find((x) => x.id === id)
@@ -688,7 +703,7 @@ function NextChapter({ layout, outline, storyId }: { layout: BoardLayout; outlin
             Add a chapter
           </button>
           <button type="button" className="board-btn-ai" onClick={() => void plan()}>
-            {blank ? 'Build it with AI' : 'Plan it with AI'}
+            Build with AI
           </button>
         </span>
       </div>
@@ -724,8 +739,8 @@ function useStringsHint(): [boolean, () => void] {
 }
 
 /**
- * Under the board's head: what the strings are, in a line (the first time, how to read them, with Got it), and what the
- * pins say.
+ * Under the board's head: the first time, how to read the strings (with Got it; after that the legend's chips are
+ * enough), and what the pins say.
  */
 function BoardNote({ strings }: { strings: boolean }): React.JSX.Element {
   const [hint, gotIt] = useStringsHint()
@@ -747,12 +762,7 @@ function BoardNote({ strings }: { strings: boolean }): React.JSX.Element {
             Got it
           </button>
         </div>
-      ) : (
-        <p className="board-lg-explain">
-          <span className="desk-caps board-lg-label">Plot threads</span>
-          <span>Coloured strings are plot threads: they run from the scene that opens a question to the scene that answers it.</span>
-        </p>
-      )}
+      ) : null}
       <div className="board-pinkey" aria-label="Pins">
         <span className="board-pinkey-k">Pins:</span>
         <span>

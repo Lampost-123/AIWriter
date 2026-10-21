@@ -821,21 +821,15 @@
   padding: 40px 44px 64px;
   text-align: center;
 }
-[data-arrangement='desk'] .ck-clear-art {
-  width: min(560px, 100%);
-  height: auto;
-  aspect-ratio: 360 / 200;
-  filter: drop-shadow(0 18px 30px rgb(var(--shade-rgb) / 0.2));
-  animation: ck-art-in 600ms var(--desk-ease) backwards;
-}
-[data-arrangement='desk'] .ck-clear[data-moment] .ck-clear-art {
-  animation: ck-clear-moment 900ms var(--desk-ease) backwards;
+/* The last issue just went: the words arrive a little slower and from further, the tick drawing in. */
+[data-arrangement='desk'] .ck-clear[data-moment] .ck-clear-words {
+  animation: ck-clear-moment 700ms var(--desk-ease) backwards;
 }
 @keyframes ck-clear-moment {
   from {
     opacity: 0;
-    scale: 0.94;
-    filter: blur(6px) drop-shadow(0 18px 30px rgb(var(--shade-rgb) / 0.2));
+    translate: 0 14px;
+    scale: 0.97;
   }
 }
 [data-arrangement='desk'] .ck-clear-words {

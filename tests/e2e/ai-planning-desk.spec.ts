@@ -263,7 +263,8 @@ test('the story board’s strings explain themselves: tags where they start and 
   await room(win, 'Plan').click()
   await expect(board.locator('[data-tag="opens"]').first()).toBeVisible()
   await expect(board.getByRole('note', { name: 'How to read the strings' })).toHaveCount(0)
-  await expect(board.locator('.board-lg-explain')).toContainText('Coloured strings are plot threads')
+  // After Got it the legend's chips are enough: no line of explaining in its place.
+  await expect(board.locator('.board-lg-explain')).toHaveCount(0)
   // A tag opens its thread.
   await board.locator(`[data-tag="resolved"]`).click()
   await expect(win.locator('[data-desk-room="world"]')).toBeVisible()

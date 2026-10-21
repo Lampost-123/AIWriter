@@ -169,7 +169,7 @@ async function openView(win: Page, kind: string): Promise<void> {
       return room(win, 'Plan').click()
     case 'outline':
       await room(win, 'Plan').click()
-      return win.locator('[data-desk-room]').getByRole('button', { name: 'Build with AI' }).click()
+      return win.locator('[data-desk-room] [data-desk-sublinks]').getByRole('button', { name: 'Build with AI' }).click()
     case 'chapter':
       await room(win, 'Plan').click()
       await win.locator('[data-desk-room]').getByRole('button', { name: /Plan a chapter/ }).click()

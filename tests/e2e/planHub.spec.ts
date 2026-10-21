@@ -284,8 +284,8 @@ test('the panels: the hub mid-story, then a new story from its idea to its plan 
     const made = await invoke(win, 'createStory', { title: 'The Ferryman’s Debt' })
     await invoke(win, 'updateSettings', { lastStoryId: made.id })
     await win.reload()
-    // A story made with no chapters: the binder offers to plan it with AI.
-    await expect(win.getByRole('button', { name: 'Plan it with AI' })).toBeVisible()
+    // A story made with no chapters: the binder offers Build with AI.
+    await expect(win.getByRole('button', { name: 'Build with AI' }).first()).toBeVisible()
     await win.keyboard.press('Control+K')
     await win.keyboard.type('Build with AI')
     await win.getByRole('dialog', { name: 'Search' }).getByRole('option', { name: 'Build with AI' }).click()

@@ -43,7 +43,7 @@ function SubLink({ link }: { link: AreaLink }): React.JSX.Element {
 
 const menuItem = 'flex h-8 items-center gap-2.5 rounded-md px-2 text-[13.5px] text-fg outline-none data-[highlighted]:bg-surface-2'
 
-/** Several links behind one (Plan a chapter, By kind): a menu, lit when one of them is the page showing. */
+/** Several links behind one (Plan a chapter): a menu, lit when one of them is the page showing. */
 function SubMenu({ label, links, icon: Icon }: { label: string; links: AreaLink[]; icon: AreaLink['icon'] }): React.JSX.Element | null {
   if (!links.length) return null
   const on = links.find((l) => l.active)
@@ -111,11 +111,16 @@ function RoomLinks({ room, c }: { room: Area; c: LinkContext }): React.JSX.Eleme
       (() => {
         const [codex, ...kinds] = worldLinks(c)
         // The World room's gallery shows plot threads in All, so its Everything counts them too (the panels' codex doesn't).
-        const everything = { ...codex, count: c.counts ? Object.values(c.counts).reduce((a, b) => a + (b ?? 0), 0) : null }
+        // A kind's page is the same gallery on one of its tabs (the tabs under the world's name choose the kind), so
+        // Everything stays lit there and the room needs no second way to pick a kind.
+        const everything = {
+          ...codex,
+          count: c.counts ? Object.values(c.counts).reduce((a, b) => a + (b ?? 0), 0) : null,
+          active: codex.active || kinds.some((k) => k.active)
+        }
         return (
           <>
             <SubLink link={everything} />
-            <SubMenu label="By kind" icon={everything.icon} links={kinds} />
             {worldViewLinks(c).map((l) => (
               <SubLink key={l.id} link={l} />
             ))}

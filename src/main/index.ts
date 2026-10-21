@@ -33,6 +33,9 @@ if (process.env.AIWRITE_FAKE_MIC === '1') {
 // count it as covered by his own windows and slow it down, so it is told not to.
 const BACKGROUND = process.env.AIWRITE_BACKGROUND === 'on'
 if (BACKGROUND) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+// The window opens filling the screen (maximized, the taskbar still showing: Adam, 2026-10-21). App tests keep the
+// 1440×900 window (AIWRITE_MAXIMIZED=off), so their pictures don't depend on the screen they run on.
+const MAXIMIZED = !BACKGROUND && process.env.AIWRITE_MAXIMIZED !== 'off'
 registerPortraitScheme()
 
 let mainWindow: BrowserWindow | null = null
@@ -100,6 +103,7 @@ function stopRunningDrafts(): void {
 function createWindow(): void {
   const theme = startTheme()
   const look = startLook()
+  // Made at 1440×900 even when it opens maximized: that is the size Restore down gives it back.
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -121,6 +125,17 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  // Both ways of showing it the first time (the interface's first frame, or the fallback) call show: that once it shows
+  // maximized. After that show is itself again, so opening AI Write a second time brings the window forward at the size
+  // Adam left it.
+  if (MAXIMIZED) {
+    const show = win.show.bind(win)
+    win.show = () => {
+      win.show = show
+      win.maximize()
+      show()
+    }
+  }
   if (BACKGROUND) {
     // Where it would be (off-screen, Windows scales it wrongly), but unseen, clicked through, and shown without
     // taking focus wherever the app shows or focuses it. Screenshots are of the page, so they don't see this.

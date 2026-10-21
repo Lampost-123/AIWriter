@@ -245,7 +245,7 @@ export function CodexView(): React.JSX.Element {
         <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
           <div className="min-w-[220px] flex-1">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg look-new:text-[30px]">Codex</h1>
+              <h1 className="text-[22px] font-semibold tracking-[-0.01em] text-fg look-new:text-[30px]">World</h1>
               {all.length ? <span className="text-[13px] tabular-nums text-faint">{all.length}</span> : null}
             </div>
             <p className="mt-0.5 text-[13px] text-muted">Everything the AI remembers about your world.</p>

@@ -46,12 +46,12 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
 
   // World: the codex, and every kind with its count.
   await area(win, 'World').click()
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' })).toBeVisible()
   await expect(area(win, 'World')).toHaveAttribute('aria-current', 'page')
   await expect(list(win)).toHaveAttribute('data-area-list', 'world')
   await expect(list(win).getByRole('button', { name: /^Everything/ })).toHaveAttribute('aria-current', 'page')
   // Everything counts what the codex shows (its 9 cards: plot threads are on their own board, not here).
-  await expect(main(win).getByRole('heading', { level: 1, name: 'Codex' }).locator('xpath=..')).toContainText('9')
+  await expect(main(win).getByRole('heading', { level: 1, name: 'World' }).locator('xpath=..')).toContainText('9')
   await expect(list(win).getByRole('button', { name: /^Everything/ })).toContainText('9')
   await expect(main(win).locator('[data-codex-card]')).toHaveCount(9)
   // Codex cards: a card of paper with its kind's ink along the top, and the letter in that ink.
@@ -76,7 +76,7 @@ test('the New look: the rail, its areas and their lists, the trail, and the samp
   await expect(list(win)).toHaveAttribute('data-area-list', 'check')
   await expect(list(win).getByRole('button', { name: 'Consistency' })).toHaveAttribute('aria-current', 'page')
   // With nothing found, one message and one way to check (the page's own button).
-  await expect(main(win).getByRole('heading', { name: 'No issues found' })).toBeVisible()
+  await expect(main(win).getByRole('heading', { name: 'No consistency issues' })).toBeVisible()
   await expect(main(win).getByText('No open issues')).toHaveCount(0)
   await expect(main(win).getByRole('button', { name: 'Check this story', exact: true })).toHaveCount(1)
 

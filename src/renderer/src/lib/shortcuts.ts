@@ -66,7 +66,7 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: Shortcut[] = [
-  { id: 'generate', name: 'Generate a draft of the scene', group: 'Writing', keys: ['Mod', 'G'] },
+  { id: 'generate', name: 'Draft the scene', group: 'Writing', keys: ['Mod', 'G'] },
   { id: 'stop', name: 'Stop the draft', group: 'Writing', keys: ['Esc'] },
   { id: 'stopAnswer', name: 'Stop the answer', where: 'in Ask the world', group: 'Writing', keys: ['Esc'] },
   { id: 'acceptChange', name: 'Accept the AI’s change to the words', where: 'in the page', group: 'Writing', keys: ['Tab'] },

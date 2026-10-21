@@ -174,7 +174,7 @@ export function threadLine(t: Pick<BoardThread, 'column' | 'setUp' | 'paidOff' |
   return `Set up in ${placeWords(t.setUp)}${open || ' · no payoff written yet'}`
 }
 
-// ---------- A kind's own page (World › By kind) ----------
+// ---------- A kind's own page (World, on a kind's tab) ----------
 
 /** Each card's size at life size (CSS pixels), for working out how far a kind's few cards can grow. */
 export const CARD_SIZE: Record<CardShape, { w: number; h: number }> = {

@@ -376,7 +376,7 @@ test('a suggestion can be stopped part way and what arrived kept; leaving the pa
     await useFakeModel(win, fake, 'fake/slow')
 
     // A story with nothing written offers its plan in the binder.
-    await binder(win).getByRole('button', { name: 'Plan it with AI' }).click()
+    await binder(win).getByRole('button', { name: 'Build with AI' }).click()
     await expect(hub(win)).toHaveAttribute('data-plan-hub', 'start')
     await hub(win).locator('[data-plan-it]').click()
     await expect(main(win).getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
