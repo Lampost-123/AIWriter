@@ -38,7 +38,7 @@ test('a draft below a scene break that slips is asked about, never changed: each
     const sceneId = await setUp(win, fake, ADAMS)
 
     // Add below: the draft goes below a scene break.
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
 
     // Said in the draft's one note (the calm overhaul).
@@ -119,7 +119,7 @@ test('Settings › Models has the off switch: off, a draft that slips is left as
 
     await win.reload()
     await expect(prose(win)).toContainText(ADAMS)
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect.poll(async () => (await invoke(win, 'listGenerations', sceneId))[0]?.status ?? null, { timeout: 60_000 }).toBe('complete')
     await expect(prose(win)).toContainText('Mara kept her hood low and her left sleeve pinned')

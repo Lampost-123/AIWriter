@@ -440,12 +440,12 @@
 }
 [data-arrangement='desk'] .g-gal[data-gen='a'] .g-in,
 [data-arrangement='desk'] .g-gal[data-gen='a'] .g-in > .g-card {
-  animation: g-rise-a 220ms var(--desk-ease) backwards;
+  animation: g-rise-a var(--dur-base) var(--desk-ease) backwards;
   animation-delay: calc(var(--g-base, 0ms) + var(--d, 0ms));
 }
 [data-arrangement='desk'] .g-gal[data-gen='b'] .g-in,
 [data-arrangement='desk'] .g-gal[data-gen='b'] .g-in > .g-card {
-  animation: g-rise-b 220ms var(--desk-ease) backwards;
+  animation: g-rise-b var(--dur-base) var(--desk-ease) backwards;
   animation-delay: calc(var(--g-base, 0ms) + var(--d, 0ms));
 }
 /* (The list item carries no animation of its own: only the card in it, so the item's box never moves.) */
@@ -476,7 +476,7 @@
   color: var(--fg);
   text-align: left;
   transition:
-    translate 300ms var(--desk-ease),
+    translate var(--dur-base) var(--desk-ease),
     scale var(--dur-press) var(--desk-ease);
 }
 [data-arrangement='desk'] .g-card::before {
@@ -489,7 +489,7 @@
     0 2px 4px rgb(var(--shade-deep-rgb) / 0.06),
     0 28px 46px -18px rgb(var(--shade-rgb) / 0.44);
   opacity: 0;
-  transition: opacity 300ms var(--desk-ease);
+  transition: opacity var(--dur-base) var(--desk-ease);
 }
 [data-arrangement='desk'][data-theme='dark'] .g-card::before {
   box-shadow:
@@ -578,7 +578,7 @@
 }
 [data-arrangement='desk'] .g-art-far,
 [data-arrangement='desk'] .g-art-motif {
-  transition: translate 300ms var(--desk-ease);
+  transition: translate var(--dur-base) var(--desk-ease);
 }
 [data-arrangement='desk'] span.g-art-motif {
   position: absolute;
@@ -1140,8 +1140,8 @@
   color: var(--k-char);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--k-char) 25%, transparent);
   transition:
-    scale var(--dur-base) var(--desk-ease),
-    rotate var(--dur-base) var(--desk-ease);
+    scale var(--dur-quick) var(--desk-ease),
+    rotate var(--dur-quick) var(--desk-ease);
 }
 [data-arrangement='desk'] .g-build-face::after {
   content: '';

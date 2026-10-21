@@ -8,6 +8,7 @@ import {
   fitWithin,
   hull,
   hullPath,
+  offMapLine,
   medalScale,
   moodOf,
   nextOver,
@@ -308,5 +309,14 @@ describe('stretching a small cast to the canvas', () => {
     expect(stretchFor(many, 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
     expect(stretchFor([{ x: 1, y: 1 }], 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
     expect(stretchFor([{ x: 0, y: 0 }, { x: 0, y: 300 }], 2000, 1000, pad)).toEqual({ ax: 1, ay: 1 })
+  })
+})
+
+describe('offMapLine', () => {
+  it('names who has no ties, or counts them when there are several', () => {
+    expect(offMapLine([])).toBeNull()
+    expect(offMapLine(['Iska Vey'])).toBe('Iska Vey has no ties yet')
+    expect(offMapLine(['Iska Vey', 'Tom'])).toBe('Iska Vey and Tom have no ties yet')
+    expect(offMapLine(['A', 'B', 'C'])).toBe('3 more have no ties yet')
   })
 })

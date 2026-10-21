@@ -9,6 +9,7 @@ import {
   heroLayout,
   heroZoom,
   kindBanner,
+  kindToAdd,
   placeName,
   roleLabel,
   shortPlace,
@@ -196,5 +197,16 @@ describe("a kind's own page", () => {
     expect(t.most).toBe('')
     expect(inside.most).toBe('Most often in a scene: Town (3)')
     expect(kindBanner('lore', [card({ name: 'Rule', kind: 'lore', hardRule: true })], 'Gullhaven').facts).toEqual(['1 lore', '1 hard rule'])
+  })
+})
+
+describe('kindToAdd', () => {
+  it('chooses a or an, and says lore and terms plainly', () => {
+    expect(kindToAdd('character')).toBe('A character')
+    expect(kindToAdd('item')).toBe('An item')
+    expect(kindToAdd('event')).toBe('An event')
+    expect(kindToAdd('lore')).toBe('Lore')
+    expect(kindToAdd('glossary')).toBe('A term')
+    expect(kindToAdd('thread')).toBe('A plot thread')
   })
 })

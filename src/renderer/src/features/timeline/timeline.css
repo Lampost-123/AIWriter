@@ -118,6 +118,19 @@
   scrollbar-width: thin;
   scrollbar-gutter: stable;
 }
+.tl-edge {
+  position: absolute;
+  top: 0;
+  z-index: 4;
+  width: 56px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--tl-paper) 85%);
+  opacity: 0;
+  transition: opacity var(--dur-quick) ease-out;
+}
+.tl-edge[data-on] {
+  opacity: 1;
+}
 .tl-canvas {
   position: relative;
   /* Nothing drawn past the river's edge makes it scroll (clip, unlike hidden, keeps the head and lane names sticky). */

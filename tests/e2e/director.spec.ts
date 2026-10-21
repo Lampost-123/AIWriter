@@ -9,7 +9,7 @@ import { createWorldFromWelcome, expect, invoke, openSettings, test, useFakeMode
 import type { FakeProvider } from '../fake-provider/server.mjs'
 
 const prose = (win: Page) => win.locator('.scene-prose')
-const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true })
 const bar = (win: Page) => win.getByRole('region', { name: 'Director' })
 const BEATS = ['Mara counts the doors from the corner.', 'Tobin turns his cup on the table.', 'Someone knocks at the door.']
 

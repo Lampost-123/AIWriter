@@ -205,7 +205,7 @@ const main = (win: Page) => win.locator('main')
 const prose = (win: Page) => win.locator('.scene-prose')
 const paragraph = (win: Page, text: string) => prose(win).locator('p', { hasText: text })
 const sceneHeader = (win: Page) => win.locator('main header')
-const generateButton = (win: Page) => sceneHeader(win).getByRole('button', { name: 'Generate', exact: true })
+const generateButton = (win: Page) => sceneHeader(win).getByRole('button', { name: 'Draft the scene', exact: true })
 const doneButton = (win: Page) => sceneHeader(win).getByRole('button', { name: /^(Mark scene done|Done\. Reopen)/ })
 const sceneCard = (win: Page) => win.getByRole('tabpanel', { name: 'Scene card' })
 const contextTab = (win: Page) => win.getByRole('tabpanel', { name: 'Context' })
@@ -227,14 +227,15 @@ async function openScene(win: Page, title: string): Promise<void> {
   await expect(prose(win)).toBeVisible()
 }
 
-/** Adds a scene at the end of the chapter with the chapter's + button, keeping the name it is given ("Scene 2"). */
+/** Adds a scene at the end of the chapter with the chapter's + button (it starts untitled) and names it ("Scene 2"). */
 async function addScene(win: Page, title: string): Promise<void> {
   const chapter = binder(win).locator('[data-row="chapter"]', { hasText: 'Chapter 1' })
   await chapter.hover()
   await chapter.getByRole('button', { name: 'Add a scene to this chapter' }).click()
   const rename = binder(win).getByRole('textbox', { name: 'Scene title' })
   await expect(rename).toBeFocused()
-  await expect(rename).toHaveValue(title)
+  await expect(rename).toHaveValue('Untitled scene')
+  await rename.fill(title)
   await rename.press('Enter')
   await expect(sceneRow(win, title)).toBeVisible()
 }
@@ -649,7 +650,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       // The large model: every part in full.
       await openScene(win, 'Scene 4')
       await win.getByRole('tab', { name: 'Context' }).click()
-      await expect(contextTab(win).getByText('fake/writer reads 32K tokens; 2,835 of them are kept for its reply.')).toBeVisible()
+      await expect(contextTab(win).getByText('fake/writer reads about 24,000 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
       const large = await briefingParts(win)
       for (const title of [
         ...ESSENTIAL,
@@ -674,7 +675,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       // A small model, chosen the way Adam does it.
       await chooseWriter(win, 'fake/8k')
       await openScene(win, 'Scene 4')
-      await expect(contextTab(win).getByText('fake/8k reads 8K tokens; 2,835 of them are kept for its reply.')).toBeVisible()
+      await expect(contextTab(win).getByText('fake/8k reads about 5,900 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
       await expect.poll(async () => (await briefingSize(win)).room).toBeLessThan(full.room)
       const { room } = await briefingSize(win)
       expect(full.used, 'the full briefing is too big for the small model, so it must be shortened').toBeGreaterThan(room)

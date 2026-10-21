@@ -617,7 +617,7 @@ test('one change at a time; editing its words, opening another scene or a new dr
     await selectWords(win, P2)
     await runTool(win, 'More vivid')
     await expect(acceptButton(win)).toBeVisible()
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: 'Add below', exact: true }).click()
     await expect(toasts(win).getByText('A new draft started, so the AI’s change was dropped.')).toBeVisible()
     await expect(change(win)).toBeHidden()

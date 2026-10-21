@@ -161,7 +161,7 @@ test('the New look while writing: the page as a sheet, its title, the save tick,
     await expect(win.locator('header').first().locator('svg.drawn-tick')).toBeVisible()
 
     // Generate: Stop glows amber with its shimmer while the draft is written, counting the words as they come.
-    await header.getByRole('button', { name: 'Generate', exact: true }).click()
+    await header.getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await win.getByRole('button', { name: /^Add below/ }).click()
     await expect(header.locator('.gen-running')).toBeVisible()
     await expect(header.getByRole('status')).toContainText(/\d+ words/)

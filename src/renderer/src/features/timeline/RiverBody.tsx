@@ -184,12 +184,32 @@ export function RiverBody({
     onChapterInView(ch)
   }, [onChapterInView, points, items, riverView, layout.width])
   useEffect(() => tellChapter(), [tellChapter])
+  // More of the river past the right edge: a soft fade there says so, rather than a day's "1 day later" cut in half
+  // (review #47). Kept clear of the scroll bars.
+  const [edge, setEdge] = useState<{ more: boolean; right: number; bottom: number }>({ more: false, right: 0, bottom: 0 })
+  const measureEdge = useCallback(() => {
+    const el = scroller.current
+    if (!el) return
+    const more = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
+    const right = el.offsetWidth - el.clientWidth
+    const bottom = el.offsetHeight - el.clientHeight
+    setEdge((e) => (e.more === more && e.right === right && e.bottom === bottom ? e : { more, right, bottom }))
+  }, [])
+  useLayoutEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    measureEdge()
+    const ro = new ResizeObserver(measureEdge)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [measureEdge, canvasW])
   const onScroll = (): void => {
     if (frame.current) return
     frame.current = requestAnimationFrame(() => {
       frame.current = 0
       const el = scroller.current
       if (!el) return
+      measureEdge()
       tellChapter()
       const left = Math.floor(el.scrollLeft / CHUNK) * CHUNK
       const top = Math.floor(el.scrollTop / CHUNK) * CHUNK
@@ -606,6 +626,7 @@ export function RiverBody({
           </div>
         </div>
       </div>
+      <div aria-hidden className="tl-edge" data-on={edge.more || undefined} style={{ right: edge.right, bottom: edge.bottom }} />
       {picker ? (
         <SideCard
           key="side"

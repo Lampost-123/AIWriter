@@ -201,6 +201,9 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
       data-leaving={leaving || undefined}
       inert={leaving}
       aria-hidden={leaving || undefined}
+      // Something that went wrong is said at once, over whatever the screen reader was saying; the rest waits its turn
+      // (the list around them is polite).
+      role={t.tone === 'danger' && !leaving ? 'alert' : undefined}
       onAnimationEnd={(e) => {
         if (leaving && e.target === e.currentTarget && e.animationName === 'toast-out') gone.current?.(t.id)
       }}
@@ -237,7 +240,12 @@ function Toast({ t, leaving = false, onGone }: { t: ToastItem; leaving?: boolean
           {t.action.label}
         </button>
       ) : null}
-      <button className="text-faint hover:text-fg" onClick={() => dismiss(t.id)} aria-label="Dismiss">
+      {/* A 28px target for a 14px cross: it reaches into the toast's padding, so the toast is no taller. */}
+      <button
+        className="-my-1 -mr-2 grid h-7 w-7 shrink-0 place-items-center rounded-md text-faint transition-colors duration-(--dur-quick) hover:bg-surface-2 hover:text-fg"
+        onClick={() => dismiss(t.id)}
+        aria-label="Dismiss"
+      >
         <X size={14} />
       </button>
       {/* The New look: a long job's progress, as ink filling along the toast's foot. */}

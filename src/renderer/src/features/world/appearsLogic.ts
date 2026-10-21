@@ -31,4 +31,4 @@ export function showMoreText(shown: number, total: number): string {
 }
 
 /** A scene's own title, unless it is only the one every new scene gets ("Scene 3"), which its place already says. */
-export const ownTitle = (title: string): string => (/^scene \d+$/i.test(title.trim()) ? '' : title.trim())
+export const ownTitle = (title: string): string => (/^(scene \d+|untitled scene)$/i.test(title.trim()) ? '' : title.trim())

@@ -188,7 +188,7 @@ async function generateWith(win: Page, direction: string): Promise<void> {
   await win.getByRole('button', { name: 'Draft options' }).click()
   await win.getByLabel('Direction for this draft (optional)').fill(direction)
   await win.keyboard.press('Escape')
-  await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+  await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
 }
 
 test('panels: the receipt at the foot of the page, with Write it in', async ({ launch }) => {

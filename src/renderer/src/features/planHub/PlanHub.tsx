@@ -26,6 +26,8 @@ import type { Chapter, ID, Outline, Story } from '@shared/types'
 import { emptySceneCard } from '@shared/defaults'
 import { ArrowLeft, ListTree } from '@/components/ui/icons'
 import { Button, EmptyState } from '@/components/ui'
+import { LoadState } from '@/components/ui/LoadState'
+import { plainReason } from '@/lib/reason'
 import { api } from '@/lib/api'
 import { useApp, type View } from '@/lib/store'
 import { useOutline } from '@/features/binder/outlineStore'
@@ -46,7 +48,7 @@ import {
   type HelperRun,
   type HelperSession
 } from '@/features/outline/helperStore'
-import { cardIsEmpty } from '@/features/outline/ideasLogic'
+import { cardIsEmpty, isPlainTitle } from '@/features/outline/ideasLogic'
 import { fitSize, fitStageSize } from '@/features/outline/size'
 import { defaultMode, WHOLE_MOST_CHAPTERS, type PlanMode } from '@/features/outline/stages'
 import type { TreeNode } from '@/features/outline/tree'
@@ -109,7 +111,7 @@ export function PlanHub({ view }: { view: BuildView }): React.JSX.Element {
   const openStory = useApp((s) => s.storyId)
   const session = useOutlineHelper((st) => st.sessions[helperKey(worldId, storyId)])
   const brief = useBuilders((st) => st.builders[builderKey(storyId)]?.brief ?? null)
-  const { outline } = useOutline()
+  const { outline, error: outlineError, retry: retryOutline } = useOutline()
   const shape = outline?.story.id === storyId ? outline : null
   // Once each time the page opens: the outline helper's session, whether the story is blank, and the idea.
   useLayoutEffect(() => {
@@ -137,7 +139,23 @@ export function PlanHub({ view }: { view: BuildView }): React.JSX.Element {
       </div>
     )
   }
-  if (!shape || !session || session.blank === null || !brief) return <div className="h-full" data-plan-hub-loading />
+  if (!shape || !session || session.blank === null || !brief) {
+    // Quiet for a moment, then "Opening the plan…"; the story's chapters failing to load says so, with Try again.
+    return (
+      <LoadState
+        data-plan-hub-loading
+        loading="Opening the plan…"
+        failed={!shape && outlineError ? plainReason(outlineError) : null}
+        failedTitle="Couldn’t load the plan"
+        icon={<ListTree size={20} />}
+        onRetry={() => {
+          retryOutline()
+          openHub(storyId)
+          void loadBrief(storyId)
+        }}
+      />
+    )
+  }
   return <Hub story={story} shape={shape} session={session} view={view} />
 }
 
@@ -153,7 +171,7 @@ function useStarter(shape: Outline, run: HelperRun | null): Chapter | null {
     !first.goal.trim() &&
     !kept.has(first.id) &&
     shape.chapters.some((c) => kept.has(c.id)) &&
-    scenes.every((sc) => sc.wordCount === 0 && /^\s*scene\s*\d*\s*$/i.test(sc.title))
+    scenes.every((sc) => sc.wordCount === 0 && isPlainTitle(sc.title))
   const sceneKey = candidate ? scenes.map((sc) => sc.id).join(',') : ''
   const [empty, setEmpty] = useState<{ key: string; empty: boolean } | null>(null)
   useEffect(() => {

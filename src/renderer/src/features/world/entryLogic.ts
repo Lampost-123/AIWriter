@@ -195,9 +195,9 @@ export function filledCount(fields: Record<string, string>, keys: string[]): num
   return keys.filter((k) => (fields[k] ?? '').trim()).length
 }
 
-/** "character", "place", "lore entry", "plot thread", "term": for sentences. */
+/** "character", "place", "piece of lore", "plot thread", "term": for sentences (never "entry"). */
 export function kindNoun(kind: EntryKind): string {
-  if (kind === 'lore') return 'lore entry'
+  if (kind === 'lore') return 'piece of lore'
   if (kind === 'thread') return 'plot thread'
   if (kind === 'glossary') return 'term'
   return kind

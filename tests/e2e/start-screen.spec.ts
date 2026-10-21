@@ -338,7 +338,7 @@ test('a draft keeps writing while the start screen is open, and Continue shows i
     const [story] = await invoke(win, 'listStories')
     const sceneId = (await invoke(win, 'getOutline', story.id)).scenes[0].id
 
-    await win.locator('main header').getByRole('button', { name: 'Generate', exact: true }).click()
+    await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     await expect(prose(win)).toContainText('The rain')
     await win.getByRole('button', { name: 'Start screen', exact: true }).click()
     await expect(startScreen(win)).toBeVisible()
