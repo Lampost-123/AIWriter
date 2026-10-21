@@ -650,7 +650,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       // The large model: every part in full.
       await openScene(win, 'Scene 4')
       await win.getByRole('tab', { name: 'Context' }).click()
-      await expect(contextTab(win).getByText('fake/writer reads about 24,000 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
+      await expect(contextTab(win).getByText('fake/writer reads about 25,000 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
       const large = await briefingParts(win)
       for (const title of [
         ...ESSENTIAL,
@@ -675,7 +675,7 @@ test('milestone 2: the memory keeps up with the text, drafts see only what came 
       // A small model, chosen the way Adam does it.
       await chooseWriter(win, 'fake/8k')
       await openScene(win, 'Scene 4')
-      await expect(contextTab(win).getByText('fake/8k reads about 5,900 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
+      await expect(contextTab(win).getByText('fake/8k reads about 6,100 words at once; about 2,100 of them are kept for its reply.')).toBeVisible()
       await expect.poll(async () => (await briefingSize(win)).room).toBeLessThan(full.room)
       const { room } = await briefingSize(win)
       expect(full.used, 'the full briefing is too big for the small model, so it must be shortened').toBeGreaterThan(room)

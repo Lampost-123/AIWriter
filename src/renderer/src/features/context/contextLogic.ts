@@ -4,6 +4,7 @@
 
 import { NOT_READY, plainReason } from '../../lib/reason'
 import type { BlockMode, ContextBlock, ContextBudget, ContextEntry, ContextPreview, EntryKind, ID, PinScope, Summary } from '@shared/types'
+import { wordsFor } from '@/features/settings/words'
 
 // ---------- The token bar ----------
 
@@ -28,19 +29,11 @@ export function budgetView(budget: Pick<ContextBudget, 'used' | 'available'>): B
   return { share, fill, percentText: `${Math.round(share * 100)}%`, tight: share > 0.9, noRoom: false }
 }
 
-/** The writer's own rule of thumb for English prose (main/ai/context.ts TOKENS_PER_WORD): about 1.35 tokens a word. */
-const TOKENS_PER_WORD = 1.35
-
 /**
- * The model's tokens as Adam's words (the Words rule: never "tokens"), rounded to two figures so it reads as the
- * estimate it is: 2,556 tokens → 1,900 words, 16,000 → 12,000, 756 → 560.
+ * The model's tokens as Adam's words (the Words rule: never "tokens"), by the same rule of thumb as Settings › Models so
+ * the two never disagree: rounded to two figures so it reads as the estimate it is.
  */
-export function asWords(tokens: number): number {
-  const words = Math.max(0, tokens) / TOKENS_PER_WORD
-  if (words < 10) return Math.round(words)
-  const step = 10 ** (Math.floor(Math.log10(words)) - 1)
-  return Math.round(words / step) * step
-}
+export const asWords = wordsFor
 
 /** "about 1,900": a number of words, for "… of them". */
 export const aboutCount = (tokens: number): string => `about ${asWords(tokens).toLocaleString('en-GB')}`

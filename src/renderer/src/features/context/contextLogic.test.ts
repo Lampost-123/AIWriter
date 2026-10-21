@@ -263,15 +263,15 @@ describe('the briefing in words', () => {
   it('turns tokens into words, rounded to two figures', () => {
     expect(asWords(2556)).toBe(1900)
     expect(asWords(16000)).toBe(12000)
-    expect(asWords(756)).toBe(560)
+    expect(asWords(756)).toBe(570)
     expect(asWords(0)).toBe(0)
     expect(asWords(-40)).toBe(0)
-    expect(aboutWords(13266)).toBe('about 9,800 words')
+    expect(aboutWords(13266)).toBe('about 9,900 words')
     expect(aboutWords(1)).toBe('about 1 word')
   })
 
   it('says how much room is left, or that it is full', () => {
-    expect(roomLine({ used: 2556, available: 13266 })).toBe('Room for about 7,900 more words.')
+    expect(roomLine({ used: 2556, available: 13266 })).toBe('Room for about 8,000 more words.')
     expect(roomLine({ used: 13266, available: 13266 })).toBe('Full: the parts lowest down are shortened or left out.')
     expect(roomLine({ used: 14000, available: 13266 })).toMatch(/^Full/)
   })

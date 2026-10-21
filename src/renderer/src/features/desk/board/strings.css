@@ -41,6 +41,11 @@
   height: 20px;
   margin: 0;
 }
+/* The head's buttons sit at its foot: tall enough that they stay clear below the key, even with no plot threads
+   (one short line of counts) to make it tall. */
+[data-arrangement='desk'] .desk-board:has(.board-pinkey) > .board-head {
+  min-height: 70px;
+}
 [data-arrangement='desk'] .desk-board[data-arrive] .board-pinkey {
   animation: board-col-in 360ms var(--motion-glide) 700ms backwards;
 }
