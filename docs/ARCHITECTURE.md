@@ -2688,7 +2688,10 @@ before are in `meta`, as before; `ChapterWriterReport.plan` is new and optional)
   `ChapterWriterProgress.plan`, and the run waits, with no time limit, for `answerChapterPlan` or Stop). The window
   (`features/chapterWriter/ChapterPlanReview.tsx`, mounted beside the start dialog, which is unchanged): the overview and
   each scene's part, with Write, Change the plan (each part, and the overview, as text boxes) and Cancel. Escape only hides
-  it: the top bar says "The chapter plan is ready for you" and opens it again. A part Adam changes is his words from then
+  it: the top bar says "The chapter plan is ready for you" and opens it again, in the run's own story
+  (`ChapterWriterProgress.storyId`; 2026-10-21: it guessed the story open, and with another one open the plan couldn't be
+  reached). Cancel beside it ends the run from any page; another chapter's Write this chapter says a plan is waiting
+  there, with Read the plan and Cancel it. A part Adam changes is his words from then
   on (`withAnswer`, `changed`); Cancel (or Stop while planning) ends the run as `cancelled`, "Cancelled before writing:
   nothing in the chapter changed." The time spent over the plan isn't counted against the hour.
 - **2. Each scene in order** (`draftAll`, as before: the memory catches up on the scene before first). Its part of the plan

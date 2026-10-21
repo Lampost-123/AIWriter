@@ -399,7 +399,7 @@ export async function runAction(id: ActionId): Promise<void> {
       case 'write-chapter': {
         if (!a.sceneId || !a.storyId) return
         const chapterId = (await outlineOf(a.storyId)).scenes.find((s) => s.id === a.sceneId)?.chapterId
-        if (chapterId) openChapterWriter(chapterId)
+        if (chapterId) openChapterWriter(chapterId, a.storyId)
         return
       }
       // ----- Milestone 6 -----

@@ -57,7 +57,7 @@ test('Generate: the top bar says how the draft is going, and its card has the st
 
     await win.locator('main header').getByRole('button', { name: 'Draft the scene', exact: true }).click()
     const status = topBar(win).getByTestId('draft-status')
-    const pill = status.getByRole('button')
+    const pill = status.getByRole('button', { name: /Writing/ })
     await expect(prose(win)).toContainText('The rain', { timeout: 60_000 })
     // The pill: the title (cut short if it must), then the words against the length it aims for, never cut.
     await expect(pill).toContainText('Writing “Morning Confrontation at the Old Ferry Landing”')
@@ -131,7 +131,7 @@ test('Write this chapter: the top bar says the scene and the words, and its card
     await areaButton(win, 'Write').click()
 
     // Writing Sc 1: the pill names the chapter, the scene of how many and the words so far.
-    const pill = status.getByRole('button')
+    const pill = status.getByRole('button', { name: /Writing/ })
     await expect(pill).toContainText(/Writing Ch 1/, { timeout: 60_000 })
     await expect(pill).toContainText(/scene 1 of 2 · [\d,]+ words?/, { timeout: 60_000 })
     await expect(pill).toHaveAttribute('title', /Model: Story Writer 2\./)

@@ -417,7 +417,7 @@ function DeskAllDecided({
         Everything is decided. What you kept is in the story’s spine{sceneId ? ', with each scene’s card filled in' : ''}.
       </p>
       {chapterId && sceneId ? (
-        <Button size="sm" onClick={() => openChapterWriter(chapterId)} title="Write the whole chapter with AI, from its scene cards">
+        <Button size="sm" onClick={() => openChapterWriter(chapterId, storyId)} title="Write the whole chapter with AI, from its scene cards">
           Write this chapter
         </Button>
       ) : null}

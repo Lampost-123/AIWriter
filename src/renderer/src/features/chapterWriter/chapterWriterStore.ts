@@ -38,10 +38,10 @@ function storyOfChapter(chapterId: ID): ID | null {
 
 /**
  * "Write this chapter with AI" from anywhere: Build with AI at that chapter, Write this chapter open in its row (what the
- * chapter's scenes are ready for, then its plan, then how it goes).
+ * chapter's scenes are ready for, then its plan, then how it goes). `known`: the chapter's story, when the caller knows it.
  */
-export function openChapterWriter(chapterId: ID): void {
-  const storyId = storyOfChapter(chapterId)
+export function openChapterWriter(chapterId: ID, known?: ID): void {
+  const storyId = known || storyOfChapter(chapterId)
   if (!storyId) return
   useApp.getState().navigate({ kind: 'planHub', storyId, section: 'line', chapterId, open: 'write' })
 }
@@ -62,7 +62,8 @@ function setProgress(p: ChapterWriterProgress | null): void {
 /** The chapter plan waiting for Adam (the top bar's "The chapter plan is ready for you"): its chapter in Build with AI. */
 export function openChapterPlan(): void {
   const p = useChapterWriter.getState().progress
-  if (p) openChapterWriter(p.chapterId)
+  // In the run's own story: the binder may show another one (2026-10-21: the plan was looked for there, and never found).
+  if (p) openChapterWriter(p.chapterId, p.storyId)
 }
 
 /** Writes the chapter to the plan, with any part Adam changed. Throws (plain words) when the run isn't waiting any more. */

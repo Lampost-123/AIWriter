@@ -69,6 +69,7 @@ const NOW = 1_000_000_000
 const base = (o: Partial<ChapterWriterProgress> = {}): ChapterWriterProgress => ({
   runId: 'r',
   chapterId: 'c3',
+  storyId: 's',
   stage: 'drafting',
   sceneId: 's2',
   note: 'Writing Sc 2 “The ferry” (2 of 4)',
@@ -157,7 +158,7 @@ describe('a chapter being written', () => {
 
   it('reads a run from before the card (no scenes or times) without showing anything it doesn’t know', () => {
     const v = chapterView({
-      progress: { runId: 'r', chapterId: 'c', stage: 'drafting', sceneId: null, note: '', round: 0, cost: 0, sceneIds: [] },
+      progress: { runId: 'r', chapterId: 'c', storyId: 's', stage: 'drafting', sceneId: null, note: '', round: 0, cost: 0, sceneIds: [] },
       chapter: { short: 'Ch 1', name: '' },
       now: NOW,
       models: { writer: FLASH }

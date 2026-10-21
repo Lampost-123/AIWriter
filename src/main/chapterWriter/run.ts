@@ -496,6 +496,7 @@ export class ChapterRun {
     return {
       runId: this.runId,
       chapterId: this.chapterId,
+      storyId: this.storyId,
       stage: this.stage,
       sceneId: this.sceneNow,
       note: this.note,

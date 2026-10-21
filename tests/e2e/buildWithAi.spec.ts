@@ -224,7 +224,7 @@ test('every older way in lands in its section of Build with AI (the panels)', as
     await write.getByTestId('chapter-writer-start').click()
     await expect(write.getByTestId('chapter-plan')).toBeVisible({ timeout: 60_000 })
     await areaButton(win, 'Write').click()
-    await win.getByTestId('chapter-writer-status').getByRole('button').click()
+    await win.getByTestId('chapter-writer-status').getByRole('button', { name: /ready for you/ }).click()
     await expect(area(win).locator(`[data-write-panel="${ch3}"]`).getByTestId('chapter-plan')).toBeVisible()
     await area(win).getByTestId('chapter-plan-cancel').click()
     await expect(win.getByText('Cancelled before writing: nothing in the chapter changed.')).toBeVisible({ timeout: 30_000 })
