@@ -428,6 +428,44 @@ export const MIGRATIONS: string[] = [
   // index rather than every AI record in the world.
   `
   CREATE INDEX IF NOT EXISTS generations_job ON generations(job, created_at);
+  `,
+  // 7: Under suggestion (the story map, phase 2, Adam 2026-10-24; the reason is in docs/ARCHITECTURE.md, "Under
+  // suggestion"). The hypnotic suggestions and commands people are under, each with its history, a step a scene:
+  //   commands: one row a command, belonging to the person under it (subject) and given by someone (giver, may be null);
+  //     made by the memory or by Adam (origin).
+  //   command_steps: given, made stronger, changed, fired, resisted or ended, in a scene; the values a step sets as JSON
+  //     (CommandValues, only what it changes); the scene's words; Adam's note; his yes or no to what the memory read.
+  // Rows go with their scene when it is emptied from Recently deleted (foreign keys); a command left with no steps is
+  // dropped where it is read (db/commands.ts).
+  `
+  CREATE TABLE commands (
+    id TEXT PRIMARY KEY,
+    story_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    giver_id TEXT,
+    origin TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX commands_story ON commands(story_id);
+  CREATE INDEX commands_subject ON commands(subject_id);
+
+  CREATE TABLE command_steps (
+    id TEXT PRIMARY KEY,
+    command_id TEXT NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
+    scene_id TEXT NOT NULL REFERENCES scenes(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    values_json TEXT NOT NULL DEFAULT '{}',
+    quote TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL,
+    answer TEXT NOT NULL DEFAULT '',
+    unsure INTEGER NOT NULL DEFAULT 0,
+    seq INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX command_steps_command ON command_steps(command_id);
+  CREATE INDEX command_steps_scene ON command_steps(scene_id);
   `
 ]
 

@@ -126,6 +126,7 @@ import { eventVsDate } from '../worldViews/eventPlace'
 import { datesOf, elapsedNote, storyDateLines, type DateInput } from './storyDate'
 import { withoutRepeats, wordRuns } from './repeats'
 import { usualLook } from '../memory/looks'
+import { COMMANDS_LEAD } from '../commands/briefing'
 
 export const DEFAULT_CONTEXT_LENGTH = 16_000
 export const TOKENS_PER_WORD = 1.35
@@ -182,6 +183,12 @@ export interface ContextInput {
    * character guess it without cause. Left out or empty: none.
    */
   readerKnows?: string[]
+  /**
+   * Under suggestion (the story map, phase 2): the hypnotic suggestions and commands people in the scene are under, a line
+   * each (commands/briefing.ts): what is in effect, what they wear by command, and the triggers waiting. Left out or
+   * empty: none, or the story isn't tracked.
+   */
+  commands?: string[]
   /**
    * The plan made before writing (src/main/plan/): the codex entries it asked for, brought into the briefing, and the
    * writer's own notes it carries on from, sent after the closing instruction. Null or left out: no plan.
@@ -275,6 +282,8 @@ const lookedUpShort = (text: string): string | null => {
 export const LEFT_HERE_BLOCK = { id: 'left-here', priority: 3, title: 'Left here before' } as const
 /** What the reader knows that someone here doesn't (ContextInput.readerKnows), beside who knows what. */
 export const READER_BLOCK = { id: 'reader', priority: 6, title: 'What the reader knows' } as const
+/** Under suggestion (ContextInput.commands): as important as where things stand, since it says what people wear and do. */
+export const COMMANDS_BLOCK = { id: 'commands', priority: 3, title: 'Under suggestion' } as const
 const READER_LEAD = 'The reader has already been shown these, and someone in this scene has not:'
 /** What the writer is told before the things left here. */
 export const LEFT_HERE_LEAD = 'From the story so far: what was left in this place on an earlier visit, and has not been taken or moved since. It is still there unless this scene moves it.'
@@ -2012,6 +2021,9 @@ function buildBriefing(
   // What the reader knows that someone here doesn't (the AI overhaul, 2026-10-19): no explaining it again, no lucky guesses.
   const readerLines = (input.readerKnows ?? []).map(clean).filter(Boolean)
   if (readerLines.length) add(READER_BLOCK.id, READER_BLOCK.priority, READER_BLOCK.title, [READER_LEAD, ...readerLines.map((l) => `- ${l}`)].join('\n'), null, [])
+  // Under suggestion (the story map, phase 2): the commands people here are under, and the triggers waiting.
+  const commandLines = (input.commands ?? []).map(clean).filter(Boolean)
+  if (commandLines.length) add(COMMANDS_BLOCK.id, COMMANDS_BLOCK.priority, COMMANDS_BLOCK.title, [COMMANDS_LEAD, ...commandLines.map((l) => `- ${l}`)].join('\n'), null, [])
 
   // 7 Where the scene happens, the places around it and the groups of those present.
   const where = sel.location
@@ -2244,6 +2256,8 @@ export const SEND_ORDER = [
   // Who knows what (fix 9): who is in the scene can change at every step (the stage, the scene so far).
   LEDGER_BLOCK.id,
   READER_BLOCK.id,
+  // Under suggestion: who is in the scene can change from step to step too.
+  COMMANDS_BLOCK.id,
   // The continuity brief (fix 14): written for each draft, so late.
   BRIEF_BLOCK.id,
   // What the plan looked up (2026-10-19): written for each draft too.

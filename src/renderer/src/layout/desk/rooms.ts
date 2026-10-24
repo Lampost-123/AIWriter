@@ -9,6 +9,7 @@ import type { View } from '@/lib/store'
 export function openRoom(room: Area): void {
   const app = useApp.getState()
   if (room === 'plan' && app.storyId) app.navigate({ kind: 'board', storyId: app.storyId })
+  else if (room === 'map' && app.storyId) app.navigate({ kind: 'suggestions', storyId: app.storyId })
   else openArea(room)
 }
 

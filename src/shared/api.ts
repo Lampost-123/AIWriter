@@ -106,6 +106,7 @@ import type { CalmApi, CalmEvents } from './contracts/calm'
 import type { PlanReviewApi, PlanReviewEvents } from './contracts/planReview'
 import type { PlanHubApi, PlanHubEvents } from './contracts/planHub'
 import type { WorldInterviewsApi } from './contracts/worldInterviews'
+import type { CommandsApi, CommandsEvents } from './contracts/commands'
 
 /** Every call the interface can make. Each milestone's parts (3 to 6) add theirs in src/shared/contracts/. */
 export interface AppApi
@@ -155,7 +156,8 @@ export interface AppApi
     CalmApi,
     PlanReviewApi,
     PlanHubApi,
-    WorldInterviewsApi {
+    WorldInterviewsApi,
+    CommandsApi {
   // ----- App, settings, preferences -----
   getAppInfo(): Promise<AppInfo>
   getSettings(): Promise<Settings>
@@ -437,7 +439,8 @@ export interface AppEvents
     DirectorEvents,
     CalmEvents,
     PlanReviewEvents,
-    PlanHubEvents {
+    PlanHubEvents,
+    CommandsEvents {
   'generation:chunk': { generationId: ID; sceneId: ID; text: string }
   'generation:done': {
     generationId: ID

@@ -33,6 +33,7 @@ import { jobModel } from '../ai/jobModel'
 import { dismissRefusals, modelKeyOf, onRefusal, refusalNote, refusedKind } from './refusals'
 import { loadShapeSafe, placeWords } from './places'
 import { rulesAfterDeleting, rulesAfterRead } from '../checks/ruleChecks'
+import { commandsAfterRead, startCommandReading, stopCommandReading } from '../commands/reader'
 import { settleByEntry } from '../db/checks'
 import { fieldValue } from './facts'
 import { fillProgress, indexScene, indexStories, startIndexing, stopIndexing } from './indexing'
@@ -166,10 +167,21 @@ export function initKeeper(): void {
       // App tests that count AI calls leave the recent chapters' details out unless they ask (AIWRITE_INDEX_FILL).
       recent: process.env.AIWRITE_INDEX_FILL !== 'off'
     })
+    // Under suggestion (the story map, phase 2): scenes of a tracked story read for commands after the memory reads them.
+    startCommandReading(w.db, {
+      model: () => {
+        const paused = pausedNote()
+        return paused ? { error: paused } : memoryModel()
+      },
+      busy: () => draftsWaiting > 0 || standingNow > 0 || k.busy,
+      live: () => w.db.open && maybeCurrentWorld()?.db === w.db && !k.isClosed,
+      waitMs: envMs('AIWRITE_INDEX_WAIT_MS')
+    })
   })
   // Closing a world stops the keeper and finishes its records first; nothing is written after.
   onWorldClosing((w) => {
     stopIndexing(w.db)
+    stopCommandReading(w.db)
     if (keeper && keeper.db === w.db) {
       keeper.stop()
       keeper = null
@@ -250,6 +262,8 @@ function standLater(db: Database.Database, sceneId: ID, model: MemoryModel, stag
       rulesAfterRead(db, sceneId, getWritingPrefs())
       // The story index takes in what the read and where things stand now say of the scene (overhaul phase 1; free).
       refreshSceneSafely(db, sceneId)
+      // Its commands, when its story is tracked (Under suggestion; a call of its own, queued behind the others).
+      commandsAfterRead(db, sceneId)
     })
     .finally(() => standingNow--)
 }

@@ -101,6 +101,9 @@ export type View =
    * `chapterId`: the chapter to bring into view; `ideasFor`: a planned scene whose ideas open in the board's drawer.
    */
   | { kind: 'board'; storyId: ID; chapterId?: ID; ideasFor?: ID }
+  // The Map room (the story map, Adam 2026-10-24)
+  /** Under suggestion: who is under which hypnotic suggestion or command, as of a scene (or the end of the story so far). */
+  | { kind: 'suggestions'; storyId: ID; sceneId?: ID | null }
 
 /**
  * "What the AI saw" opened from another page (milestone 4): the page to go back to, the Back button's words

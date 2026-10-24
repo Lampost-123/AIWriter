@@ -1,15 +1,15 @@
-// The desk's room switch, in the middle of the top bar: Write, Plan, World and Check on a sunken track, the room showing
+// The desk's room switch, in the middle of the top bar: Write, Plan, Map, World and Check on a sunken track, the room showing
 // raised on a paper pill that glides to the next one (components/ui/GlidePill). The pill slides in once when the desk
 // first shows (layout/desk/desk.css). Settings belongs to no room: no pill then. In a window under 1200px the rooms not
 // showing are their icons alone.
 import { GlidePill } from '@/components/ui/GlidePill'
-import { Eye, Globe2, List, Pencil, type IconType } from '@/components/ui/icons'
+import { Compass, Eye, Globe2, List, Pencil, type IconType } from '@/components/ui/icons'
 import { cn } from '@/lib/cn'
 import { useApp } from '@/lib/store'
 import { AREAS, areaOf, type Area } from '@/layout/areas'
 import { openRoom } from './rooms'
 
-const ICONS: Record<Area, IconType> = { write: Pencil, plan: List, world: Globe2, check: Eye }
+const ICONS: Record<Area, IconType> = { write: Pencil, plan: List, map: Compass, world: Globe2, check: Eye }
 
 export function RoomSwitch(): React.JSX.Element {
   const view = useApp((s) => s.view)

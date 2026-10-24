@@ -20,6 +20,8 @@ const COMPUTER_ONLY = [
 ] as const satisfies readonly ApiMethod[]
 
 const PHONE = [
+  // Under suggestion (the story map, phase 2)
+  'getUnderSuggestion', 'setCommandTracking', 'addCommand', 'changeCommand', 'undoCommandStep', 'answerCommandStep', 'clearCommandAnswer',
   'actDeleteNotes', 'answerChapterPlan', 'answerMemoryQuestion', 'answerScenePlan', 'applyRecipeToStory', 'askPlanQuestion',
   'askStoryQuestion', 'askTopicQuestions', 'askWorld', 'askWorldQuestion', 'backupNow', 'buildStoryCodex', 'buildStoryWorld',
   'cancelBeatStart', 'cancelDraftStart', 'cancelRecipe', 'cancelSpeechDownload', 'cancelWorldBuild', 'carryOnRecipe', 'carryOnThisMonth',

@@ -23,8 +23,8 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() }, BrowserWindow: { 
 const FIXTURES = join(__dirname, '..', 'fixtures', 'worlds')
 /** The layout the released app wrote (its migration count). */
 const RELEASED_LAYOUT = 4
-/** The tables this version adds, built from the rest of the world (migration 5). */
-const NEW_TABLES = ['index_scenes', 'index_facts', 'index_threads']
+/** The tables this version adds: the story index, built from the rest of the world (migration 5), and Under suggestion's (7). */
+const NEW_TABLES = ['index_scenes', 'index_facts', 'index_threads', 'commands', 'command_steps']
 
 const dir = mkdtempSync(join(tmpdir(), 'aiwrite-upgrade-'))
 const lib = join(dir, 'library')

@@ -55,6 +55,7 @@ import { directorHandlers } from './director'
 import { calmHandlers } from './calm'
 import { planReviewHandlers } from './planReview'
 import { planHubHandlers } from './planHub'
+import { commandsHandlers } from './commands'
 import { bindPhoneCall } from '../phone/runtime'
 
 export type Handlers<K extends ApiMethod> = { [M in K]: (...args: Parameters<AppApi[M]>) => Awaited<ReturnType<AppApi[M]>> | ReturnType<AppApi[M]> }
@@ -134,6 +135,8 @@ const all: Handlers<ApiMethod> = {
   ...planReviewHandlers,
   // The Plan hub: where the story stands, its threads and where the plan has drifted; Update the plan
   ...planHubHandlers,
+  // Under suggestion (the story map, phase 2)
+  ...commandsHandlers,
   // Interviews by topic: characters, places, lore and history, and how it all connects
   ...worldInterviewsHandlers
 }

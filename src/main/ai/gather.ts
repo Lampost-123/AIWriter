@@ -17,6 +17,7 @@ import { lessonsBefore } from '../checks/lessons'
 import { sceneCalendar, type SceneCalendar } from '../memory/storyCalendar'
 import { leftHere, leftHereLines } from '../storyIndex/placed'
 import { readerKnows } from './readerKnows'
+import { commandLinesFor } from '../commands/briefing'
 import { ownSampleOn } from '@shared/ownSample'
 import { ownWritingFor } from '../style/ownWriting'
 import type { ContextInput } from './context'
@@ -120,6 +121,8 @@ export function gatherContextInput(
     leftHere: leftHereFor(db, sceneId, memory.storyId, scene.card.locationId, { asItBegins: !extra.soFar?.trim(), stand }),
     // What the reader has been shown that someone on the card doesn't know (the reader ledger, ai/readerKnows.ts).
     readerKnows: readerKnowsFor(db, memory.storyId, sceneId, [scene.card.povId, ...(scene.card.presentIds ?? [])]),
+    // Under suggestion (the story map, phase 2): the commands people here are under, when the story is tracked.
+    commands: commandLinesFor(db, sceneId, { soFar: extra.soFar }),
     // Slips the checks found in earlier scenes and that were put right: what must stay true warns of those about the people here.
     slips: lessonsBefore(db, sceneId).slips,
     // The story calendar (long story memory fix 11): the scene's date, the sums since the scene before and earlier days,
