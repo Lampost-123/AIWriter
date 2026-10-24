@@ -8,7 +8,7 @@ import * as repo from '../db/repo'
 import * as store from '../db/commands'
 import type { MemoryModel } from '../keeper/model'
 import { addCommand, changeCommand, peopleAt, underSuggestion, undoStep } from '.'
-import { castOf, commandsRequest, keepReading, readCommandsReply, readSceneCommands, COMMANDS_SYSTEM } from './read'
+import { castOf, commandsRequest, readCommandsReply, readSceneCommands, COMMANDS_SYSTEM } from './read'
 import { commandLines, commandLinesFor } from './briefing'
 import { gatherContextInput } from '../ai/gather'
 import { buildBlocks } from '../ai/context'
@@ -38,7 +38,6 @@ function world(): { db: DB; storyId: ID; scenes: ID[]; tam: ID; mara: ID } {
 }
 
 const SOCKS = 'Mara leaned close. “You will never wear socks again,” she whispered, and Tam felt it settle like her own idea.'
-const BANANA = '“When you hear the word banana, you will take your socks off,” Mara told Tam.'
 
 describe('the request', () => {
   it('is short: the people, the commands as the scene begins, and the scene', () => {

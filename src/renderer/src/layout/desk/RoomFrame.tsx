@@ -11,7 +11,7 @@ import { useApp, type View } from '@/lib/store'
 import { KIND_INK } from '@/features/world/kindIcons'
 import { useCodex } from '@/features/codex/codexStore'
 import { AREAS, areaOf, type Area } from '@/layout/areas'
-import { boardLink, chapterLinks, checkLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
+import { boardLink, chapterLinks, checkLinks, mapLinks, planLinks, worldLinks, worldViewLinks, writeLinks, type AreaLink, type LinkContext } from '@/layout/areaLinks'
 import { useLinkContext } from '@/layout/AreaList'
 import { useArrival } from './arrival'
 import { GUTTER, useDeskFrame, useSheetGlide } from './deskFit'
@@ -108,6 +108,8 @@ function RoomLinks({ room, c }: { room: Area; c: LinkContext }): React.JSX.Eleme
           </>
         )
       })()
+    ) : room === 'map' ? (
+      mapLinks(c).map((l) => <SubLink key={l.id} link={l} />)
     ) : room === 'world' ? (
       (() => {
         const [codex, ...kinds] = worldLinks(c)

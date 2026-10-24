@@ -99,6 +99,7 @@ import { storyReply } from './story.mjs'
 import { critiqueReply } from './critique.mjs'
 import { repairReply } from './repair.mjs'
 import { directorReply, stretchProse } from './director.mjs'
+import { COMMANDS_MARKER, commandsReply } from './commands.mjs'
 
 /** How long fake/overthinker thinks, in tokens. */
 const OVERTHINK_TOKENS = 3000
@@ -605,6 +606,8 @@ export async function startFakeProvider(options = {}) {
       memory = broken ? 'Here you go: {"facts": [ {"id": ' : oneReadingReply(system, firstUser, fakeMemoryReply(firstUser))
     } else if (system.includes(SUMMARY_MARKER)) memory = fakeSummary(firstUser)
     else if (system.includes('[AIWRITE-STORY-FLOW')) memory = fakeStoryFlowReply(system, firstUser)
+    // Under suggestion (src/main/commands/read.ts), answered by commands.mjs.
+    else if (system.includes(COMMANDS_MARKER)) memory = commandsReply(firstUser)
     memory ??= fakeBuilderReply(system, messages, model)
     // Plan before writing (src/main/plan/), answered by plan.mjs.
     memory ??= planReply(system, firstUser, messages)

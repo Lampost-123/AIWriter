@@ -71,6 +71,7 @@ import { WorldRoom } from '@/features/desk/world/WorldRoom'
 import { spineShowsIn } from '@/layout/desk/rooms'
 import { StoryHome } from '@/features/desk/home/StoryHome'
 import { StoryBoard } from '@/features/desk/board/StoryBoard'
+import { UnderSuggestion } from '@/features/map/UnderSuggestion'
 import '@/layout/desk/desk.css'
 
 export function App(): React.JSX.Element | null {
@@ -253,6 +254,8 @@ function Pages({ view, desk = false }: { view: View; desk?: boolean }): React.JS
 
       {/* The desk's story board (the Plan room's front page; only ever opened on the desk). */}
       {view.kind === 'board' && <StoryBoard key={view.storyId} storyId={view.storyId} chapterId={view.chapterId} ideasFor={view.ideasFor} />}
+      {/* The Map room (the story map, 2026-10-24): Under suggestion. */}
+      {view.kind === 'suggestions' && <UnderSuggestion key={view.storyId} storyId={view.storyId} sceneId={view.sceneId ?? null} />}
     </>
   )
 }

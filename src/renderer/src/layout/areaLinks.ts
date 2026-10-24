@@ -19,6 +19,7 @@ import {
   SearchCheck,
   Settings2,
   Spool,
+  Waves,
   StickyNote,
   WandSparkles,
   type IconType
@@ -237,6 +238,22 @@ export function checkLinks(c: LinkContext): AreaLink[] {
       disabled: !c.sceneId,
       active: c.issuesShowing,
       run: () => openSceneTab('issues')
+    }
+  ]
+}
+
+/** The Map room (the story map, 2026-10-24): Under suggestion. */
+export function mapLinks(c: LinkContext): AreaLink[] {
+  const storyId = c.storyId
+  return [
+    {
+      id: 'suggestions',
+      label: 'Under suggestion',
+      hint: 'Who is under which suggestion or command, and what it makes them do, wear and feel',
+      icon: Waves,
+      disabled: !storyId,
+      active: is(c.view, 'suggestions'),
+      run: () => storyId && go({ kind: 'suggestions', storyId })
     }
   ]
 }
